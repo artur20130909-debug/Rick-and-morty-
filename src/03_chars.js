@@ -84,6 +84,7 @@ const ONEARM = {
   think: (d, g) => [d.shW / 2 + 4, g.shY + d.arm * .55, 3, g.chinY + 1],
   phone: (d, g) => [d.shW / 2 + 3, g.shY + d.arm * .55, d.shW / 2 - 2, g.shY + d.arm * .25],
   drink: (d, g) => [d.shW / 2 + 4, g.shY + d.arm * .5, 4, g.chinY + 3],
+  gesture: (d, g) => [d.shW / 2 + 6, g.shY + d.arm * .42, d.shW / 2 + 9 + sin(T / 9) * 2.5, g.shY + d.arm * .12 + sin(T / 7) * 2],
 };
 
 function drawChar(id, X, Y, o = {}) {

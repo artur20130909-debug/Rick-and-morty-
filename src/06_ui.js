@@ -132,7 +132,7 @@ function updateMenu() {
   const m = MENU; m.t += f; const items = menuItems(); const d = navDir();
   if (d) { m.i = (m.i + d + items.length) % items.length; sfx('sel'); }
   let sel = -1;
-  if (inp.tap) { items.forEach((s, i) => { const yy = 132 + i * 34; if (inp.tap.y > yy - 20 && inp.tap.y < yy + 10 && inp.tap.x > 180 && inp.tap.x < 460) sel = i; }); if (sel < 0 && (inp.tap.x < 150 || inp.tap.x > 490)) sel = 0; }
+  if (inp.tap) { items.forEach((s, i) => { const yy = 146 + i * 34; if (inp.tap.y > yy - 22 && inp.tap.y < yy + 10 && inp.tap.x > 180 && inp.tap.x < 460) sel = i; }); if (sel < 0 && (inp.tap.x < 150 || inp.tap.x > 490)) sel = 0; }
   if (inp.a && m.t > 5) sel = m.i;
   if (inp.b || inp.menu) { inp.b = inp.menu = 0; MENU = null; sfx('back'); return; }
   if (sel < 0) return; inp.a = 0; inp.tap = null; m.i = sel;

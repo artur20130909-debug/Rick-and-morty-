@@ -7,7 +7,11 @@ const mf = m => 440 * 2 ** ((m - 69) / 12);
 function initAudio() {
   if (AC) { if (AC.state !== 'running') AC.resume(); return; }
   const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
-  AC = new C();
+  AC = new C(); buildGraph();
+  setInterval(schedMusic, 25);
+  if (pendingTrack !== null) { const p = pendingTrack; pendingTrack = null; music(p); }
+}
+function buildGraph() {
   const comp = AC.createDynamicsCompressor();
   comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 3; comp.attack.value = .004; comp.release.value = .2;
   MASTER = AC.createGain(); MASTER.gain.value = .9; MASTER.connect(comp); comp.connect(AC.destination);
@@ -24,12 +28,10 @@ function initAudio() {
   for (let k = 1; k < n; k++) im[k] = 2 / (k * PI) * Math.sin(k * PI * .25);
   PULSE25 = AC.createPeriodicWave(re, im);
   // «старая» шина для боевой музыки — как в оригинальной игре (задержка 0.3с)
-  LEG = AC.createGain(); LEG.gain.value = .55;
+  LEG = AC.createGain(); LEG.gain.value = .8;
   const d = AC.createDelay(), g = AC.createGain(), lp = AC.createBiquadFilter();
   d.delayTime.value = .3; g.gain.value = .3; lp.frequency.value = 2400;
   LEG.connect(MUS); LEG.connect(d); d.connect(lp); lp.connect(g); g.connect(d); g.connect(MUS);
-  setInterval(schedMusic, 25);
-  if (pendingTrack !== null) { const p = pendingTrack; pendingTrack = null; music(p); }
 }
 function setVol() { if (!AC) return; MUS.gain.setTargetAtTime(VOL.mus, AC.currentTime, .05); SFXB.gain.setTargetAtTime(VOL.sfx, AC.currentTime, .05); }
 
@@ -239,6 +241,8 @@ track('space', {
   parts: [{ t: 'arp', i: 'bell', v: .035, every: 2, o: 12 }, { t: 'comp', i: 'pad', v: .04, p: 'pad' }, { t: 'bass', i: 'bass', v: .2, p: 'whole' }],
 });
 
+/* ---------- выравнивание громкости треков (замерено офлайн-рендером, цель ≈ −24 дБ RMS) ---------- */
+const TGAIN = { morning: .63, school: .5, title: .54, town: .54, evening: .72, night: .81, garage: .64, citadel: .59, escape: .45, fridge: .86, space: .6, battle: 1 };
 /* ---------- секвенсор ---------- */
 let CUR = null; const OLD = [];
 function music(name) {
@@ -248,7 +252,7 @@ function music(name) {
   if (CUR) { CUR.bus.gain.cancelScheduledValues(now); CUR.bus.gain.setTargetAtTime(.0001, now, .2); CUR.dead = now + 1.6; OLD.push(CUR); }
   CUR = null; if (!name || !TR[name]) return;
   const def = TR[name], bus = AC.createGain();
-  bus.gain.setValueAtTime(.0001, now); bus.gain.setTargetAtTime(1, now + .05, .25);
+  bus.gain.setValueAtTime(.0001, now); bus.gain.setTargetAtTime(TGAIN[name] || 1, now + .05, .25);
   if (def.legacy) bus.connect(LEG); else { bus.connect(MUS); const s = AC.createGain(); s.gain.value = def.rev || .3; bus.connect(s); s.connect(REV); }
   CUR = { name, def, bus, step: 0, nt: now + .12 };
 }

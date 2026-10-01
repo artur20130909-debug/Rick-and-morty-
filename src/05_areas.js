@@ -514,6 +514,7 @@ function citCrowd(id) {
   if (G.crowd && G.crowd[id]) return G.crowd[id]();
   const L = [];
   if (id === 'cit_dock') { L.push(npc('crick4', 760, 240, { dir: 'l', pose: 'cross', emo: 'angry', talk: [['Рик-охранник', 'Проходи. Президент ждёт. Не задерживайся у окон — ты портишь вид.']] })); L.push(npc('cmorty3', 620, 300, { dir: 'l', talk: [['Морти-охранник', 'Добро пожаловать в Цитадель! Ну... то, что от неё осталось.']] })); }
+  if (id === 'cit_plaza' && G.flags.escape) { for (let i = 0; i < 6; i++) { const r = i % 2 === 0; L.push(npc(r ? 'crick' + (i % 4) : 'cmorty' + (i % 5), 200 + i * 200, 220 + (i * 53) % 120, { dir: 'l', pose: 'up', emo: 'shock', wander: 160, spd: 3, talk: [[r ? 'Рик' : 'Морти', pick(['ВСЕ К ШАТТЛАМ!', 'Это конец! Опять!', 'Где мой портал?! ГДЕ МОЙ ПОРТАЛ?!', 'Я же говорил — не голосуйте за Морти!'])]] })); } return L; }
   if (id === 'cit_plaza') { for (let i = 0; i < 8; i++) { const r = i % 2 === 0, idn = r ? 'crick' + (i / 2 % 4) : 'cmorty' + ((i * 3) % 5 === 3 ? 4 : (i * 3) % 5); L.push(npc(idn, 160 + i * 150, 220 + (i * 37) % 110, { dir: pick(['l', 'r', 'd']), wander: 40, talk: [[r ? 'Рик' : 'Морти', CIT_LINES[r ? 'r' : 'm'][i % 4]]] })); } }
   return L;
 }

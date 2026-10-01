@@ -110,6 +110,7 @@ addEventListener('pointerdown', e => {
   if (touchUI && inBtn(p, BTN_B) && uiWantsMove()) { inp.b = 1; return; }
   if (touchUI && inBtn(p, BTN_A) && uiWantsMove()) { inp.a = 1; return; }
   if (p.x < W * .5 && inp.sid == null && uiWantsMove()) { inp.sid = e.pointerId; inp.so = p; inp.sp = p; inp.jx = inp.jy = 0; return; }
+  if (touchUI && p.x >= W * .5 && typeof S !== 'undefined' && S === 'world' && uiWantsMove()) { inp.a = 1; return; }
   inp.tap = p;
 });
 addEventListener('pointermove', e => {
@@ -171,7 +172,11 @@ const mf = m => 440 * 2 ** ((m - 69) / 12);
 function initAudio() {
   if (AC) { if (AC.state !== 'running') AC.resume(); return; }
   const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
-  AC = new C();
+  AC = new C(); buildGraph();
+  setInterval(schedMusic, 25);
+  if (pendingTrack !== null) { const p = pendingTrack; pendingTrack = null; music(p); }
+}
+function buildGraph() {
   const comp = AC.createDynamicsCompressor();
   comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 3; comp.attack.value = .004; comp.release.value = .2;
   MASTER = AC.createGain(); MASTER.gain.value = .9; MASTER.connect(comp); comp.connect(AC.destination);
@@ -188,12 +193,10 @@ function initAudio() {
   for (let k = 1; k < n; k++) im[k] = 2 / (k * PI) * Math.sin(k * PI * .25);
   PULSE25 = AC.createPeriodicWave(re, im);
   // «старая» шина для боевой музыки — как в оригинальной игре (задержка 0.3с)
-  LEG = AC.createGain(); LEG.gain.value = .55;
+  LEG = AC.createGain(); LEG.gain.value = .8;
   const d = AC.createDelay(), g = AC.createGain(), lp = AC.createBiquadFilter();
   d.delayTime.value = .3; g.gain.value = .3; lp.frequency.value = 2400;
   LEG.connect(MUS); LEG.connect(d); d.connect(lp); lp.connect(g); g.connect(d); g.connect(MUS);
-  setInterval(schedMusic, 25);
-  if (pendingTrack !== null) { const p = pendingTrack; pendingTrack = null; music(p); }
 }
 function setVol() { if (!AC) return; MUS.gain.setTargetAtTime(VOL.mus, AC.currentTime, .05); SFXB.gain.setTargetAtTime(VOL.sfx, AC.currentTime, .05); }
 
@@ -403,6 +406,8 @@ track('space', {
   parts: [{ t: 'arp', i: 'bell', v: .035, every: 2, o: 12 }, { t: 'comp', i: 'pad', v: .04, p: 'pad' }, { t: 'bass', i: 'bass', v: .2, p: 'whole' }],
 });
 
+/* ---------- выравнивание громкости треков (замерено офлайн-рендером, цель ≈ −24 дБ RMS) ---------- */
+const TGAIN = { morning: .63, school: .5, title: .54, town: .54, evening: .72, night: .81, garage: .64, citadel: .59, escape: .45, fridge: .86, space: .6, battle: 1 };
 /* ---------- секвенсор ---------- */
 let CUR = null; const OLD = [];
 function music(name) {
@@ -412,7 +417,7 @@ function music(name) {
   if (CUR) { CUR.bus.gain.cancelScheduledValues(now); CUR.bus.gain.setTargetAtTime(.0001, now, .2); CUR.dead = now + 1.6; OLD.push(CUR); }
   CUR = null; if (!name || !TR[name]) return;
   const def = TR[name], bus = AC.createGain();
-  bus.gain.setValueAtTime(.0001, now); bus.gain.setTargetAtTime(1, now + .05, .25);
+  bus.gain.setValueAtTime(.0001, now); bus.gain.setTargetAtTime(TGAIN[name] || 1, now + .05, .25);
   if (def.legacy) bus.connect(LEG); else { bus.connect(MUS); const s = AC.createGain(); s.gain.value = def.rev || .3; bus.connect(s); s.connect(REV); }
   CUR = { name, def, bus, step: 0, nt: now + .12 };
 }
@@ -582,6 +587,7 @@ const ONEARM = {
   think: (d, g) => [d.shW / 2 + 4, g.shY + d.arm * .55, 3, g.chinY + 1],
   phone: (d, g) => [d.shW / 2 + 3, g.shY + d.arm * .55, d.shW / 2 - 2, g.shY + d.arm * .25],
   drink: (d, g) => [d.shW / 2 + 4, g.shY + d.arm * .5, 4, g.chinY + 3],
+  gesture: (d, g) => [d.shW / 2 + 6, g.shY + d.arm * .42, d.shW / 2 + 9 + sin(T / 9) * 2.5, g.shY + d.arm * .12 + sin(T / 7) * 2],
 };
 
 function drawChar(id, X, Y, o = {}) {
@@ -1291,7 +1297,7 @@ function updateWorld(canMove) {
   if (canMove) {
     const dv = { u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0] }[PL.dir], px = PL.x + dv[0] * 16, py = PL.y + dv[1] * 12;
     let best = 1e9;
-    for (const e of ENTS) { if (e.follow || e.hidden || !e.talk) continue; const dd = hyp(e.x - px, (e.y - py) * 1.4); if (dd < 26 && dd < best) { best = dd; NEAR = { ent: e }; } }
+    for (const e of ENTS) { if (e.follow || e.hidden || !e.talk) continue; const dd = Math.min(hyp(e.x - px, (e.y - py) * 1.4), hyp(e.x - PL.x, (e.y - PL.y) * 1.4) + 6); if (dd < 32 && dd < best) { best = dd; NEAR = { ent: e }; } }
     if (!NEAR) for (const t of AR.things) { if (t.cond && !t.cond()) continue; const r = t.r; if (inRect(px, py, [r[0] - 4, r[1] - 4, r[2] + 8, r[3] + 8]) || inRect(PL.x, PL.y - 4, r)) { NEAR = { thing: t }; break; } }
     if (inp.a && NEAR) { inp.a = 0; interact(NEAR); }
   }
@@ -1347,7 +1353,11 @@ function drawWorld() {
 function entH(e) { const d = CH[e.id]; if (!d) return 60; if (d.draw) return e.id === 'pickle' ? 70 : 72 * OWS; return (d.leg + d.torso + d.neck + d.hh + d.shoeH) * OWS; }
 function drawEnt(e) {
   if (e.draw) return e.draw(e);
-  drawChar(e.id, e.x, e.y + (e.sit ? 0 : 0), { dir: e.dir, mov: e.mov, ph: e.ph, sc: (e.sc || 1) * OWS, pose: e.mov ? null : e.pose, emo: e.emo, talk: SPK && SPK === e.id, sit: e.sit, look: e.look, alpha: e.alpha, col: e.col });
+  // говорящий персонаж показывает эмоцию и позу реплики, а в покое — жестикулирует
+  const ln = DLG && DLG.lines[DLG.i], me = ln && NAME2ID[ln.who] === e.id && (e === PL || !e.follow || e.id !== 'morty');
+  let pose = e.mov ? null : e.pose, emo = e.emo;
+  if (me) { if (ln.emo) emo = ln.emo; if (ln.pose) pose = ln.pose; else if (!e.sit && !e.mov && (!pose || pose === 'idle') && CH[e.id] && !CH[e.id].draw && (CH[e.id].pose === 'idle' || pose === 'idle')) pose = 'gesture'; }
+  drawChar(e.id, e.x, e.y, { dir: e.dir, mov: e.mov, ph: e.ph, sc: (e.sc || 1) * OWS, pose, emo, talk: SPK && SPK === e.id, sit: e.sit, look: e.look, alpha: e.alpha, col: e.col });
 }
 
 /* ===== 05_areas.js ===== */
@@ -1867,6 +1877,7 @@ function citCrowd(id) {
   if (G.crowd && G.crowd[id]) return G.crowd[id]();
   const L = [];
   if (id === 'cit_dock') { L.push(npc('crick4', 760, 240, { dir: 'l', pose: 'cross', emo: 'angry', talk: [['Рик-охранник', 'Проходи. Президент ждёт. Не задерживайся у окон — ты портишь вид.']] })); L.push(npc('cmorty3', 620, 300, { dir: 'l', talk: [['Морти-охранник', 'Добро пожаловать в Цитадель! Ну... то, что от неё осталось.']] })); }
+  if (id === 'cit_plaza' && G.flags.escape) { for (let i = 0; i < 6; i++) { const r = i % 2 === 0; L.push(npc(r ? 'crick' + (i % 4) : 'cmorty' + (i % 5), 200 + i * 200, 220 + (i * 53) % 120, { dir: 'l', pose: 'up', emo: 'shock', wander: 160, spd: 3, talk: [[r ? 'Рик' : 'Морти', pick(['ВСЕ К ШАТТЛАМ!', 'Это конец! Опять!', 'Где мой портал?! ГДЕ МОЙ ПОРТАЛ?!', 'Я же говорил — не голосуйте за Морти!'])]] })); } return L; }
   if (id === 'cit_plaza') { for (let i = 0; i < 8; i++) { const r = i % 2 === 0, idn = r ? 'crick' + (i / 2 % 4) : 'cmorty' + ((i * 3) % 5 === 3 ? 4 : (i * 3) % 5); L.push(npc(idn, 160 + i * 150, 220 + (i * 37) % 110, { dir: pick(['l', 'r', 'd']), wander: 40, talk: [[r ? 'Рик' : 'Морти', CIT_LINES[r ? 'r' : 'm'][i % 4]]] })); } }
   return L;
 }
@@ -2006,7 +2017,7 @@ function updateMenu() {
   const m = MENU; m.t += f; const items = menuItems(); const d = navDir();
   if (d) { m.i = (m.i + d + items.length) % items.length; sfx('sel'); }
   let sel = -1;
-  if (inp.tap) { items.forEach((s, i) => { const yy = 132 + i * 34; if (inp.tap.y > yy - 20 && inp.tap.y < yy + 10 && inp.tap.x > 180 && inp.tap.x < 460) sel = i; }); if (sel < 0 && (inp.tap.x < 150 || inp.tap.x > 490)) sel = 0; }
+  if (inp.tap) { items.forEach((s, i) => { const yy = 146 + i * 34; if (inp.tap.y > yy - 22 && inp.tap.y < yy + 10 && inp.tap.x > 180 && inp.tap.x < 460) sel = i; }); if (sel < 0 && (inp.tap.x < 150 || inp.tap.x > 490)) sel = 0; }
   if (inp.a && m.t > 5) sel = m.i;
   if (inp.b || inp.menu) { inp.b = inp.menu = 0; MENU = null; sfx('back'); return; }
   if (sel < 0) return; inp.a = 0; inp.tap = null; m.i = sel;
@@ -2283,7 +2294,8 @@ function placeMorning(t) {
     P.rick = { area: 'garage', x: 180, y: 200, dir: 'u', pose: 'idle', noFace: 0, talk: rickBusy() };
   } else if (t === 'school_dodge') {
     G.flags.rickAway = 1;
-    P.jerry = { area: 'kitchen', x: 565, y: 206, dir: 'd', sit: 1, talk: cyc([['Джерри', 'Морти! Мама уже ушла на работу. А дед... улетел. Так что я за главного!', 'happy'], ['Морти', 'Пап, ты ешь хлопья вилкой.'], ['Джерри', 'Потому что я за главного, Морти.']], [['Джерри', 'У тебя сегодня физкультура? Помню, я был звездой вышибал. Ну, мишенью. Звёздной мишенью.']]) };
+    G.flags.momNote = 1;
+    P.jerry = { area: 'town', x: 1060, y: 236, dir: 'd', pose: 'hips', talk: cyc([['Джерри', 'Морти?! Что ты тут... А, школа. Точно. А у меня собеседование! В кофейне! На должность... ну... посетителя.', 'happy'], ['Морти', 'Пап, посетителям не платят.'], ['Джерри', 'Пока что, Морти. ПОКА ЧТО.']], [['Джерри', 'У тебя физкультура? Помню, я был звездой вышибал. Ну, мишенью. Звёздной мишенью.']], [['Джерри', 'Иди-иди! Не мешай папе делать карьеру.']]) };
     P.summer = { area: 'schoolhall', x: 520, y: 230, dir: 'd', pose: 'phone', talk: () => [['Саммер', 'Иди уже в спортзал, мишень.']] };
   } else if (t === 'school_slime') {
     P.beth = { area: 'living', x: 420, y: 230, dir: 'd', pose: 'phone', talk: cyc([['Бет', 'Да, доктор... Нет, лошадь не должна светиться... Морти, я на телефоне, милый!', 'shock'], ['Бет', '...Подожди. Это папа принёс вам в школу фарш? Он что-то говорил про «сюрприз»...', 'sad']], [['Бет', 'Беги в школу, солнышко. И не ешь мясной рулет. На всякий случай.']]) };
@@ -2294,7 +2306,7 @@ function placeMorning(t) {
     P.beth = { area: 'kitchen', x: 300, y: 214, dir: 'd', talk: bethMorning(t) };
     P.jerry = { area: 'living', x: 650, y: 210, dir: 'd', sit: 1, talk: jerryMorning() };
     P.summer = { area: 'kitchen', x: 760, y: 250, dir: 'l', pose: 'cross', talk: summerMorning() };
-    P.rick = { area: 'garage', x: 640, y: 240, dir: 'd', talk: () => pickleBriefing() };
+    P.rick = { area: 'garage', x: 480, y: 250, dir: 'd', talk: () => pickleBriefing() };
   } else if (t === 'meeseeks') {
     P.beth = { area: 'kitchen', x: 190, y: 196, dir: 'd', talk: bethMorning(t) };
     P.jerry = { area: 'living', x: 650, y: 210, dir: 'd', sit: 1, talk: jerryMorning() };
@@ -2352,6 +2364,7 @@ async function goSleep() {
 }
 function fridgeLook() {
   if (G.type === 'pickle' && G.flags.pickleQuest && !G.flags.pickleDone) return enterFridge();
+  if (G.flags.momNote && G.time === 'morning') return [N('На холодильнике записка от мамы: «Ушла на смену — лошадь рожает. Папа на собеседовании. Дед улетел. Еда внутри. Целую! P.S. Не открывай банку с надписью ПОРТАЛ»')];
   return [N(pick(['В холодильнике: молоко, яйца и баночка с надписью «НЕ ЕСТЬ. ЭТО ПОРТАЛ». Ты закрываешь дверцу.', 'На полке лежит огурец. Обычный. Ты проверил. Дважды.', 'Холодильник урчит. Ты надеешься, что это мотор.']))];
 }
 function shipLook() { return [N(G.type === 'citadel' && G.flags.toShip ? 'Корабль Рика. Дверца открыта.' : 'Космический корабль Рика. На лобовом стекле записка: «Джерри, это не машина для свиданий».')]; }
@@ -2387,8 +2400,11 @@ async function normalWake(t) {
 }
 async function finishEvent(msg) {
   G.flags.eventDone = 1; G.done[G.type] = (G.done[G.type] || 0) + 1;
+  const school = AR && ['schoolhall', 'classroom', 'cafeteria', 'gym'].includes(AR.id);
+  if (school && msg) await fadeOut(24);
   G.time = 'evening'; playAreaMusic();
   placeEvening(); syncEnts();
+  if (school) { ENTS = ENTS.filter(e => e.key || e.follow); PL.sit = 0; if (msg) await fadeIn(24); }
   if (msg) await say([N(msg)]);
   objective('Вернись домой');
 }
@@ -2649,7 +2665,7 @@ async function spaceFlight(back) {
     S = 'world'; SCENE = null; G.flags = Object.assign(G.flags, { escape: 0, shipDocked: 0, shipGone: 0, goldPortal: 0, garageOpen: 0, shipFly: 0, shipLift: 0, shipCrew: null });
     DEBRIS.length = 0; leaveParty('rick'); PL.hidden = 0;
     await finishEvent();
-    enterArea('garage', 600, 300, 'l'); G.flags.homeEve = 1; await fadeIn(30);
+    enterArea('garage', 540, 318, 'l'); G.flags.homeEve = 1; await fadeIn(30);
     objective('Поужинай с семьёй или иди спать');
   }
 }

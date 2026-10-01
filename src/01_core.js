@@ -96,6 +96,7 @@ addEventListener('pointerdown', e => {
   if (touchUI && inBtn(p, BTN_B) && uiWantsMove()) { inp.b = 1; return; }
   if (touchUI && inBtn(p, BTN_A) && uiWantsMove()) { inp.a = 1; return; }
   if (p.x < W * .5 && inp.sid == null && uiWantsMove()) { inp.sid = e.pointerId; inp.so = p; inp.sp = p; inp.jx = inp.jy = 0; return; }
+  if (touchUI && p.x >= W * .5 && typeof S !== 'undefined' && S === 'world' && uiWantsMove()) { inp.a = 1; return; }
   inp.tap = p;
 });
 addEventListener('pointermove', e => {

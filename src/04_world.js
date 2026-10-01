@@ -206,7 +206,7 @@ function updateWorld(canMove) {
   if (canMove) {
     const dv = { u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0] }[PL.dir], px = PL.x + dv[0] * 16, py = PL.y + dv[1] * 12;
     let best = 1e9;
-    for (const e of ENTS) { if (e.follow || e.hidden || !e.talk) continue; const dd = hyp(e.x - px, (e.y - py) * 1.4); if (dd < 26 && dd < best) { best = dd; NEAR = { ent: e }; } }
+    for (const e of ENTS) { if (e.follow || e.hidden || !e.talk) continue; const dd = Math.min(hyp(e.x - px, (e.y - py) * 1.4), hyp(e.x - PL.x, (e.y - PL.y) * 1.4) + 6); if (dd < 32 && dd < best) { best = dd; NEAR = { ent: e }; } }
     if (!NEAR) for (const t of AR.things) { if (t.cond && !t.cond()) continue; const r = t.r; if (inRect(px, py, [r[0] - 4, r[1] - 4, r[2] + 8, r[3] + 8]) || inRect(PL.x, PL.y - 4, r)) { NEAR = { thing: t }; break; } }
     if (inp.a && NEAR) { inp.a = 0; interact(NEAR); }
   }
@@ -262,5 +262,9 @@ function drawWorld() {
 function entH(e) { const d = CH[e.id]; if (!d) return 60; if (d.draw) return e.id === 'pickle' ? 70 : 72 * OWS; return (d.leg + d.torso + d.neck + d.hh + d.shoeH) * OWS; }
 function drawEnt(e) {
   if (e.draw) return e.draw(e);
-  drawChar(e.id, e.x, e.y + (e.sit ? 0 : 0), { dir: e.dir, mov: e.mov, ph: e.ph, sc: (e.sc || 1) * OWS, pose: e.mov ? null : e.pose, emo: e.emo, talk: SPK && SPK === e.id, sit: e.sit, look: e.look, alpha: e.alpha, col: e.col });
+  // говорящий персонаж показывает эмоцию и позу реплики, а в покое — жестикулирует
+  const ln = DLG && DLG.lines[DLG.i], me = ln && NAME2ID[ln.who] === e.id && (e === PL || !e.follow || e.id !== 'morty');
+  let pose = e.mov ? null : e.pose, emo = e.emo;
+  if (me) { if (ln.emo) emo = ln.emo; if (ln.pose) pose = ln.pose; else if (!e.sit && !e.mov && (!pose || pose === 'idle') && CH[e.id] && !CH[e.id].draw && (CH[e.id].pose === 'idle' || pose === 'idle')) pose = 'gesture'; }
+  drawChar(e.id, e.x, e.y, { dir: e.dir, mov: e.mov, ph: e.ph, sc: (e.sc || 1) * OWS, pose, emo, talk: SPK && SPK === e.id, sit: e.sit, look: e.look, alpha: e.alpha, col: e.col });
 }

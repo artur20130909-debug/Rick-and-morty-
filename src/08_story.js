@@ -66,7 +66,8 @@ function placeMorning(t) {
     P.rick = { area: 'garage', x: 180, y: 200, dir: 'u', pose: 'idle', noFace: 0, talk: rickBusy() };
   } else if (t === 'school_dodge') {
     G.flags.rickAway = 1;
-    P.jerry = { area: 'kitchen', x: 565, y: 206, dir: 'd', sit: 1, talk: cyc([['Джерри', 'Морти! Мама уже ушла на работу. А дед... улетел. Так что я за главного!', 'happy'], ['Морти', 'Пап, ты ешь хлопья вилкой.'], ['Джерри', 'Потому что я за главного, Морти.']], [['Джерри', 'У тебя сегодня физкультура? Помню, я был звездой вышибал. Ну, мишенью. Звёздной мишенью.']]) };
+    G.flags.momNote = 1;
+    P.jerry = { area: 'town', x: 1060, y: 236, dir: 'd', pose: 'hips', talk: cyc([['Джерри', 'Морти?! Что ты тут... А, школа. Точно. А у меня собеседование! В кофейне! На должность... ну... посетителя.', 'happy'], ['Морти', 'Пап, посетителям не платят.'], ['Джерри', 'Пока что, Морти. ПОКА ЧТО.']], [['Джерри', 'У тебя физкультура? Помню, я был звездой вышибал. Ну, мишенью. Звёздной мишенью.']], [['Джерри', 'Иди-иди! Не мешай папе делать карьеру.']]) };
     P.summer = { area: 'schoolhall', x: 520, y: 230, dir: 'd', pose: 'phone', talk: () => [['Саммер', 'Иди уже в спортзал, мишень.']] };
   } else if (t === 'school_slime') {
     P.beth = { area: 'living', x: 420, y: 230, dir: 'd', pose: 'phone', talk: cyc([['Бет', 'Да, доктор... Нет, лошадь не должна светиться... Морти, я на телефоне, милый!', 'shock'], ['Бет', '...Подожди. Это папа принёс вам в школу фарш? Он что-то говорил про «сюрприз»...', 'sad']], [['Бет', 'Беги в школу, солнышко. И не ешь мясной рулет. На всякий случай.']]) };
@@ -77,7 +78,7 @@ function placeMorning(t) {
     P.beth = { area: 'kitchen', x: 300, y: 214, dir: 'd', talk: bethMorning(t) };
     P.jerry = { area: 'living', x: 650, y: 210, dir: 'd', sit: 1, talk: jerryMorning() };
     P.summer = { area: 'kitchen', x: 760, y: 250, dir: 'l', pose: 'cross', talk: summerMorning() };
-    P.rick = { area: 'garage', x: 640, y: 240, dir: 'd', talk: () => pickleBriefing() };
+    P.rick = { area: 'garage', x: 480, y: 250, dir: 'd', talk: () => pickleBriefing() };
   } else if (t === 'meeseeks') {
     P.beth = { area: 'kitchen', x: 190, y: 196, dir: 'd', talk: bethMorning(t) };
     P.jerry = { area: 'living', x: 650, y: 210, dir: 'd', sit: 1, talk: jerryMorning() };
@@ -135,6 +136,7 @@ async function goSleep() {
 }
 function fridgeLook() {
   if (G.type === 'pickle' && G.flags.pickleQuest && !G.flags.pickleDone) return enterFridge();
+  if (G.flags.momNote && G.time === 'morning') return [N('На холодильнике записка от мамы: «Ушла на смену — лошадь рожает. Папа на собеседовании. Дед улетел. Еда внутри. Целую! P.S. Не открывай банку с надписью ПОРТАЛ»')];
   return [N(pick(['В холодильнике: молоко, яйца и баночка с надписью «НЕ ЕСТЬ. ЭТО ПОРТАЛ». Ты закрываешь дверцу.', 'На полке лежит огурец. Обычный. Ты проверил. Дважды.', 'Холодильник урчит. Ты надеешься, что это мотор.']))];
 }
 function shipLook() { return [N(G.type === 'citadel' && G.flags.toShip ? 'Корабль Рика. Дверца открыта.' : 'Космический корабль Рика. На лобовом стекле записка: «Джерри, это не машина для свиданий».')]; }
@@ -170,8 +172,11 @@ async function normalWake(t) {
 }
 async function finishEvent(msg) {
   G.flags.eventDone = 1; G.done[G.type] = (G.done[G.type] || 0) + 1;
+  const school = AR && ['schoolhall', 'classroom', 'cafeteria', 'gym'].includes(AR.id);
+  if (school && msg) await fadeOut(24);
   G.time = 'evening'; playAreaMusic();
   placeEvening(); syncEnts();
+  if (school) { ENTS = ENTS.filter(e => e.key || e.follow); PL.sit = 0; if (msg) await fadeIn(24); }
   if (msg) await say([N(msg)]);
   objective('Вернись домой');
 }
@@ -432,7 +437,7 @@ async function spaceFlight(back) {
     S = 'world'; SCENE = null; G.flags = Object.assign(G.flags, { escape: 0, shipDocked: 0, shipGone: 0, goldPortal: 0, garageOpen: 0, shipFly: 0, shipLift: 0, shipCrew: null });
     DEBRIS.length = 0; leaveParty('rick'); PL.hidden = 0;
     await finishEvent();
-    enterArea('garage', 600, 300, 'l'); G.flags.homeEve = 1; await fadeIn(30);
+    enterArea('garage', 540, 318, 'l'); G.flags.homeEve = 1; await fadeIn(30);
     objective('Поужинай с семьёй или иди спать');
   }
 }
