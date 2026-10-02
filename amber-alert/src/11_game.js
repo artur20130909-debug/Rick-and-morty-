@@ -49,14 +49,14 @@ const GAME = {
 
   /* ======== запуск сессии ======== */
   begin(role, transport, localDefs) {
-    NET.start(role, transport); this.players = {}; this.remotes = {}; this.st = { scene: 'lobby', booth: { map: 'house1990', diff: 'normal', cd: -1 } };
+    NET.start(role, transport); this.players = {}; this.remotes = {}; this.st = { scene: 'lobby', booth: { map: 'house1990', diff: 'normal', cd: -1, idx: -1 } };
     LOCALS.length = 0;
     localDefs.forEach((d, i) => { const lp = new LocalPlayer(i, d.src, { id: d.id, name: d.prof.name, look: d.prof.look }); lp.prof = d.prof; lp.profKey = d.profKey; LOCALS.push(lp); });
     if (this.isHost()) { this.setScene('lobby'); }
     for (const lp of LOCALS) NET.toHost({ t: 'hello', pid: lp.id, name: lp.name, look: lp.look, cls: lp.prof.cls, lvl: levelOf(lp.prof.xp) });
     UI.show('play');
   },
-  leave() { NET.stop(); for (const id in this.remotes) this.remotes[id].dispose(); this.remotes = {}; for (const lp of LOCALS) R.scene.remove(lp.avatar.root); LOCALS.length = 0; INM.forEach(m => m.dispose()); INM.length = 0; AU.hush(); this.scene = 'menu'; buildLobby(); this.scene = 'menu'; UI.show('menu'); AU.ambient('lobby'); },
+  leave() { NET.stop(); for (const id in this.remotes) this.remotes[id].dispose(); this.remotes = {}; for (const lp of LOCALS) R.scene.remove(lp.avatar.root); LOCALS.length = 0; INM.forEach(m => m.dispose()); INM.length = 0; AU.hush(); this.scene = 'menu'; buildLobby(); UI.clearZones(); UI.closeEAS(); UI.closeModal(); UI.show('menu'); AU.ambient('lobby'); },
   peerJoined(peer) { },
   peerLeft(peer) { for (const id in this.players) if (this.players[id].peer === peer) { const nm = this.players[id].name; delete this.players[id]; this.toastAll(nm + ' вышел'); } this.pinfoDirty = true; },
   lostHost() { UI.toast('Связь с хостом потеряна'); setTimeout(() => this.leave(), 1500); },
@@ -98,11 +98,11 @@ const GAME = {
       case 'welcome': {
         const lp = LOCALS.find(l => l.id === m.pid); if (!lp) return;
         if (!this.isHost()) { this.st = m.st; this.applyScene(m.st, m.ws); m.inm.forEach(([id, type]) => this.spawnInmateLocal(id, type)); }
-        lp.setPose(m.spawn[0], m.spawn[1], m.spawn[2], PI); this.applyPlayers(m.players); break; }
+        lp.setPose(m.spawn[0], m.spawn[1], m.spawn[2], 0); this.applyPlayers(m.players); break; }
       case 'players': this.applyPlayers(m.list); break;
       case 'snap': this.applySnap(m); break;
       case 'ws': for (const id in m.d) wsApply(id, m.d[id]); break;
-      case 'scene': if (!this.isHost()) { this.st = m.st; this.applyScene(m.st, m.ws); } for (const lp of LOCALS) { const sp = m.spawns && m.spawns[lp.id]; if (sp) lp.setPose(sp[0], sp[1], sp[2], sp[3] || PI); lp.alive = true; lp.hidden = null; lp.spectate = null; } UI.sceneChanged(m.st.scene); break;
+      case 'scene': if (!this.isHost()) { this.st = m.st; this.applyScene(m.st, m.ws); } for (const lp of LOCALS) { const sp = m.spawns && m.spawns[lp.id]; if (sp) lp.setPose(sp[0], sp[1], sp[2], sp[3] || 0); lp.alive = true; lp.hidden = null; lp.spectate = null; } UI.sceneChanged(m.st.scene); break;
       case 'alert': UI.alert(m); break;
       case 'phase': if (!this.isHost()) Object.assign(this.st, m.st); UI.phase(m); this.onPhaseLocal(m); break;
       case 'fx': this.fxLocal(m); break;
@@ -145,11 +145,11 @@ const GAME = {
   /* ======== смена сцены (хост) ======== */
   setScene(scene, opt = {}) {
     const st = this.st; INM.forEach(m => m.dispose()); INM.length = 0;
-    if (scene === 'lobby') { Object.assign(st, { scene: 'lobby', phase: null, booth: Object.assign(st.booth || {}, { cd: -1 }), clock: 0 }); }
+    if (scene === 'lobby') { Object.assign(st, { scene: 'lobby', phase: null, booth: Object.assign(st.booth || {}, { cd: -1, idx: -1, counts: [] }), clock: 0 }); }
     else { const d = DIFFS[opt.diff]; Object.assign(st, { scene: 'house', map: opt.map, diff: opt.diff, phase: 'day', clock: 7, night: 1, nights: d.nights, votes: 0, alertT: 0, inmate: null, killed: 0, seed: (Math.random() * 1e9) | 0, used: [] }); }
     this.applyScene(st, null);
     const spawns = {}; let i = 0;
-    for (const id in this.players) { const p = this.players[id], sp = this.spawnPoint(i++); p.alive = true; p.hp = 100; p.pose = Object.assign(p.pose, { x: sp.x, y: sp.y, z: sp.z, hid: 0 }); spawns[id] = [sp.x, sp.y, sp.z, scene === 'lobby' ? PI : PI]; if (scene === 'house') { p.money = 0; p.apples = 0; p.items = []; this.giveStart(p); } }
+    for (const id in this.players) { const p = this.players[id], sp = this.spawnPoint(i++); p.alive = true; p.hp = 100; p.pose = Object.assign(p.pose, { x: sp.x, y: sp.y, z: sp.z, hid: 0 }); spawns[id] = [sp.x, sp.y, sp.z, 0]; if (scene === 'house') { p.money = 0; p.apples = 0; p.items = []; this.giveStart(p); } }
     NET.toAll({ t: 'scene', st, ws: WS, spawns }, false);
     this.clientMsg({ t: 'scene', st, spawns });
     this.pinfoDirty = true;
@@ -182,9 +182,15 @@ const GAME = {
   /* ======== лобби: кабинки запуска ======== */
   tickLobby(dt) {
     const b = this.st.booth, ids = Object.keys(this.players); if (!ids.length) return;
-    const inBooth = ids.filter(id => { const p = this.players[id].pose; return LOBBY.booth && Math.abs(p.x - LOBBY.booth.x) < LOBBY.booth.w / 2 && Math.abs(p.z - LOBBY.booth.z) < LOBBY.booth.d / 2; });
-    b.inside = inBooth.length; b.total = ids.length;
-    if (inBooth.length === ids.length) { if (b.cd < 0) { b.cd = QS.get('fast') ? 2 : 10; this.fxAll('ui2', null); } b.cd -= dt; if (b.cd <= 0) { b.cd = -1; this.startMatch(b.map, b.diff); } }
+    const counts = LOBBY.booths.map(() => 0), where = {};
+    for (const id of ids) { const p = this.players[id].pose; for (const bo of LOBBY.booths) if (Math.abs(p.x - bo.x) < bo.w / 2 && Math.abs(p.z - bo.z) < bo.d / 2 && p.y < 1) { counts[bo.i]++; where[id] = bo.i; } }
+    // кабинка, в которой больше всего игроков (при равенстве — та, где уже идёт отсчёт)
+    let idx = -1; counts.forEach((c, i) => { if (c && (idx < 0 || c > counts[idx] || (c === counts[idx] && i === b.idx))) idx = i; });
+    b.counts = counts; b.total = ids.length; b.inside = idx >= 0 ? counts[idx] : 0;
+    if (idx !== b.idx) { b.idx = idx; b.cd = -1; }
+    if (idx < 0) { b.cd = -1; return; }
+    const bo = LOBBY.booths[idx]; b.map = bo.map; b.diff = bo.diff;
+    if (counts[idx] === ids.length) { if (b.cd < 0) { b.cd = QS.get('fast') ? 2 : 10; this.fxAll('ui2', null); } b.cd -= dt; if (b.cd <= 0) { b.cd = -1; b.idx = -1; this.startMatch(bo.map, bo.diff); } }
     else b.cd = -1;
   },
   startMatch(map, diff) { this.fxAll('sting', null); this.setScene('house', { map, diff }); },
@@ -238,8 +244,10 @@ const GAME = {
   /* ---- оповещение ---- */
   chooseInmate() {
     const st = this.st, D = DIFFS[st.diff], tier = Math.min(3, D.tier + (st.night > 4 ? 1 : 0));
-    let pool = INMATES.list.filter(t => t.difficulty <= tier && !t.lobbyOnly && !st.used.includes(t.key));
-    if (!pool.length) { st.used = []; pool = INMATES.list.filter(t => t.difficulty <= tier && !t.lobbyOnly); }
+    const n = Object.keys(this.players).length, ok = t => t.difficulty <= tier && !t.lobbyOnly && (t.minNight || 1) <= st.night && (!t.coopOnly || n > 1);
+    let pool = INMATES.list.filter(t => ok(t) && !st.used.includes(t.key));
+    if (!pool.length) { st.used = st.used.slice(-1); pool = INMATES.list.filter(t => ok(t) && !st.used.includes(t.key)); }
+    if (!pool.length) pool = INMATES.list.filter(ok);
     const forced = QS.get('inmate'); const T = forced && INMATES.types[forced] ? INMATES.types[forced] : pick(pool);
     st.used.push(T.key); return T;
   },
@@ -255,7 +263,7 @@ const GAME = {
     // вышедшие из шкафов
     for (const h of WORLD.hides) if (WS[h.id].by) { const pid = WS[h.id].by; wsSet(h.id, { by: '' }); const P = this.players[pid]; if (P) P.pose.hid = 0; this.sendTo(pid, { t: 'hidden', pid, id: 0 }); }
     if (!WS.TV.on) wsSet('TV', { on: 1 });
-    NET.toAll({ t: 'phase', ph: 'alert', st: { phase: 'alert', inmate: st.inmate }, spawns, lines, dur: ALERT_LEN, night: st.night });
+    NET.toAll({ t: 'phase', ph: 'alert', st: { phase: 'alert', inmate: st.inmate, unknown: st.unknown, alertLines: lines }, spawns, lines, dur: ALERT_LEN, night: st.night });
   },
   startNight() {
     const st = this.st, D = DIFFS[st.diff]; st.phase = 'night'; st.nightT = 0;

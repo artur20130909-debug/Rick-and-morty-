@@ -162,10 +162,11 @@ function drawEAS(c, lines, t, o = {}) {
   g.fillStyle = o.bg || '#06070c'; g.fillRect(0, 0, W, H);
   g.fillStyle = '#c4121a'; g.fillRect(0, 0, W, H * .2); g.fillStyle = '#fff'; g.font = `900 ${H * .1 | 0}px Arial Black, Arial`; g.textAlign = 'center'; g.fillText(lines[0], W / 2, H * .14);
   g.font = `700 ${H * .062 | 0}px Consolas, monospace`; g.textAlign = 'left';
-  const body = lines.slice(1).join('   ★   '), cw = g.measureText('M').width, chars = Math.floor((W - 30) / cw), rows = [];
-  for (let i = 0; i < body.length; i += chars) rows.push(body.slice(i, i + chars));
+  const body = lines.slice(1).join('  ★  '), maxW = W - 30, rows = []; let cur = '';
+  for (const w of body.split(' ')) { const nx = cur ? cur + ' ' + w : w; if (g.measureText(nx).width > maxW && cur) { rows.push(cur); cur = w; } else cur = nx; }
+  if (cur) rows.push(cur);
   const off = Math.floor(t * 1.2) % Math.max(1, rows.length);
-  for (let i = 0; i < 5; i++) { const r = rows[(off + i) % rows.length]; if (r) { g.fillStyle = '#f2f2f2'; g.fillText(r, 15, H * .32 + i * H * .1); } }
+  for (let i = 0; i < Math.min(5, rows.length); i++) { const r = rows[(rows.length > 5 ? off + i : i) % rows.length]; if (r) { g.fillStyle = '#f2f2f2'; g.fillText(r, 15, H * .32 + i * H * .1); } }
   g.fillStyle = '#ffb000'; g.fillRect(0, H * .86, W, H * .14); g.fillStyle = '#000'; g.font = `900 ${H * .07 | 0}px Arial`; g.textAlign = 'center'; g.fillText(o.foot || 'AMBER ALERT  •  BLACK RIDGE ASYLUM', W / 2, H * .955);
   for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(255,255,255,${Math.random() * .08})`; g.fillRect(0, Math.random() * H, W, 1 + Math.random() * 2); }
 }

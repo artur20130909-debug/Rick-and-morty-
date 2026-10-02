@@ -22,7 +22,7 @@ class LocalPlayer {
     let mx = s.mx, my = s.my; const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; }
     const moving = m > .08 && !this.frozen;
     const running = moving && s.held.run && this.stamina > .05 && !crouching;
-    this.stamina = clamp(this.stamina + (running ? -.16 : .11) * dt, 0, 1);
+    this.stamina = clamp(this.stamina + (running ? -.16 / (this.prof && this.prof.cls === 'runner' ? 1.6 : 1) : .11) * dt, 0, 1);
     const sp = (crouching ? CROUCH : running ? RUN : WALK) * (moving ? 1 : 0);
     const sy = Math.sin(b.yaw), cy = Math.cos(b.yaw);
     const wx = (mx * cy + my * sy) * sp, wz = (-mx * sy + my * cy) * sp;
@@ -41,7 +41,7 @@ class LocalPlayer {
     this.cam.rotation.set(b.pitch, b.yaw, -this.lean * .12);
     if (this.shake > 0) { this.cam.position.x += (Math.random() - .5) * this.shake * .1; this.cam.position.y += (Math.random() - .5) * this.shake * .1; this.shake = Math.max(0, this.shake - dt * 3); }
     if (s.press.light) this.toggleLight();
-    if (this.light) { this.battery = Math.max(0, this.battery - dt / 420); if (this.battery <= 0) this.light = false; }
+    if (this.light) { this.battery = Math.max(0, this.battery - dt / (this.prof && this.prof.cls === 'electric' ? 840 : 420)); if (this.battery <= 0) this.light = false; }
     return s;
   }
   toggleLight() { if (this.battery <= 0) { AU.play('click'); return; } this.light = !this.light; AU.play('click'); }

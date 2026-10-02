@@ -14,6 +14,7 @@ const AU = {
     this.rev.buffer = ir; const rg = c.createGain(); rg.gain.value = .25; this.rev.connect(rg); rg.connect(this.master);
     this.noise = c.createBuffer(1, c.sampleRate * 2, c.sampleRate); const nd = this.noise.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
     this.listener = c.listener;
+    if (this.pendingAmb !== undefined) { const k = this.pendingAmb; this.pendingAmb = undefined; this.ambKind = null; this.ambient(k); }
   },
   t() { return this.ctx ? this.ctx.currentTime : 0; },
   setVol(v) { SETTINGS.volume = v; if (this.master) this.master.gain.setTargetAtTime(v, this.t(), .05); },

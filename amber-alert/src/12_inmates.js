@@ -9,6 +9,10 @@
 //  anim(m, dt): анимация модели у всех (по умолчанию шаги/покачивание), m.a — номер анимации из снимка
 //  sound: функция (m) => звуковые подсказки (у всех клиентов, раз в кадр, по желанию)
 //  difficulty: 1..3 (с какой сложности появляется), canHear (слышит шаги), lightFreeze...
+//  minNight: с какой ночи может выпасть (по умолчанию 1); coopOnly: только если игроков ≥ 2
+//  init(m): у ВСЕХ клиентов при создании экземпляра (свои меши/интерактивы для этого заключённого)
+//  cleanup(m): у ВСЕХ клиентов при удалении (убрать то, что создал init/anim)
+//  Общее состояние для клиентов — через wsSet('<KEY>_...', {...}) на хосте и чтение WS[...] в anim/sound.
 const INMATES = {
   types: {}, list: [],
   def(t) { t.speed = t.speed || 2.6; t.chase = t.chase || 4.6; t.hp = t.hp || 200; t.difficulty = t.difficulty || 1; this.types[t.key] = t; this.list.push(t); return t; },
@@ -42,8 +46,9 @@ class Inmate {
     this.id = id; this.type = type; this.T = INMATES.types[type]; this.p = new V3(0, -60, 0); this.yaw = 0; this.a = 0; this.hp = this.T.hp; this.maxHp = this.T.hp;
     this.model = this.T.model(); this.model.traverse(o => { if (o.isMesh) o.userData.inmate = this; }); R.scene.add(this.model);
     this.walkT = 0; this.state = 'enter'; this.path = []; this.target = null; this.stun = 0; this.t = 0; this.tp = new V3().copy(this.p); this.speedNow = 0; this.mem = {}; this.gone = false;
+    if (this.T.init) try { this.T.init(this); } catch (e) { console.error(e); }
   }
-  dispose() { R.scene.remove(this.model); this.gone = true; }
+  dispose() { R.scene.remove(this.model); this.gone = true; if (this.T.cleanup) try { this.T.cleanup(this); } catch (e) { console.error(e); } }
   // ---- навигация (хост) ----
   nodeNear(p) { const N = WORLD.nav; let best = null, bd = 1e9; for (const k in N) { const n = N[k]; const d = n.p.distanceTo(p) + Math.abs(n.p.y - p.y) * 3; if (d < bd && (bd > 2 || WORLD.coll.los({ x: p.x, y: p.y + 1, z: p.z }, { x: n.p.x, y: n.p.y + 1, z: n.p.z }, b => !b.door))) { bd = d; best = k; } } return best; }
   route(toNode) {
