@@ -69,7 +69,7 @@ const GAME = {
       case 'hello': {
         const sp = this.spawnPoint(Object.keys(this.players).length);
         this.players[m.pid] = { id: m.pid, peer, name: String(m.name || 'Игрок').slice(0, 16), look: m.look, cls: m.cls || 'novice', lvl: m.lvl | 0, alive: true, hp: 100, money: 0, apples: 0, items: [], pose: { x: sp.x, y: sp.y, z: sp.z, yaw: 0, pitch: 0, sp: 0, cr: 0, l: 0, hid: 0, n: 0 }, votes: 0 };
-        if (this.st.scene === 'house') this.giveStart(this.players[m.pid]);
+        if (this.st.scene === 'house') { this.giveStart(this.players[m.pid]); if (this.st.phase === 'night') { this.players[m.pid].alive = false; this.players[m.pid].hp = 0; } } // вошёл посреди ночи — наблюдает до рассвета
         NET.toPeer(peer, { t: 'welcome', pid: m.pid, st: this.st, ws: WS, players: this.pinfoList(), spawn: [sp.x, sp.y, sp.z], inm: INM.map(i => [i.id, i.type]) });
         this.pinfoDirty = true; if (peer) this.toastAll(this.players[m.pid].name + ' присоединился');
         break; }
@@ -89,7 +89,7 @@ const GAME = {
   },
   hostPid() { return LOCALS[0] ? LOCALS[0].id : null; },
   spawnPoint(i) { const s = WORLD.spawn; return s.length ? s[i % s.length].clone() : new V3(0, 0, 0); },
-  pinfoList() { return Object.values(this.players).map(p => ({ id: p.id, name: p.name, look: p.look, cls: p.cls, lvl: p.lvl, alive: p.alive, hp: p.hp, money: p.money, apples: p.apples, items: p.items })); },
+  pinfoList() { return Object.values(this.players).map(p => ({ id: p.id, name: p.name, look: p.look, cls: p.cls, lvl: p.lvl, alive: p.alive, hp: p.hp, money: p.money, apples: p.apples, items: p.items, stat: Math.round(p.static || 0) })); },
   alivePlayers() { return Object.values(this.players).filter(p => p.alive).map(p => Object.assign({ id: p.id }, p.pose)); },
 
   /* ======== сообщения: у клиента (и у хоста как «зрителя») ======== */
@@ -123,7 +123,8 @@ const GAME = {
       let r = this.remotes[p.id]; if (!r) r = this.remotes[p.id] = new RemotePlayer(p);
       r.alive = p.alive; r.info = p; if (JSON.stringify(r.look) !== JSON.stringify(p.look)) { r.look = p.look; r.avatar.setLook(p.look); }
       if (r.name !== p.name) { r.name = p.name; }
-      r.avatar.setName((p.lvl ? '[' + p.lvl + '] ' : '') + p.name, p.alive ? '#fff' : '#f55');
+      const tag = '[Lv ' + (p.lvl | 0) + ' · ' + rankOf(p.lvl | 0).toUpperCase() + '] ' + p.name, col = p.alive ? '#fff' : '#f55';
+      if (r.tagKey !== tag + col) { r.tagKey = tag + col; r.avatar.setName(tag, col); }
     }
     for (const id in this.remotes) if (!list.find(p => p.id === id)) { this.remotes[id].dispose(); delete this.remotes[id]; }
     this.plist = list; UI.players(list);
@@ -149,7 +150,7 @@ const GAME = {
     else { const d = DIFFS[opt.diff]; Object.assign(st, { scene: 'house', map: opt.map, diff: opt.diff, phase: 'day', clock: 7, night: 1, nights: d.nights, votes: 0, alertT: 0, inmate: null, killed: 0, seed: (Math.random() * 1e9) | 0, used: [] }); }
     this.applyScene(st, null);
     const spawns = {}; let i = 0;
-    for (const id in this.players) { const p = this.players[id], sp = this.spawnPoint(i++); p.alive = true; p.hp = 100; p.pose = Object.assign(p.pose, { x: sp.x, y: sp.y, z: sp.z, hid: 0 }); spawns[id] = [sp.x, sp.y, sp.z, 0]; if (scene === 'house') { p.money = 0; p.apples = 0; p.items = []; this.giveStart(p); } }
+    for (const id in this.players) { const p = this.players[id], sp = this.spawnPoint(i++); p.alive = true; p.hp = 100; p.pose = Object.assign(p.pose, { x: sp.x, y: sp.y, z: sp.z, hid: 0 }); spawns[id] = [sp.x, sp.y, sp.z, 0]; p.static = 0; if (scene === 'house') { p.money = 0; p.apples = 0; p.items = []; this.giveStart(p); } }
     NET.toAll({ t: 'scene', st, ws: WS, spawns }, false);
     this.clientMsg({ t: 'scene', st, spawns });
     this.pinfoDirty = true;
@@ -164,6 +165,8 @@ const GAME = {
     const st = this.st;
     // позы своих локальных игроков
     for (const lp of LOCALS) { const P = this.players[lp.id]; if (P) P.pose = lp.pose(); }
+    // у хоста аватары клиентов двигаются по их присланным позам (снимки он сам себе не шлёт)
+    for (const id in this.remotes) { const P = this.players[id]; if (P && P.pose) this.remotes[id].setPose(P.pose); }
     if (st.scene === 'lobby') this.tickLobby(dt); else if (st.scene === 'house') this.tickMatch(dt);
     // рассылка
     this.sendT += dt;
@@ -171,7 +174,7 @@ const GAME = {
       this.sendT = 0;
       const ps = Object.values(this.players).map(p => [p.id, p.pose.x, p.pose.y, p.pose.z, p.pose.yaw, p.pose.pitch, p.pose.sp, p.pose.cr, p.pose.l, p.pose.hid]);
       const en = INM.map(m => [m.id, m.type, +m.p.x.toFixed(2), +m.p.y.toFixed(2), +m.p.z.toFixed(2), +m.yaw.toFixed(2), m.a, Math.max(0, Math.round(m.hp)), m.vis === 0 ? 0 : 1]);
-      const sst = { scene: st.scene, phase: st.phase, clock: +(st.clock || 0).toFixed(3), night: st.night, nights: st.nights, votes: st.votes, booth: st.booth, map: st.map, diff: st.diff, inmate: st.inmate };
+      const sst = { scene: st.scene, phase: st.phase, clock: +(st.clock || 0).toFixed(3), night: st.night, nights: st.nights, votes: st.votes, booth: st.booth, map: st.map, diff: st.diff, inmate: st.inmate, directive: st.directive };
       if (NET.t) NET.t.broadcast({ t: 'snap', st: sst, ps, en });
       if (this.wsQueue.size) { const d = {}; for (const id of this.wsQueue) d[id] = WS[id]; this.wsQueue.clear(); if (NET.t) NET.t.broadcast({ t: 'ws', d }); }
       if (this.pinfoDirty) { this.pinfoDirty = false; NET.toAll({ t: 'players', list: this.pinfoList() }); }
@@ -207,7 +210,8 @@ const GAME = {
       if (st.alertT > ALERT_LEN || (st.votes >= Math.ceil(alive / 2) && st.alertT > 4)) this.startNight();
     } else if (st.phase === 'night') {
       st.clock += 10 / D.night * dt * (QS.get('fast') ? 4 : 1); st.nightT += dt;
-      for (const m of INM) { m.t += 0; (m.T.tick ? m.T.tick(m, dt) : m.hunt(dt)); }
+      for (const m of INM.slice()) { if (m.gone) continue; (m.T.tick ? m.T.tick(m, dt) : m.hunt(dt)); }
+      if (typeof DIRECTIVE !== 'undefined') DIRECTIVE.hostTick(dt);
       this.growApples(dt);
       if (st.clock >= 31) this.dawn();
       else if (!Object.values(this.players).some(p => p.alive)) this.endMatch(false);
@@ -244,7 +248,10 @@ const GAME = {
   /* ---- оповещение ---- */
   chooseInmate() {
     const st = this.st, D = DIFFS[st.diff], tier = Math.min(3, D.tier + (st.night > 4 ? 1 : 0));
-    const n = Object.keys(this.players).length, ok = t => t.difficulty <= tier && !t.lobbyOnly && (t.minNight || 1) <= st.night && (!t.coopOnly || n > 1);
+    const n = Object.keys(this.players).length, last = !D.endless && st.night >= st.nights;
+    // последняя ночь — босс (если есть), иначе боссы не выпадают
+    const ok = t => t.difficulty <= tier && !t.lobbyOnly && !t.companion && !t.special && (t.minNight || 1) <= st.night && (!t.coopOnly || n > 1) && (!t.finalNight || last);
+    const boss = last && INMATES.list.filter(t => t.finalNight && !t.companion); if (boss && boss.length && !QS.get('inmate')) { const B = pick(boss); st.used.push(B.key); return B; }
     let pool = INMATES.list.filter(t => ok(t) && !st.used.includes(t.key));
     if (!pool.length) { st.used = st.used.slice(-1); pool = INMATES.list.filter(t => ok(t) && !st.used.includes(t.key)); }
     if (!pool.length) pool = INMATES.list.filter(ok);
@@ -254,6 +261,7 @@ const GAME = {
   startAlert() {
     const st = this.st; st.phase = 'alert'; st.alertT = 0; st.votes = 0; for (const id in this.players) this.players[id].voted = 0;
     const T = this.chooseInmate(); st.inmate = T.key; st.unknown = T.unknownAlert || (st.diff !== 'easy' && Math.random() < .12);
+    st.directive = typeof DIRECTIVE !== 'undefined' ? DIRECTIVE.pick(T, st.unknown) : 'NONE';
     const lines = st.unknown ? [ALERT_HEAD, 'МЫ ПОЛУЧАЕМ СООБЩЕНИЯ О НАРУШЕНИИ ПЕРИМЕТРА В ЛЕЧЕБНИЦЕ BLACK RIDGE.', 'ОДИН ЗАКЛЮЧЁННЫЙ НЕ НАЙДЕН. ЕГО ИМЯ, КЛАССИФИКАЦИЯ И УРОВЕНЬ УГРОЗЫ — НЕИЗВЕСТНЫ. СИЛЬНАЯ ПОТЕРЯ СИГНАЛА.', 'ГРАЖДАНАМ РЕКОМЕНДУЕТСЯ ОСТАВАТЬСЯ В ПОМЕЩЕНИИ ДО ПОЛУЧЕНИЯ НОВОЙ ИНФОРМАЦИИ.']
       : [ALERT_HEAD, 'ЗАКЛЮЧЁННЫЙ ' + T.num + ' — «' + T.en + '» (' + T.name + '), КЛАСС: ' + T.cls + '.', ...T.alert];
     st.alertLines = lines;
@@ -263,11 +271,12 @@ const GAME = {
     // вышедшие из шкафов
     for (const h of WORLD.hides) if (WS[h.id].by) { const pid = WS[h.id].by; wsSet(h.id, { by: '' }); const P = this.players[pid]; if (P) P.pose.hid = 0; this.sendTo(pid, { t: 'hidden', pid, id: 0 }); }
     if (!WS.TV.on) wsSet('TV', { on: 1 });
-    NET.toAll({ t: 'phase', ph: 'alert', st: { phase: 'alert', inmate: st.inmate, unknown: st.unknown, alertLines: lines }, spawns, lines, dur: ALERT_LEN, night: st.night });
+    NET.toAll({ t: 'phase', ph: 'alert', st: { phase: 'alert', inmate: st.inmate, unknown: st.unknown, alertLines: lines, directive: st.directive }, spawns, lines, dur: ALERT_LEN, night: st.night });
   },
   startNight() {
     const st = this.st, D = DIFFS[st.diff]; st.phase = 'night'; st.nightT = 0;
-    const n = (D.endless && st.night > 6) || (st.diff === 'hard' && st.night >= 8) ? 2 : 1;
+    const boss = INMATES.types[st.inmate] && INMATES.types[st.inmate].finalNight;
+    const n = !boss && ((D.endless && st.night > 6) || (st.diff === 'hard' && st.night >= 8)) ? 2 : 1;
     this.spawnInmate(st.inmate); if (n > 1) { const T2 = this.chooseInmate(); this.spawnInmate(T2.key); }
     this.phaseAll('night');
   },
@@ -290,7 +299,7 @@ const GAME = {
     const anyAlive = Object.values(this.players).some(p => p.alive);
     if (!anyAlive) return this.endMatch(false);
     const spawns = {}; let i = 0;
-    for (const id in this.players) { const p = this.players[id]; p.money += 40; if (!p.alive) { p.alive = true; p.hp = 100; const sp = this.spawnPoint(i++); p.pose.x = sp.x; p.pose.y = sp.y; p.pose.z = sp.z; spawns[id] = [sp.x, sp.y, sp.z]; this.sendTo(id, { t: 'revive', pid: id, pos: [sp.x, sp.y, sp.z] }); } }
+    for (const id in this.players) { const p = this.players[id]; p.money += 40; p.static = 0; if (!p.alive) { p.alive = true; p.hp = 100; const sp = this.spawnPoint(i++); p.pose.x = sp.x; p.pose.y = sp.y; p.pose.z = sp.z; spawns[id] = [sp.x, sp.y, sp.z]; this.sendTo(id, { t: 'revive', pid: id, pos: [sp.x, sp.y, sp.z] }); } }
     this.pinfoDirty = true; this.phaseAll('dawn');
   },
   endMatch(win) {

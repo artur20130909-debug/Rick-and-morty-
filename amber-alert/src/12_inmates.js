@@ -10,6 +10,9 @@
 //  sound: функция (m) => звуковые подсказки (у всех клиентов, раз в кадр, по желанию)
 //  difficulty: 1..3 (с какой сложности появляется), canHear (слышит шаги), lightFreeze...
 //  minNight: с какой ночи может выпасть (по умолчанию 1); coopOnly: только если игроков ≥ 2
+//  companion: true — тип появляется только вместе с другим (не выпадает сам, нет камеры в лечебнице)
+//  finalNight: true — босс последней ночи; special: true — не выпадает в оповещениях (вызывается механикой), но есть в лечебнице
+//  directive: код указания трансляции (см. DIRECTIVES в 12z_broadcaster.js); immortal + stagger: неуязвим, выстрел оглушает на stagger с
 //  init(m): у ВСЕХ клиентов при создании экземпляра (свои меши/интерактивы для этого заключённого)
 //  cleanup(m): у ВСЕХ клиентов при удалении (убрать то, что создал init/anim)
 //  Общее состояние для клиентов — через wsSet('<KEY>_...', {...}) на хосте и чтение WS[...] в anim/sound.
@@ -111,7 +114,7 @@ class Inmate {
   }
   tryKill(reach) { for (const pl of GAME.alivePlayers()) { if (pl.hid && !this.T.pullsHidden) continue; const d = Math.hypot(pl.x - this.p.x, pl.z - this.p.z); if (d < reach && Math.abs(pl.y - this.p.y) < 1.4) GAME.killPlayer(pl.id, this); } }
   // ---- урон (хост) ----
-  damage(n, by) { if (this.T.immortal) { GAME.toastAll(this.T.name + ' не берёт урон!'); return; } this.hp -= n; this.stun = Math.max(this.stun, .4); if (this.hp <= 0) GAME.inmateDied(this, by); }
+  damage(n, by) { if (this.T.immortal) { if (this.T.stagger) this.stun = Math.max(this.stun, this.T.stagger); GAME.toastAll(this.T.name + ' не берёт урон!'); return; } this.hp -= n; this.stun = Math.max(this.stun, .4); if (this.hp <= 0) GAME.inmateDied(this, by); }
   // ---- клиентская сторона ----
   applySnap(s) { this.tp.set(s[2], s[3], s[4]); this.tyaw = s[5]; this.a = s[6]; this.hp = s[7]; this.vis = s[8]; if (this.p.y < -50) { this.p.copy(this.tp); this.yaw = this.tyaw; } }
   render(dt, isHost) {

@@ -6,7 +6,7 @@ const WORLD = {
   reset() {
     if (this.group) R.scene.remove(this.group);
     this.group = new THREE.Group(); R.scene.add(this.group);
-    this.coll.clear(); this.inter.clear(); for (const k in PLACED) delete PLACED[k]; this.lamps = []; this.hides = []; this.windows = []; this.doors = []; this.rooms = []; this.ticks = []; this.nav = null; this.spawn = [];
+    this.coll.clear(); this.inter.clear(); for (const k in PLACED) delete PLACED[k]; this.lamps = []; this.hides = []; this.windows = []; this.doors = []; this.rooms = []; this.ticks = []; this.nav = null; this.spawn = []; this.fogOverride = null;
     R.pool.setLamps([]);
   },
   add(o) { this.group.add(o); return o; },
@@ -59,6 +59,12 @@ function bx(x, y, z, sx, sy, sz, m, o = {}) { // центр по x,z; y — НИ
 }
 function cyl(x, y, z, r, h, m, o = {}) { const mesh = new THREE.Mesh(new THREE.CylinderGeometry(o.r2 ?? r, r, h, o.seg || 10), m); mesh.position.set(x, y + h / 2, z); (o.parent || WORLD.group).add(mesh); if (o.coll !== false) WORLD.coll.addBox(x, y + h / 2, z, r * 1.6, h, r * 1.6); return mesh; }
 // стена вдоль X или Z с проёмами: holes [{c:центр вдоль стены, w, y0, y1}]
+// UV коробки в метрах: текстура тянется по реальному размеру грани (эталон — грань refU × refV), u0/v0 — сдвиг для стыковки кусков
+function boxUV(geo, sx, sy, sz, refU, refV, u0 = 0, v0 = 0) {
+  const uv = geo.attributes.uv, dims = [[sz, sy], [sz, sy], [sx, sz], [sx, sz], [sx, sy], [sx, sy]];
+  for (let f = 0; f < 6; f++) for (let k = 0; k < 4; k++) { const i = f * 4 + k; uv.setXY(i, uv.getX(i) * dims[f][0] / refU + (f >= 4 ? u0 : 0), uv.getY(i) * dims[f][1] / refV + (f >= 4 || f < 2 ? v0 : 0)); }
+  uv.needsUpdate = true; return geo;
+}
 function wall(x0, z0, x1, z1, y, h, m, holes = [], th = .16, mOut) {
   const alongX = Math.abs(z1 - z0) < 1e-6, L = alongX ? x1 - x0 : z1 - z0, s0 = alongX ? x0 : z0;
   const pieces = []; let cur = 0; const hs = holes.map(o => ({ a: o.c - o.w / 2 - s0, b: o.c + o.w / 2 - s0, y0: o.y0 ?? 0, y1: o.y1 ?? 2.1 })).sort((a, b) => a.a - b.a);
@@ -67,13 +73,14 @@ function wall(x0, z0, x1, z1, y, h, m, holes = [], th = .16, mOut) {
   for (const [a, b, ya, yb] of pieces) {
     const len = b - a; if (len < .01 || yb - ya < .01) continue; const c = s0 + (a + b) / 2;
     const mats = mOut ? (alongX ? [m, m, m, m, m, mOut] : [m, mOut, m, m, m, m]) : m;
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(alongX ? len : th, yb - ya, alongX ? th : len), mats);
-    // повтор текстуры по длине
+    const sx = alongX ? len : th, sz = alongX ? th : len, geo = boxUV(new THREE.BoxGeometry(sx, yb - ya, sz), sx, yb - ya, sz, 6, 2.8, alongX ? a / 6 : 0, ya / 2.8);
+    if (!alongX) { const uv = geo.attributes.uv; for (let i = 0; i < 8; i++) uv.setX(i, uv.getX(i) + a / 6); } // боковые грани для стен вдоль Z
+    const mesh = new THREE.Mesh(geo, mats);
     mesh.position.set(alongX ? c : x0, y + (ya + yb) / 2, alongX ? z0 : c); WORLD.group.add(mesh);
     WORLD.coll.addBox(mesh.position.x, mesh.position.y, mesh.position.z, alongX ? len : th, yb - ya, alongX ? th : len);
   }
 }
-function slab(x0, z0, x1, z1, y, th, m, coll = true) { const mesh = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, th, z1 - z0), m); mesh.position.set((x0 + x1) / 2, y - th / 2, (z0 + z1) / 2); WORLD.group.add(mesh); if (coll) WORLD.coll.addBox(mesh.position.x, mesh.position.y, mesh.position.z, x1 - x0, th, z1 - z0); return mesh; }
+function slab(x0, z0, x1, z1, y, th, m, coll = true) { const mesh = new THREE.Mesh(boxUV(new THREE.BoxGeometry(x1 - x0, th, z1 - z0), x1 - x0, th, z1 - z0, 4, 4, x0 / 4, z0 / 4), m); mesh.position.set((x0 + x1) / 2, y - th / 2, (z0 + z1) / 2); WORLD.group.add(mesh); if (coll) WORLD.coll.addBox(mesh.position.x, mesh.position.y, mesh.position.z, x1 - x0, th, z1 - z0); return mesh; }
 // лестница: от (x,z) вдоль dir ('+x','-x','+z','-z'), ширина w, подъём H, ступеней n
 function stairs(x, z, dir, w, y0, H, n, m) {
   const run = .3, rise = H / n;

@@ -125,6 +125,8 @@ const NET = {
   role: 'solo',          // solo | host | client
   t: null, hostPeer: null, code: '', ping: 0,
   start(role, t) { this.role = role; this.t = t; if (!t) return;
+    // соединение с хостом обычно открывается раньше, чем стартует сессия, — берём его из транспорта
+    if (role === 'client') this.hostPeer = t.hostId || Object.keys(t.conns)[0] || null;
     t.on('msg', (peer, m) => this.role === 'host' ? GAME.hostMsg(m, peer) : GAME.clientMsg(m));
     t.on('peer', peer => { if (this.role === 'client') this.hostPeer = peer; else GAME.peerJoined(peer); });
     t.on('leave', peer => this.role === 'host' ? GAME.peerLeft(peer) : GAME.lostHost());

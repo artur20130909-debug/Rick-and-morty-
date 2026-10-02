@@ -114,7 +114,9 @@ function drawBoothPanels() {
 }
 /* ---- лечебница с камерами заключённых ---- */
 function buildAsylum() {
-  const g = WORLD.group, Z0 = -22, Z1 = -40, X0 = -24, X1 = 24, mA = texMat(TX.asylum(), 8, 2), mIn = texMat(TX.asylum(), 4, 1, '#b8bcb0');
+  const types = INMATES.list.filter(t => !t.lobbyOnly && !t.companion), n = Math.min(18, types.length), cw = 3.4;
+  const HW = Math.max(24, Math.ceil(n * cw / 2) + 1);
+  const g = WORLD.group, Z0 = -22, Z1 = -40, X0 = -HW, X1 = HW, mA = texMat(TX.asylum(), 8, 2), mIn = texMat(TX.asylum(), 4, 1, '#b8bcb0');
   // фасад с 4 входами, 2 этажа
   const ents = [-15, -5, 5, 15];
   wall(X0, Z0, X1, Z0, 0, 8.5, mIn, [...ents.map(c => ({ c, w: 2.2, y0: 0, y1: 2.8 })), ...[-19, -10, 0, 10, 19].map(c => ({ c, w: 1.6, y0: 4.6, y1: 6.4 }))], .4, mA);
@@ -125,26 +127,27 @@ function buildAsylum() {
   for (const c of ents) { const lt = new THREE.Mesh(new THREE.BoxGeometry(.6, .2, .3), new THREE.MeshBasicMaterial({ color: '#ff3a3a' })); lt.position.set(c, 3.1, Z0 + .3); g.add(lt); }
   for (let i = -4; i <= 4; i++) { const w = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.7), new THREE.MeshBasicMaterial({ color: i % 3 ? '#1a221a' : '#8aa070' })); w.position.set(i * 5, 5.5, Z0 + .22); g.add(w); }
   // коридор и камеры вдоль задней стены
-  const types = INMATES.list.filter(t => !t.lobbyOnly);
-  const n = Math.min(10, types.length), cw = 4.4, startX = -(n * cw) / 2;
-  wall(startX, -29, startX + n * cw, -29, 0, 4.2, mIn, types.slice(0, n).map((t, i) => ({ c: startX + cw * (i + .5), w: 2.6, y0: 0, y1: 2.9 })), .25);
+  const startX = -(n * cw) / 2;
+  wall(X0, -29, startX, -29, 0, 4.2, mIn, [], .25); wall(startX + n * cw, -29, X1, -29, 0, 4.2, mIn, [], .25);
+  wall(startX, -29, startX + n * cw, -29, 0, 4.2, mIn, types.slice(0, n).map((t, i) => ({ c: startX + cw * (i + .5), w: 2.4, y0: 0, y1: 2.9 })), .25);
   for (let i = 0; i <= n; i++) { const x = startX + i * cw; wall(x, Z1, x, -29, 0, 4.2, mIn, [], .25); }
   for (let i = 0; i < n; i++) {
     const T = types[i], cx = startX + cw * (i + .5);
     // решётка
-    for (let k = -5; k <= 5; k++) { const bar = new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, 2.9, 6), mat('#3a3e44')); bar.position.set(cx + k * .24, 1.45, -29); g.add(bar); }
-    WORLD.coll.addBox(cx, 1.45, -29, 2.6, 2.9, .1);
+    for (let k = -5; k <= 5; k++) { const bar = new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, 2.9, 6), mat('#3a3e44')); bar.position.set(cx + k * .22, 1.45, -29); g.add(bar); }
+    WORLD.coll.addBox(cx, 1.45, -29, 2.4, 2.9, .1);
     // кровать справа, стальная дверь сзади, номер над дверью
-    bx(cx + 1.3, 0, -34, 1, .5, 2, mat('#6a6e70')); bx(cx + 1.3, .5, -33.4, .8, .12, .5, mat('#e8e8e0'), { coll: false });
+    bx(cx + 1.05, 0, -37.5, .9, .5, 2, mat('#6a6e70')); bx(cx + 1.05, .5, -36.9, .7, .12, .5, mat('#e8e8e0'), { coll: false });
     bx(cx, 0, -39.7, 1.4, 2.4, .2, texMat(TX.metal(), 1, 1)); const num = textPlane([T.num], 1.1, { bg: '#111', color: '#ffb000', size: 64, pad: 10, fog: false }); num.position.set(cx, 2.85, -39.55); g.add(num);
     // модель заключённого в камере
-    const m = T.model(); m.position.set(cx - .3, 0, -34.5); m.rotation.y = 0; m.scale.setScalar(T.key === 'doll' ? 1.4 : 1); g.add(m); m.userData.T = T;
+    const m = T.model(); m.position.set(cx - .2, 0, -33); m.rotation.y = 0; g.add(m); m.userData.T = T;
+    { const bb = new THREE.Box3().setFromObject(m), sz = bb.getSize(new V3()); let k = T.key === 'doll' ? 1.4 : 1; if (sz.x * k > 2.6) k = 2.6 / sz.x; if (sz.z * k > 7) k = 7 / sz.z; if (sz.y * k > 3.9) k = 3.9 / sz.y; m.scale.setScalar(k); }
     // планшет с лампочкой
-    const tab = bx(cx - 1.75, 1.1, -28.8, .5, .7, .08, mat('#22262e'), { coll: false }); const scr = new THREE.Mesh(new THREE.PlaneGeometry(.42, .56), new THREE.MeshBasicMaterial({ color: '#0a1a22' })); scr.position.set(cx - 1.75, 1.45, -28.75); g.add(scr);
-    const led = new THREE.Mesh(new THREE.SphereGeometry(.05, 8, 6), new THREE.MeshBasicMaterial({ color: '#f33' })); led.position.set(cx - 1.75, 1.85, -28.74); g.add(led);
+    const tx = cx - cw / 2, tab = bx(tx, 1.1, -28.8, .44, .62, .08, mat('#22262e'), { coll: false }); const scr = new THREE.Mesh(new THREE.PlaneGeometry(.36, .48), new THREE.MeshBasicMaterial({ color: '#0a1a22' })); scr.position.set(tx, 1.43, -28.75); g.add(scr);
+    const led = new THREE.Mesh(new THREE.SphereGeometry(.05, 8, 6), new THREE.MeshBasicMaterial({ color: '#f33' })); led.position.set(tx, 1.8, -28.74); g.add(led);
     const cell = { T, led, model: m }; LOBBY.cells.push(cell);
-    interactable({ id: 'CELL_' + T.key, mesh: [tab, scr], pos: new V3(cx - 1.75, 1.4, -28.8), range: 2.6, label: () => 'Досье: заключённый ' + T.num, use: () => UI.dossier(T) });
-    WORLD.lamps.push({ pos: new V3(cx, 3.6, -33), on: () => true, color: '#c8ffd0', power: 3.5, range: 6, flicker: i % 4 === 1 });
+    interactable({ id: 'CELL_' + T.key, mesh: [tab, scr], pos: new V3(tx, 1.4, -28.8), range: 2.6, label: () => 'Досье: заключённый ' + T.num + ' — ' + T.name, use: () => UI.dossier(T) });
+    if (i % 2 === 0) WORLD.lamps.push({ pos: new V3(cx + cw / 2, 3.6, -32), on: () => true, color: '#c8ffd0', power: 4, range: 7, flicker: i % 4 === 2 });
   }
   for (const x of [-16, -6, 4, 14]) WORLD.lamps.push({ pos: new V3(x, 3.6, -25.5), on: () => true, color: '#d8ffe0', power: 4, range: 9, flicker: x === -6 });
 }

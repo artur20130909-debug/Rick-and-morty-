@@ -9,7 +9,7 @@ function buildHouse() {
   // ---- материалы ----
   const mWP1 = texMat(TX.floral('#b9b08a', '#8a7a52', 'a'), 3, 1.2), mWP2 = texMat(TX.wallpaper('#7d8a6a', '#6a7656', 'b'), 3, 1.2), mWP3 = texMat(TX.wallpaper('#a8b6c6', '#93a3b6', 'c'), 3, 1.2), mWP4 = texMat(TX.floral('#c9a7a0', '#9a6a66', 'd'), 3, 1.2);
   const mPanel = texMat(TX.panel(), 4, 1), mTile = texMat(TX.tile(), 3, 2), mSiding = texMat(TX.siding(), 4, 2), mConc = texMat(TX.concrete(), 3, 3);
-  const mCarpet = texMat(TX.carpet('#6a3a32', 'r'), 6, 6), mCarpet2 = texMat(TX.carpet('#4a5a7a', 'b'), 6, 6), mWood = texMat(TX.wood(), 6, 6), mLino = texMat(TX.lino(), 6, 6), mCeil = mat('#d8d2c2');
+  const mCarpet = texMat(TX.carpet('#6a3a32', 'r'), 6, 6), mCarpet2 = texMat(TX.carpet('#4a5a7a', 'b'), 6, 6), mWood = texMat(TX.wood(), 3, 3), mLino = texMat(TX.lino(), 4, 4), mCeil = mat('#d8d2c2');
   // ---- земля, улица ----
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), texMat(TX.grass(), 40, 40)); ground.rotation.x = -PI / 2; ground.position.y = -.01; g.add(ground);
   WORLD.coll.add({ x0: -70, x1: 70, y0: -1, y1: 0, z0: -70, z1: 70 });
@@ -57,7 +57,7 @@ function buildHouse() {
   slab(-3, -6, 1, 6, .02, .02, mWood, false); // прихожая/холл
   slab(1, 0, 8, 6, .02, .02, mCarpet, false); slab(1, -6, 8, 0, .02, .02, mLino, false); slab(-8, -1, -3, 6, .02, .02, mConc, false); slab(-8, -6, -3, -1, .02, .02, mWood, false);
   // перекрытие (с проёмом под лестницу x[-3,-1.9] z[-3.3,0.2])
-  const fl2 = (x0, z0, x1, z1, m) => { slab(x0, z0, x1, z1, F2, .2, m); const c = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), mCeil); c.rotation.x = PI / 2; c.position.set((x0 + x1) / 2, H1 + .01, (z0 + z1) / 2); g.add(c); };
+  const fl2 = (x0, z0, x1, z1, m) => { slab(x0, z0, x1, z1, F2, .2, m); const c = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), mCeil); c.rotation.x = PI / 2; c.position.set((x0 + x1) / 2, H1 - .012, (z0 + z1) / 2); g.add(c); };
   fl2(1, -6, 8, 0, mCarpet2); fl2(1, 0, 8, 6, mCarpet); fl2(-8, -6, -3, 0, mTile); fl2(-8, 0, -3, 6, mCarpet2);
   fl2(-1.9, -6, 1, 6, mWood); fl2(-3, .2, -1.9, 6, mWood); fl2(-3, -6, -1.9, -3.3, mWood);
   const ceil2 = new THREE.Mesh(new THREE.PlaneGeometry(16, 12), mCeil); ceil2.rotation.x = PI / 2; ceil2.position.set(0, F2 + H2, 0); g.add(ceil2);
@@ -188,7 +188,7 @@ function furnishHouse() {
   // коридор 2 эт.: бельевой шкаф-укрытие
   const lin = wardrobe(-.4, 5.55, 0, F2, '#d8ccb0', 1.0); hideSpot('H_linen', new V3(-.4, F2, 5.4), 0, lin, 'Спрятаться в бельевой шкаф');
   // ---- продавец яблок ----
-  const npcA = new Avatar({ skin: 1, shirt: 3, pants: 1, hat: 'cap', face: 'grin', hatColor: '#c4281c' }, 'Яблочник'); npcA.setName('Яблочник 🍎', '#ffd06a');
+  const npcA = new Avatar({ skin: 1, shirt: 3, pants: 1, hat: 'cap', face: 'grin', hatColor: '#c4281c' }); // вывеска над прилавком вместо таблички с именем
   npcA.root.position.set(-5.8, 0, -.45); npcA.root.rotation.y = 0; g.add(npcA.root); HOUSE.shop.npc = npcA;
   WORLD.coll.addBox(-5.8, .9, -.45, .7, 1.8, .5);
   interactable({ id: 'SHOP', mesh: [npcA.torso.children[0], npcA.head, counterTop], pos: new V3(-5.8, 1.3, .1), range: 3,

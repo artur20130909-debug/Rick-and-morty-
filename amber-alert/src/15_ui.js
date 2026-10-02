@@ -45,10 +45,16 @@ const CSS2 = `
 .hide-vig{position:absolute;inset:0;background:linear-gradient(90deg,#000 0 14%,transparent 30% 70%,#000 86%);opacity:.9}
 .hide-vig::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(0,0,0,.85) 0 3%,transparent 3% 9%)}
 .plist{position:absolute;left:10px;top:10px;display:flex;flex-direction:column;gap:4px;font-weight:800;font-size:13px}
-.plist div{background:rgba(0,0,0,.55);padding:4px 10px;border-radius:8px;border-left:4px solid var(--ok)}.plist div.dead{border-left-color:#e33;color:#f88}
+.plist div{background:rgba(0,0,0,.55);padding:4px 10px;border-radius:8px;border-left:4px solid var(--ok)}.plist div.pdead{border-left-color:#e33;color:#f88}
 .roomcode{background:rgba(255,176,0,.15);border:1px solid rgba(255,176,0,.5);color:var(--amber);padding:5px 10px;border-radius:8px;font:900 14px Consolas,monospace;pointer-events:auto;cursor:pointer}
 .alertbox{position:absolute;right:12px;top:58px;width:min(300px,40vw);background:rgba(10,0,0,.7);border:2px solid #c4121a;border-radius:10px;padding:8px 10px;font-size:12px;font-weight:700}
-.alertbox b{color:#ff5a5a;display:block;margin-bottom:3px;font-size:13px}
+.alertbox b{color:#ff5a5a;display:block;margin-bottom:3px;font-size:13px}.alertbox .dir{display:block;margin-top:6px;padding-top:5px;border-top:1px solid #c4121a88;color:#ffb000;font-size:12px}
+#tvon{position:fixed;inset:0;z-index:40;pointer-events:none;background:#000;opacity:0;display:flex;align-items:center;justify-content:center}#tvon i{display:block;width:100%;height:2px;background:#fff;box-shadow:0 0 18px #fff}
+#tvon.go{animation:tvbg 1.1s ease-out forwards}#tvon.go i{animation:tvline 1.1s ease-out forwards}
+@keyframes tvbg{0%{opacity:1}55%{opacity:1}100%{opacity:0}}@keyframes tvline{0%{transform:scaleX(0);height:2px}35%{transform:scaleX(1);height:2px}60%{height:100%;opacity:.9}100%{height:100%;opacity:0}}
+.statm{position:absolute;left:50%;bottom:58px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;font-size:11px;font-weight:900;color:#ddd;text-shadow:0 1px 2px #000}.statm div{width:120px;height:6px;background:#0008;border-radius:3px;overflow:hidden}.statm i{display:block;height:100%;width:0}
+.statfx{position:absolute;inset:0;pointer-events:none;opacity:0;mix-blend-mode:screen;background:repeating-linear-gradient(0deg,#fff1 0 1px,transparent 1px 3px),radial-gradient(circle,transparent 40%,#8884 100%);animation:statj .12s steps(2) infinite}
+@keyframes statj{0%{transform:translateY(0)}50%{transform:translateY(-2px)}100%{transform:translateY(1px)}}
 #eas{position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:auto;z-index:15;background:rgba(0,0,0,.45)}
 #eas .tvx{width:min(820px,94vw);background:#05060a;border:3px solid #333;border-radius:14px;overflow:hidden;box-shadow:0 0 60px rgba(255,0,0,.25);position:relative}
 #eas .hdr{background:#c4121a;color:#fff;font:900 clamp(16px,3.2vw,28px) "Arial Black",Arial;letter-spacing:2px;padding:12px 16px;text-align:center}
@@ -175,11 +181,12 @@ const UI = {
     body.append(rng('Громкость', S.volume, 0, 1, .05, v => AU.setVol(v)), rng('Чувствительность мыши', S.mouseSens, .3, 3, .1, v => { S.mouseSens = v; MOUSE_SENS = .0024 * v; }), rng('Чувствительность пальца', S.touchSens, .3, 3, .1, v => S.touchSens = v));
     const q = el('button', { class: 'ghost', onclick: () => { S.quality = S.quality === 'low' ? 'high' : 'low'; saveSettings(); q.textContent = 'Графика: ' + (S.quality === 'low' ? 'быстрая (нужен перезапуск)' : 'красивая (нужен перезапуск)'); } }, 'Графика: ' + (S.quality === 'low' ? 'быстрая' : 'красивая'));
     const tts = el('button', { class: 'ghost', onclick: () => { S.tts = S.tts === false ? true : false; saveSettings(); tts.textContent = 'Голос диктора: ' + (S.tts === false ? 'выкл' : 'вкл'); } }, 'Голос диктора: ' + (S.tts === false ? 'выкл' : 'вкл'));
-    body.append(q, tts); this.openModal('Настройки', body);
+    const dir = el('button', { class: 'ghost', onclick: () => { S.directives = S.directives === false ? true : false; saveSettings(); dir.textContent = 'Директивы ТВ и Телеведущий: ' + (S.directives === false ? 'выкл («дружелюбный свет»)' : 'вкл'); } }, 'Директивы ТВ и Телеведущий: ' + (S.directives === false ? 'выкл («дружелюбный свет»)' : 'вкл'));
+    body.append(q, tts, dir, el('div', { class: 'muted' }, 'Директивы действуют у хоста: если хост их выключил, они выключены у всех.')); this.openModal('Настройки', body);
   },
   help() {
     this.openModal('Как играть', el('div', { class: 'col' },
-      el('div', { html: '<b>Цель:</b> пережить все ночи. <b>Днём</b> (7:00–21:00) собирай яблоки во дворе и продавай Яблочнику в гараже, покупай вещи. <b>В 21:00</b> телевизор в гостиной включает экстренное оповещение — оно описывает сбежавшего заключённого и говорит, <b>что делать</b>. Слушайся! <b>Ночью</b> он вламывается в дом через дверь или окно. Прячься в шкафах, выключай свет, запирай двери (держи E) или стреляй из дробовика. Погибших товарищей оживляет рассвет или дефибриллятор.' }),
+      el('div', { html: '<b>Цель:</b> пережить все ночи. <b>Днём</b> (7:00–21:00) собирай яблоки во дворе и продавай Яблочнику в гараже, покупай вещи. <b>В 21:00</b> телевизор в гостиной включает экстренное оповещение — оно описывает сбежавшего заключённого и говорит, <b>что делать</b>. Слушайся! <b>Ночью</b> он вламывается в дом через дверь или окно. Прячься в шкафах, выключай свет, запирай двери (держи E) или стреляй из дробовика. Погибших товарищей оживляет рассвет или дефибриллятор. <b>Директива</b> из оповещения (внизу справа) проверяется всю ночь: за неподчинение растут «помехи» 📺, и на 100% за тобой приходит неуязвимый <b>Телеведущий</b>. Чтобы он ушёл — слушайся директиву 15 секунд и не попадайся ему на глаза.' }),
       el('table', { class: 'help', html: '<tr><td>WASD / стик</td><td>ходить</td></tr><tr><td>Мышь / палец справа</td><td>смотреть</td></tr><tr><td>E / ✋</td><td>действие (держи E на двери — запереть)</td></tr><tr><td>F / 🔦</td><td>фонарик</td></tr><tr><td>Shift / 🏃</td><td>бег (шумно!)</td></tr><tr><td>C / ⬇</td><td>присесть (тихо)</td></tr><tr><td>Q / R / 👀</td><td>выглянуть из-за угла</td></tr><tr><td>1–9, колесо, X / 🔄</td><td>выбрать предмет</td></tr><tr><td>ЛКМ, G / 🎯</td><td>использовать предмет</td></tr><tr><td>Enter / T</td><td>чат</td></tr><tr><td>Esc</td><td>меню</td></tr>' })));
   },
 
@@ -190,7 +197,8 @@ const UI = {
       const v = el('div', { class: 'vp' });
       v.innerHTML = `<div class="hidebox"></div><div class="flash"></div><div class="cross"></div><div class="prompt" style="display:none"><span class="pt"></span><div class="hold"></div></div>
       <div class="clock"><div class="n"></div><div class="tm"></div></div><div class="wallet"></div><div class="bars"><div class="bar st"><i></i></div><div class="bar bt"><i style="background:#ffd860"></i></div></div><div class="hotbar"></div>
-      <div class="qte" style="display:none">СОСРЕДОТОЧЬСЯ! <span class="qk"></span></div><div class="dead" style="display:none"></div><div class="js"></div>`;
+      <div class="qte" style="display:none">СОСРЕДОТОЧЬСЯ! <span class="qk"></span></div><div class="dead" style="display:none"></div><div class="js"></div>
+      <div class="statfx"></div><div class="statm" style="display:none"><span>📺 ПОМЕХИ</span><div><i></i></div></div>`;
       this.playEl.append(v); this.vps.push({ el: v, lp, q: s => v.querySelector(s), last: {} });
     });
     this.playEl.append(this.plistEl = el('div', { class: 'plist' }), this.alertEl = el('div', { class: 'alertbox', style: { display: 'none' } }), this.subEl = el('div', { class: 'subt', style: { display: 'none' } }), this.chatEl = el('div', { class: 'chatlog' }), this.hintEl = el('div', { class: 'lobbyhint', style: { display: 'none' } }), this.bigEl = el('div', { class: 'boothbig', style: { display: 'none' } }));
@@ -224,6 +232,9 @@ const UI = {
       // укрытие и концентрация
       q('.hidebox').className = lp.hidden ? 'hidebox hide-vig' : 'hidebox';
       q('.qte').style.display = lp.qte ? 'block' : 'none'; if (lp.qte) q('.qk').textContent = '[' + (lp.src instanceof Touch ? '✋' : lp.i === 1 ? 'O' : 'E') + '] ' + '▮'.repeat(Math.max(0, Math.ceil((lp.qte.win - lp.qte.t) * 4)));
+      // помехи (неподчинение директиве)
+      const sv = st.scene === 'house' && lp.alive ? (info.stat || 0) : 0, sm = q('.statm'); sm.style.display = sv > 0 ? 'flex' : 'none';
+      if (v.last.sv !== sv) { v.last.sv = sv; q('.statm i').style.width = sv + '%'; q('.statm i').style.background = sv >= 70 ? '#ff3a3a' : '#c8c8c8'; q('.statfx').style.opacity = Math.max(0, (sv - 30) / 100); }
       const dead = q('.dead'); if (!lp.alive && st.scene === 'house') { dead.style.display = 'block'; const tx = 'ТЫ ПОГИБ<small>Наблюдаешь за товарищами. Оживление — на рассвете или дефибриллятором.</small>'; if (v.last.dead !== tx) { dead.innerHTML = tx; v.last.dead = tx; } } else dead.style.display = 'none';
     }
     // подсказки лобби
@@ -234,13 +245,15 @@ const UI = {
     for (const d of this.chatEl.children) if (now() - d.t > 9) d.style.opacity = 0;
     if (this.chatEl.children.length > 7) this.chatEl.firstChild.remove();
   },
-  players(list) { if (!this.plistEl) return; this.plistEl.innerHTML = ''; if (NET.role === 'host' && NET.code) this.plistEl.append(el('div', { class: 'roomcode', onclick: () => copyText(NET.code) }, 'КОД: ' + NET.code + ' 📋')); for (const p of list) this.plistEl.append(el('div', { class: p.alive ? '' : 'dead' }, (p.alive ? '● ' : '✝ ') + p.name + (GAME.st.scene === 'house' ? '  ❤' + p.hp : ''))); },
+  players(list) { if (!this.plistEl) return; this.plistEl.innerHTML = ''; if (NET.role === 'host' && NET.code) { this.plistEl.append(el('div', { class: 'roomcode', onclick: () => copyText(NET.code) }, 'КОД: ' + NET.code + ' 📋')); if (/^https?:/.test(location.protocol)) this.plistEl.append(el('div', { class: 'roomcode', onclick: () => copyText(location.origin + location.pathname + '?room=' + NET.code) }, '🔗 Скопировать ссылку-приглашение')); } for (const p of list) this.plistEl.append(el('div', { class: p.alive ? '' : 'pdead' }, (p.alive ? '● ' : '✝ ') + p.name + (GAME.st.scene === 'house' ? '  ❤' + p.hp : ''))); },
   flash(col, ms) { for (const v of this.vps) { const f = v.q('.flash'); f.style.background = col; f.style.opacity = 1; setTimeout(() => f.style.opacity = 0, ms); } },
-  subtitle(t) { this.subEl.textContent = t; this.subEl.style.display = 'block'; clearTimeout(this.subT); this.subT = setTimeout(() => this.subEl.style.display = 'none', 2200); },
+  subtitle(t) { this.subEl.textContent = t; this.subEl.style.display = 'block'; clearTimeout(this.subT); this.subT = setTimeout(() => this.subEl.style.display = 'none', Math.max(2200, t.length * 55)); },
   chat(name, text) { const d = el('div', {}, el('b', { style: { color: 'var(--amber)' } }, name + ': '), text); d.t = now(); this.chatEl.append(d); AU.play('ui'); },
   openChat() { if (this.chatIn) return; const i = el('input', { class: 'chatin', placeholder: 'Сообщение… (Enter)', maxlength: 120 }); this.playEl.append(i); this.chatIn = i; if (document.pointerLockElement) document.exitPointerLock(); setTimeout(() => i.focus(), 10);
     i.onkeydown = e => { if (e.key === 'Enter') { const t = i.value.trim(); if (t) NET.toHost({ t: 'chat', pid: LOCALS[0].id, text: t }); i.remove(); this.chatIn = null; } else if (e.key === 'Escape') { i.remove(); this.chatIn = null; } e.stopPropagation(); }; },
-  sceneChanged(s) { this.closeModal(); this.closeEAS(); this.alertSummary = null; if (s === 'house') { AU.ambient('dawn'); this.toast('Днём собирай яблоки и готовься. В 21:00 — оповещение!', 4500); } else AU.ambient('lobby'); },
+  sceneChanged(s) { this.closeModal(); this.closeEAS(); this.alertSummary = null; this.tvOn(); if (s === 'house') { AU.ambient('dawn'); this.toast('Днём собирай яблоки и готовься. В 21:00 — оповещение!', 4500); setTimeout(() => { if (GAME.scene === 'house' && GAME.st.phase === 'day') this.subtitle('Яблочник (из гаража): «Доброе утро! Яблоки беру по $' + (DIFFS[GAME.st.diff] || DIFFS.normal).apple + '. Магазин закрывается ровно в девять!»'); }, 1800); } else AU.ambient('lobby'); },
+  // переход «включился старый телевизор»: белая полоса раскрывается в картинку
+  tvOn() { let d = $('#tvon'); if (!d) { d = el('div', { id: 'tvon' }, el('i')); document.body.append(d); } d.classList.remove('go'); void d.offsetWidth; d.classList.add('go'); AU.play('static', null, { d: .35, v: .2 }); },
 
   /* ======== экстренное оповещение ======== */
   phase(m) {
@@ -253,6 +266,7 @@ const UI = {
     const lines = m.lines; if (!lines) return; AU.hush();
     const T = INMATES.types[GAME.st.inmate];
     this.alertSummary = GAME.st.unknown ? null : T; if (T) { this.alertEl.innerHTML = `<b>${T.name} · ${T.num}</b>${T.tip}`; for (const lp of LOCALS) if (lp.prof && !lp.prof.seen.includes(T.key)) { lp.prof.seen.push(T.key); saveProfile(lp.prof, lp.profKey); } } else this.alertEl.innerHTML = '<b>НЕИЗВЕСТНЫЙ СУБЪЕКТ</b>Сигнал потерян. Прячься и не шуми.';
+    if (typeof DIRECTIVE !== 'undefined') { const d = DIRECTIVES[GAME.st.directive]; if (d) this.alertEl.append(el('span', { class: 'dir' }, '📺 ДИРЕКТИВА: ' + d.text + ' — ' + d.hint)); }
     if (document.pointerLockElement) document.exitPointerLock();
     const E = this.easEl; E.style.display = 'flex'; E.innerHTML = '';
     const bd = el('div', { class: 'bd' }), vote = el('button', { onclick: () => { for (const lp of LOCALS) NET.toHost({ t: 'vote', pid: lp.id }); vote.disabled = true; vote.textContent = 'Голос отдан'; } }, 'Пропустить ▶▶'), cnt = el('span', {}, '');

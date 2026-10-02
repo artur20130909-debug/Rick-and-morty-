@@ -28,7 +28,9 @@ function skyFrame() {
     sc.background = col; if (!sc.fog) sc.fog = new THREE.FogExp2(col, .03); sc.fog.color.copy(col); sc.fog.density = lerp(.055, .012, k) + (WEATHER.kind === 'rain' ? .01 : 0);
     R.hemi.intensity = lerp(.07, 1.05, k); R.moon.intensity = lerp(.12, 1.5, k); R.moon.color.set(k > .5 ? '#fff1d8' : '#8aa0d8'); R.ambient.intensity = lerp(.035, .25, k);
     if (WEATHER.flash > 0) { R.hemi.intensity += 2.5; }
-  } else { sc.background = SKY.lobby; if (!sc.fog) sc.fog = new THREE.FogExp2(SKY.lobby, .02); sc.fog.color.copy(SKY.lobby); sc.fog.density = .016; R.hemi.intensity = .45; R.moon.intensity = .4; R.moon.color.set('#8aa0d8'); R.ambient.intensity = .12; }
+  } else { sc.background = SKY.lobby; if (!sc.fog) sc.fog = new THREE.FogExp2(SKY.lobby, .02); sc.fog.color.copy(SKY.lobby); sc.fog.density = .012; R.hemi.intensity = .75; R.moon.intensity = .6; R.moon.color.set('#9ab0e0'); R.ambient.intensity = .2; }
+  // заключённые могут временно переопределить туман (например, Пианист): WORLD.fogOverride = { color, density }
+  if (WORLD.fogOverride && sc.fog) { sc.fog.color.set(WORLD.fogOverride.color); sc.fog.density = WORLD.fogOverride.density; if (WORLD.fogOverride.bg) sc.background = sc.fog.color; }
 }
 /* ---- телевизор в доме ---- */
 let tvT = 0;
@@ -104,6 +106,8 @@ function boot() {
   AA.sim = sec => { for (let t = 0; t < sec; t += .05) { GAME.localTick(.05); if (GAME.isHost()) GAME.hostTick(.05); houseFrame(.05); endFramePresses(); } return true; };
   if (QS.get('autostart') === 'solo') UI.startSolo();
   if (QS.get('autostart') === 'split') { UI.needName(); GAME.begin('solo', null, [{ id: 'h1', src: new KBMouse(BIND.p1, true), prof: MAINPROF, profKey: 'aa_profile' }, { id: 'h2', src: new KBMouse(BIND.p2, false), prof: loadProfile('aa_profile2'), profKey: 'aa_profile2' }]); }
+  // ссылка-приглашение: index.html?room=КОД — сразу открывает вход по коду
+  if (QS.get('room') && !QS.get('test')) { UI.onlineMenu(); const b = [...document.querySelectorAll('.tabs button')].find(x => x.textContent.includes('Войти')); if (b) { b.click(); const inp = document.querySelector('.modal input'); if (inp) inp.value = QS.get('room').toUpperCase().slice(0, 5); } }
   if (QS.get('tabhost')) { const t = new TabTransport(); t.open(QS.get('tabhost'), true).then(() => UI.startHostWith(t, QS.get('tabhost'))); }
   if (QS.get('tabjoin')) { const t = new TabTransport(); t.open(QS.get('tabjoin'), false).then(() => UI.startClientWith(t)).catch(e => UI.toast(netErrorText(e))); }
   if (QS.get('peerhostcode')) { const t = new PeerTransport(); t.host(QS.get('peerhostcode')).then(() => UI.startHostWith(t, QS.get('peerhostcode'))).catch(e => console.error('peer host', e)); }
