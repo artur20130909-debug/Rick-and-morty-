@@ -52,6 +52,7 @@ const CSS2 = `
 #tvon{position:fixed;inset:0;z-index:40;pointer-events:none;background:#000;opacity:0;display:flex;align-items:center;justify-content:center}#tvon i{display:block;width:100%;height:2px;background:#fff;box-shadow:0 0 18px #fff}
 #tvon.go{animation:tvbg 1.1s ease-out forwards}#tvon.go i{animation:tvline 1.1s ease-out forwards}
 @keyframes tvbg{0%{opacity:1}55%{opacity:1}100%{opacity:0}}@keyframes tvline{0%{transform:scaleX(0);height:2px}35%{transform:scaleX(1);height:2px}60%{height:100%;opacity:.9}100%{height:100%;opacity:0}}
+.shopbtn{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);padding:9px 22px;font-size:15px;z-index:3;pointer-events:auto}
 .statm{position:absolute;left:50%;bottom:58px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;font-size:11px;font-weight:900;color:#ddd;text-shadow:0 1px 2px #000}.statm div{width:120px;height:6px;background:#0008;border-radius:3px;overflow:hidden}.statm i{display:block;height:100%;width:0}
 .statfx{position:absolute;inset:0;pointer-events:none;opacity:0;mix-blend-mode:screen;background:repeating-linear-gradient(0deg,#fff1 0 1px,transparent 1px 3px),radial-gradient(circle,transparent 40%,#8884 100%);animation:statj .12s steps(2) infinite}
 @keyframes statj{0%{transform:translateY(0)}50%{transform:translateY(-2px)}100%{transform:translateY(1px)}}
@@ -201,7 +202,7 @@ const UI = {
       <div class="statfx"></div><div class="statm" style="display:none"><span>📺 ПОМЕХИ</span><div><i></i></div></div>`;
       this.playEl.append(v); this.vps.push({ el: v, lp, q: s => v.querySelector(s), last: {} });
     });
-    this.playEl.append(this.plistEl = el('div', { class: 'plist' }), this.alertEl = el('div', { class: 'alertbox', style: { display: 'none' } }), this.subEl = el('div', { class: 'subt', style: { display: 'none' } }), this.chatEl = el('div', { class: 'chatlog' }), this.hintEl = el('div', { class: 'lobbyhint', style: { display: 'none' } }), this.bigEl = el('div', { class: 'boothbig', style: { display: 'none' } }));
+    this.playEl.append(this.plistEl = el('div', { class: 'plist' }), this.alertEl = el('div', { class: 'alertbox', style: { display: 'none' } }), this.subEl = el('div', { class: 'subt', style: { display: 'none' } }), this.chatEl = el('div', { class: 'chatlog' }), this.hintEl = el('div', { class: 'lobbyhint', style: { display: 'none' } }), this.bigEl = el('div', { class: 'boothbig', style: { display: 'none' } }), this.shopBtn = el('button', { class: 'shopbtn amber', style: { display: 'none' }, onpointerdown: e => { e.stopPropagation(); }, onclick: e => { e.stopPropagation(); this.openLobbyPanel('shop'); } }, '🛒 Магазин'));
     this.players(GAME.plist || []);
   },
   layoutVPs() { const vps = R.viewports(); this.vps.forEach((v, i) => { const r = vps[i] || vps[0]; Object.assign(v.el.style, { left: r[0] + 'px', top: (R.h - r[1] - r[3]) + 'px', width: r[2] + 'px', height: r[3] + 'px' }); }); },
@@ -235,11 +236,12 @@ const UI = {
       // помехи (неподчинение директиве)
       const sv = st.scene === 'house' && lp.alive ? (info.stat || 0) : 0, sm = q('.statm'); sm.style.display = sv > 0 ? 'flex' : 'none';
       if (v.last.sv !== sv) { v.last.sv = sv; q('.statm i').style.width = sv + '%'; q('.statm i').style.background = sv >= 70 ? '#ff3a3a' : '#c8c8c8'; q('.statfx').style.opacity = Math.max(0, (sv - 30) / 100); }
-      const dead = q('.dead'); if (!lp.alive && st.scene === 'house') { dead.style.display = 'block'; const tx = 'ТЫ ПОГИБ<small>Наблюдаешь за товарищами. Оживление — на рассвете или дефибриллятором.</small>'; if (v.last.dead !== tx) { dead.innerHTML = tx; v.last.dead = tx; } } else dead.style.display = 'none';
+      const dead = q('.dead'); if (!lp.alive && st.scene === 'house') { dead.style.display = 'block'; const rv = (lp.prof && lp.prof.revives) || 0, tx = 'ТЫ ПОГИБ<small>Наблюдаешь за товарищами. Оживление — на рассвете или дефибриллятором.' + (rv && st.phase === 'night' ? '<br><b style="color:var(--amber)">[' + (lp.src instanceof Touch ? '✋' : lp.i === 1 ? 'O' : 'E') + '] Возрождение (осталось ' + rv + ')</b>' : '') + '</small>'; if (v.last.dead !== tx) { dead.innerHTML = tx; v.last.dead = tx; } } else dead.style.display = 'none';
     }
     // подсказки лобби
     if (st.scene === 'lobby') { const b = st.booth || {}; this.hintEl.style.display = 'block'; const t = b.cd > 0 ? 'Старт через ' + Math.ceil(b.cd) + '…' : 'Подойди к киоскам, загляни в лечебницу или зайди в кабинку справа, чтобы начать' + (Object.keys(GAME.remotes).length ? ' (всей командой)' : ''); if (this.hintEl.textContent !== t) this.hintEl.textContent = t; this.bigEl.style.display = b.cd > 0 ? 'block' : 'none'; if (b.cd > 0) this.bigEl.textContent = Math.ceil(b.cd); }
     else { this.hintEl.style.display = 'none'; this.bigEl.style.display = 'none'; }
+    this.shopBtn.style.display = st.scene === 'lobby' ? 'block' : 'none';
     this.alertEl.style.display = st.scene === 'house' && (st.phase === 'night') && this.alertSummary ? 'block' : 'none';
     // чат: угасание
     for (const d of this.chatEl.children) if (now() - d.t > 9) d.style.opacity = 0;
@@ -299,13 +301,25 @@ const UI = {
     const P = LOCALS[0] ? LOCALS[0].prof : MAINPROF, key = LOCALS[0] ? LOCALS[0].profKey : 'aa_profile';
     if (id === 'K_SKINS') return this.avatarEditor(P, key);
     if (id === 'K_QUESTS') { const b = el('div', { class: 'col' }); for (const Q of QUESTS) { const q = P.quests[Q.id] || { n: 0 }; b.append(el('div', { class: 'card' + (q.done ? ' sel' : '') }, el('div', { class: 't' }, (q.done ? '✅ ' : '◻ ') + Q.name), el('div', { class: 'bar' }, el('i', { style: { width: Math.min(100, q.n / Q.goal * 100) + '%', background: 'var(--amber)' } })), el('div', { class: 'd' }, Math.min(q.n, Q.goal) + ' / ' + Q.goal + '   ·   награда ◆ ' + Q.reward))); } return this.openModal('Задания', b); }
-    if (id === 'K_CODES') { const i = el('input', { placeholder: 'Введи код', style: { textTransform: 'uppercase' } }), st = el('div', { class: 'muted' }); const go = el('button', { class: 'amber', onclick: () => { const c = i.value.trim().toUpperCase(); const R_ = CODES[c]; P.codes = P.codes || []; if (!R_) st.textContent = 'Неверный код'; else if (P.codes.includes(c)) st.textContent = 'Код уже использован'; else { P.codes.push(c); P.amber += R_; saveProfile(P, key); st.textContent = '+' + R_ + ' Amber!'; AU.play('coin'); } } }, 'Активировать'); return this.openModal('Коды', el('div', { class: 'col' }, el('div', { class: 'muted' }, 'Попробуй коды из оригинальной игры 😉 (например, ENDLESS)'), i, go, st)); }
+    if (id === 'K_CODES') return this.openModal('Коды', el('div', { class: 'col' }, el('div', { class: 'muted' }, 'Попробуй коды из оригинальной игры 😉 (например, ENDLESS)'), this.codesBox(P, key)));
     if (id === 'K_CLASSES' || id === 'shop' || id === 'K_SHOP') {
       const b = el('div', { class: 'col' }, el('div', { class: 'chip amber', style: { alignSelf: 'flex-start' } }, '◆ ' + P.amber + ' Amber')); const grid = el('div', { class: 'grid' });
       for (const k in CLASSES) { const C = CLASSES[k], own = P.classes.includes(k); grid.append(el('div', { class: 'card' + (P.cls === k ? ' sel' : '') }, el('div', { class: 't' }, C.name), el('div', { class: 'd' }, C.desc), el('button', { class: P.cls === k ? 'green' : own ? '' : 'amber', style: { padding: '8px' }, onclick: () => { if (!own) { if (P.amber < C.price) { this.toast('Не хватает Amber'); return; } P.amber -= C.price; P.classes.push(k); AU.play('coin'); } P.cls = k; saveProfile(P, key); for (const lp of LOCALS) if (lp.prof === P) NET.toHost({ t: 'look', pid: lp.id, look: P.look, cls: k, name: P.name }); this.openLobbyPanel(id); } }, P.cls === k ? 'Выбран' : own ? 'Выбрать' : 'Купить · ◆' + C.price))); }
-      b.append(grid); if (id !== 'K_CLASSES') b.append(el('button', { onclick: () => this.avatarEditor(P, key) }, '🧍 Скины и аватар'));
+      b.append(grid);
+      if (id !== 'K_CLASSES') {
+        // возрождения и ящики (как в 3.0: торговец у вывески REVIVES)
+        const rv = el('div', { class: 'grid' });
+        rv.append(el('div', { class: 'card' }, el('div', { class: 't' }, '💓 Возрождение · у тебя ' + (P.revives || 0)), el('div', { class: 'd' }, 'Погиб ночью — нажми E и вернись в дом (одно на смерть)'), el('button', { class: 'amber', style: { padding: '8px' }, onclick: () => { if (P.amber < 40) { this.toast('Не хватает Amber'); return; } P.amber -= 40; P.revives = (P.revives || 0) + 1; saveProfile(P, key); AU.play('coin'); this.openLobbyPanel(id); } }, 'Купить · 40 ◆')));
+        rv.append(el('div', { class: 'card' }, el('div', { class: 't' }, '📦 Ящик'), el('div', { class: 'd' }, 'Случайная шапка или от 20 до 150 Amber'), el('button', { class: 'amber', style: { padding: '8px' }, onclick: () => { if (P.amber < 60) { this.toast('Не хватает Amber'); return; } P.amber -= 60; const locked = Object.keys(HAT_PRICE).filter(h => !(P.skins || []).includes(h)); let msg; if (locked.length && Math.random() < .5) { const h = pick(locked); (P.skins = P.skins || []).push(h); msg = 'Из ящика: ' + HAT_NAMES[h] + '!'; } else { const a = 20 + ((Math.random() * 14) | 0) * 10; P.amber += a; msg = 'Из ящика: ' + a + ' Amber'; } saveProfile(P, key); AU.play('chime'); this.toast(msg); this.openLobbyPanel(id); } }, 'Открыть · 60 ◆')));
+        b.append(rv, el('button', { onclick: () => this.avatarEditor(P, key) }, '🧍 Скины и аватар'), el('div', { class: 'muted', style: { fontWeight: 800, marginTop: '6px' } }, 'КОДЫ'), this.codesBox(P, key));
+      }
       return this.openModal(id === 'K_CLASSES' ? 'Классы' : 'Amber-магазин', b);
     }
+  },
+  codesBox(P, key) {
+    const i = el('input', { placeholder: 'Here! (введи код)', style: { textTransform: 'uppercase' } }), st = el('div', { class: 'muted' });
+    const go = el('button', { class: 'green', onclick: () => { const c = i.value.trim().toUpperCase(); const R_ = CODES[c]; P.codes = P.codes || []; if (!R_) st.textContent = 'Неверный код'; else if (P.codes.includes(c)) st.textContent = 'Код уже использован'; else { P.codes.push(c); P.amber += R_; saveProfile(P, key); st.textContent = '+' + R_ + ' Amber!'; AU.play('coin'); } } }, 'Claim ✓');
+    return el('div', { class: 'col' }, i, go, st);
   },
   dossier(T) {
     const seen = LOCALS.some(l => l.prof && l.prof.seen.includes(T.key));

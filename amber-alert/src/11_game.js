@@ -85,6 +85,7 @@ const GAME = {
       case 'unhide': { const h = WORLD.hides.find(q => WS[q.id] && WS[q.id].by === m.pid); if (h) this.toggleHide(m.pid, h); break; }
       case 'ready': break;
       case 'tolobby': if (P.id === this.hostPid()) this.setScene('lobby'); break;
+      case 'selfrev': if (!P.alive && this.st.scene === 'house' && this.st.phase === 'night') { const sp = this.spawnPoint((Math.random() * 8) | 0); P.alive = true; P.hp = 100; P.pose.x = sp.x; P.pose.y = sp.y; P.pose.z = sp.z; this.sendTo(P.id, { t: 'revive', pid: P.id, pos: [sp.x, sp.y, sp.z], self: 1 }); this.toastAll(P.name + ' использовал возрождение!'); this.pinfoDirty = true; } break;
     }
   },
   hostPid() { return LOCALS[0] ? LOCALS[0].id : null; },
@@ -107,7 +108,7 @@ const GAME = {
       case 'phase': if (!this.isHost()) Object.assign(this.st, m.st); UI.phase(m); this.onPhaseLocal(m); break;
       case 'fx': this.fxLocal(m); break;
       case 'kill': this.onKilled(m); break;
-      case 'revive': { const lp = LOCALS.find(l => l.id === m.pid); if (lp) { lp.alive = true; lp.spectate = null; if (m.pos) lp.setPose(m.pos[0], m.pos[1], m.pos[2], lp.body.yaw); UI.toast('Тебя оживили!'); AU.play('heal'); } break; }
+      case 'revive': { const lp = LOCALS.find(l => l.id === m.pid); if (lp) { if (m.self && lp.prof) { lp.prof.revives = Math.max(0, (lp.prof.revives || 0) - 1); saveProfile(lp.prof, lp.profKey); } lp.alive = true; lp.spectate = null; if (m.pos) lp.setPose(m.pos[0], m.pos[1], m.pos[2], lp.body.yaw); UI.toast('Тебя оживили!'); AU.play('heal'); } break; }
       case 'hidden': { const lp = LOCALS.find(l => l.id === m.pid); if (!lp) return; if (m.id) { const h = WORLD.hides.find(q => q.id === m.id); lp.hidden = h; lp.hideT = 0; lp.qte = null; AU.play('doorClose', h.pos); } else { const h = lp.hidden; lp.hidden = null; if (h) lp.setPose(h.out.x, h.out.y, h.out.z, h.yaw); AU.play('doorOpen'); } break; }
       case 'inm': if (!this.isHost()) { if (m.add) this.spawnInmateLocal(m.add, m.type); if (m.del) { const i = INM.findIndex(q => q.id === m.del); if (i >= 0) { INM[i].dispose(); INM.splice(i, 1); } } } break;
       case 'toast': UI.toast(m.text); break;
@@ -214,7 +215,8 @@ const GAME = {
       if (typeof DIRECTIVE !== 'undefined') DIRECTIVE.hostTick(dt);
       this.growApples(dt);
       if (st.clock >= 31) this.dawn();
-      else if (!Object.values(this.players).some(p => p.alive)) this.endMatch(false);
+      else if (!Object.values(this.players).some(p => p.alive)) { st.wipeT = (st.wipeT || 0) + dt; if (st.wipeT > 6) this.endMatch(false); } // 6 с на возрождение
+      else st.wipeT = 0;
     } else if (st.phase === 'dawn') {
       st.dawnT += dt; if (st.dawnT > 7) { if (st.night >= st.nights) this.endMatch(true); else { st.night++; st.phase = 'day'; st.clock = 7; this.phaseAll('day'); } }
     }
@@ -355,7 +357,6 @@ const GAME = {
     P.hp -= m.T.damage || 100; if (P.hp > 0) { P.godUntil = now() + 1.2; this.sendTo(pid, { t: 'fx', k: 'hurt', pid }); this.pinfoDirty = true; return; }
     P.alive = false; P.hp = 0; const h = WORLD.hides.find(q => WS[q.id].by === pid); if (h) wsSet(h.id, { by: '' }); P.pose.hid = 0;
     NET.toAll({ t: 'kill', pid, by: m.type, pos: [m.p.x, m.p.y, m.p.z] }); this.pinfoDirty = true;
-    if (!Object.values(this.players).some(p => p.alive)) setTimeout(() => this.endMatch(false), 3500);
   },
   onKilled(m) {
     const lp = LOCALS.find(l => l.id === m.pid);
@@ -445,7 +446,7 @@ const GAME = {
       else if (s.press.use) NET.toHost({ t: 'unhide', pid: lp.id });
       return true;
     }
-    if (!lp.alive) return true;
+    if (!lp.alive) { if (s.press.use && this.st.scene === 'house' && this.st.phase === 'night' && lp.prof && lp.prof.revives > 0 && !lp.revAsk) { lp.revAsk = 1; setTimeout(() => lp.revAsk = 0, 1500); NET.toHost({ t: 'selfrev', pid: lp.id }); } return true; }
     // взаимодействие (держать для некоторых)
     const it = lp.focus;
     if (it && (s.press.use || (lp.holding && lp.holding.id === it.id))) {

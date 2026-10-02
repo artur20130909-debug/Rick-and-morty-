@@ -39,6 +39,7 @@ function buildLobby() {
   const cnt = bx(0, 0, -4.1, 4, 1, .6, mat('#6a4a2a'));
   interactable({ id: 'K_SHOP', mesh: [cnt, npcS.torso.children[0], npcS.head, glassS], pos: new V3(0, 1.3, -4), range: 3.4, label: () => 'Amber-магазин: классы и скины', use: () => UI.openLobbyPanel('shop') });
   WORLD.lamps.push({ pos: new V3(0, 3, -4), on: () => true, color: '#ffcf70', power: 8, range: 10 });
+  const rsg = textPlane(['REVIVES', 'возрождения · ящики'], 1.3, { bg: '#1a0a0a', color: '#ff5a5a', size: 46, pad: 12, radius: 10, fog: false }); rsg.position.set(1.35, 1.42, -3.95); rsg.rotation.y = -.2; g.add(rsg); bx(1.35, 1.0, -4.0, .06, .12, .06, mat('#2a2a30'), { coll: false });
   // ---- порталы за магазином ----
   portalGate('P_LEGACY', -4.5, -14.5, 'LEGACY', '#3ad8ff', 'sunny');
   portalGate('P_20', 4.5, -14.5, '2.0', '#ff4ad8', 'rain');
