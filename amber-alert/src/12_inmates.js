@@ -74,9 +74,10 @@ class Inmate {
   stepTo(tgt, dt, speed) {
     const dx = tgt.x - this.p.x, dz = tgt.z - this.p.z, d = Math.hypot(dx, dz);
     if (d < .25) { this.p.x = tgt.x; this.p.z = tgt.z; this.fixY(tgt.y); return true; }
-    const s = Math.min(d, speed * dt); this.p.x += dx / d * s; this.p.z += dz / d * s; this.yaw = Math.atan2(dx, dz); this.speedNow = speed; this.fixY(tgt.y); return false;
+    const s = Math.min(d, speed * dt), ey = this.p.y + (tgt.y - this.p.y) * (s / d); this.p.x += dx / d * s; this.p.z += dz / d * s; this.yaw = Math.atan2(dx, dz); this.speedNow = speed; this.fixY(ey); return false;
   }
-  fixY(hint) { const g = WORLD.coll.groundAt(this.p.x, this.p.z, .2, this.p.y + .5); this.p.y = g > -40 ? g : hint; }
+  // высота по полу, но без провалов: если пол далеко от ожидаемой высоты пути (щель, лестничный проём) — идём по пути
+  fixY(hint) { const g = WORLD.coll.groundAt(this.p.x, this.p.z, .2, hint + .55); this.p.y = g > -40 && Math.abs(g - hint) < .65 ? g : hint; }
   passVia(via, dt) {
     if (via.startsWith('win:')) { const id = via.slice(4); if (WS[id] && !WS[id].b) { this.mem.breakT = (this.mem.breakT || 0) + dt; if (this.mem.breakT > 1.6) { this.mem.breakT = 0; wsSet(id, { b: 1, c: 0 }); GAME.fxAll('glass', this.p); } return false; } return true; }
     const s = WS[via]; if (!s || s.o || s.b) return true;

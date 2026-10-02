@@ -3,8 +3,8 @@
 // Тело — змея ~4 м из сегментов, которые у КАЖДОГО клиента повторяют путь головы (по реплицированной позиции).
 // Вблизи (10 м) — помехи на экране и дрожание HUD. Ночью игрок снаружи дома сразу «засвечен»: змей идёт прямо к нему.
 const WYRM = {
-  SEG: 16, SP: .25, H: 1.42, NECK: 1.3,
-  rad(b) { return b < this.NECK ? .16 + .06 * (b / this.NECK) : Math.max(.05, .22 - .17 * ((b - this.NECK) / 2.45)); },
+  SEG: 18, SP: .22, H: 1.42, NECK: 1.3,
+  rad(b) { return b < this.NECK ? .17 + .07 * (b / this.NECK) : Math.max(.09, .24 - .15 * ((b - this.NECK) / 2.44)); },
   hgt(b, r) { return b < this.NECK ? r + (this.H - .3 - r) * (1 - Math.sin(PI / 2 * b / this.NECK)) : r; },
   hd(b) { return b < this.NECK ? b * .55 : this.NECK * .55 + (b - this.NECK); },          // расстояние вдоль следа (по горизонтали)
   curve(h) { return [.42 * Math.sin(h * 1.9) * Math.min(1, h / 1.2), -h * .95]; },        // поза по умолчанию (лобби/скример)
@@ -45,12 +45,12 @@ const WYRM = {
     const vis = m.vis !== 0 && m.p.y > -50 && WORLD.level === 'house', hp = new V3(m.p.x, m.p.y + 1.4, m.p.z); c.ov = c.ov || [];
     UI.vps.forEach((v, i) => {
       const lp = v.lp; let o = c.ov[i];
-      let k = vis && lp ? clamp(1 - lp.cam.position.distanceTo(hp) / 10, 0, 1) ** 1.4 : 0; if (k > 0 && m.a === 1) k = Math.min(1, k * 1.3 + .08);
+      let k = vis && lp ? clamp(1 - lp.cam.position.distanceTo(hp) / 9, 0, 1) ** 1.6 : 0; if (k > 0 && m.a === 1) k = Math.min(1, k * 1.3 + .08);
       if (k <= 0) { if (o && o.on) { o.on = false; o.wrap.style.opacity = '0'; o.wrap.style.display = 'none'; v.el.style.transform = ''; } return; }
       if (!o || o.wrap.parentNode !== v.el) { if (o) o.wrap.remove(); o = c.ov[i] = this.mkOverlay(v.el); }
       if (!o.on) { o.on = true; o.wrap.style.display = 'block'; } o.el = v.el;
       o.t -= dt; if (o.t <= 0) { o.t = .05; this.drawStatic(o, k); }
-      o.wrap.style.opacity = Math.min(.55, .04 + k * .36 + (Math.random() < k * .12 ? .22 : 0)).toFixed(2);
+      o.wrap.style.opacity = Math.min(.34, .03 + k * .2 + (Math.random() < k * .1 ? .12 : 0)).toFixed(2); // помехи заметны, но играть не мешают
       v.el.style.transform = Math.random() < k * .22 ? `translate(${((Math.random() - .5) * 16 * k).toFixed(1)}px,${((Math.random() - .5) * 6 * k).toFixed(1)}px)` : '';
     });
   },
@@ -99,28 +99,29 @@ INMATES.def({
   model() {
     const g = new THREE.Group(), P = { g, segs: [], hair: [] }; g.userData.wyrm = P;
     const head = new THREE.Group(); head.position.set(0, WYRM.H, 0); g.add(head); P.head = head;
-    // гладкое бледное лицо без век и ушей
-    MM.sph(head, .2, '#d8d1ca', 0, 0, .02, { sy: 1.3, sz: .95, seg: 14, seg2: 12 });
+    // гладкое бледное лицо без век и ушей; нижняя челюсть отдельно — «разламывается» в погоне
+    MM.sph(head, .2, '#d8d1ca', 0, .04, .02, { sy: 1.15, sz: .95, seg: 14, seg2: 12 });
     const black = mat('#000000', { basic: true });
     for (const s of [-1, 1]) {
-      MM.sph(head, .064, '#7a0c0c', s * .078, .07, .15, { seg: 10, seg2: 8 });
-      MM.sph(head, .054, '#f6f2ea', s * .078, .07, .162, { seg: 10, seg2: 8 });
-      MM.sph(head, .013, '', s * .078, .066, .214, { seg: 6, seg2: 4, mat: black });
+      MM.sph(head, .064, '#7a0c0c', s * .078, .1, .15, { seg: 10, seg2: 8 });
+      MM.sph(head, .054, '#f6f2ea', s * .078, .1, .162, { seg: 10, seg2: 8 });
+      MM.sph(head, .013, '', s * .078, .096, .214, { seg: 6, seg2: 4, mat: black });
     }
-    MM.box(head, .17, .08, .12, '#3a0606', 0, -.15, .1);              // пасть
-    MM.box(head, .15, .03, .02, '#efe8d8', 0, -.125, .178);           // верхние зубы
-    P.jaw = new THREE.Group(); P.jaw.position.set(0, -.15, .02); head.add(P.jaw);
-    MM.box(P.jaw, .19, .05, .18, '#cfc8c2', 0, -.035, .075); MM.box(P.jaw, .14, .03, .02, '#efe8d8', 0, .0, .158);
+    MM.box(head, .16, .11, .15, '', 0, -.17, .075, { mat: mat('#2a0303', { basic: true }) });   // пасть
+    MM.box(head, .15, .03, .02, '#efe8d8', 0, -.13, .152);                                         // верхние зубы
+    P.jaw = new THREE.Group(); P.jaw.position.set(0, -.15, 0); head.add(P.jaw);
+    MM.box(P.jaw, .19, .05, .19, '#cfc8c2', 0, -.05, .08); MM.box(P.jaw, .14, .03, .02, '#efe8d8', 0, -.02, .165);
+    P.jaw.rotation.x = .6;
     // занавес длинных чёрных волос (лицо видно в проборе)
-    MM.sph(head, .215, '#0b0a0c', 0, .08, -.045, { sy: 1.15, seg: 12, seg2: 10 });
+    MM.sph(head, .215, '#0b0a0c', 0, .1, -.045, { sy: 1.15, seg: 12, seg2: 10 });
     const hair = mat('#0a090b'), angs = []; for (const s of [-1, 1]) for (let k = 0; k < 6; k++) angs.push(s * (.75 + k * .42)); angs.push(PI);
     angs.forEach((a, i) => {
-      const L = 1.15 + ((i * 37) % 5) * .05, pv = new THREE.Group(); pv.position.set(Math.sin(a) * .2, .2, Math.cos(a) * .2 - .03); pv.rotation.y = a; head.add(pv);
+      const L = 1.15 + ((i * 37) % 5) * .05, pv = new THREE.Group(); pv.position.set(Math.sin(a) * .2, .22, Math.cos(a) * .2 - .03); pv.rotation.y = a; head.add(pv);
       const st = new THREE.Mesh(new THREE.BoxGeometry(.085, L, .025), hair); st.position.y = -L / 2; pv.add(st); P.hair.push(pv);
     });
     // красное свечение вокруг головы
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: WYRM.glowTex(), color: '#ff2020', transparent: true, opacity: .8, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-    halo.scale.set(1.5, 1.5, 1); halo.position.set(0, .02, -.22); head.add(halo); P.halo = halo;
+    halo.scale.set(1.7, 1.7, 1); halo.position.set(0, .04, -.12); head.add(halo); P.halo = halo;
     // тело: сегменты (в позе по умолчанию — изгиб назад)
     const cols = [mat('#463c42'), mat('#362f34')];
     for (let i = 0; i < WYRM.SEG; i++) {
@@ -161,7 +162,7 @@ INMATES.def({
     const sway = Math.sin(c.ph) * c.sw;
     P.head.position.set(sway, WYRM.H + Math.sin(c.ph * 2) * .02 - (chase ? .08 : 0), chase ? .12 : 0);
     P.head.rotation.set(chase ? .15 : (m.a === 2 ? .5 : Math.sin(t * .7) * .06), -sway * .8, Math.sin(t * .5) * .08);
-    c.jaw = damp(c.jaw || 0, chase ? .85 : m.a === 2 ? .35 : .05, 8, dt); P.jaw.rotation.x = c.jaw;
+    c.jaw = damp(c.jaw || 0, chase ? .9 : m.a === 2 ? .35 : .04, 8, dt); P.jaw.rotation.x = c.jaw; P.jaw.position.y = -.15 - c.jaw * .05;
     P.hair.forEach((h, i) => { h.rotation.x = (moving ? (chase ? .35 : .18) : .02) + Math.sin(t * 2.2 + i * 1.3) * .05; h.rotation.z = Math.sin(t * 1.7 + i) * .04; });
     P.halo.material.opacity = (chase ? .95 : .7) + Math.sin(t * 5) * .1;
     // след головы в мировых координатах → сегменты тела

@@ -28,7 +28,7 @@ function buildHouse() {
   // ---- задний двор: забор, яблони ----
   const fence = mat('#8a6a4a');
   const fenceLine = (x0, z0, x1, z1) => { const L = Math.hypot(x1 - x0, z1 - z0), n = Math.round(L / .5); for (let i = 0; i <= n; i++) { const t = i / n; bx(x0 + (x1 - x0) * t, 0, z0 + (z1 - z0) * t, .12, 1.6, .12, fence, { coll: false }); } bx((x0 + x1) / 2, 1.1, (z0 + z1) / 2, Math.abs(x1 - x0) + .1, .1, Math.abs(z1 - z0) + .1, fence, { coll: false }); WORLD.coll.addBox((x0 + x1) / 2, .9, (z0 + z1) / 2, Math.abs(x1 - x0) + .2, 1.8, Math.abs(z1 - z0) + .2); };
-  fenceLine(-14, -24, 14, -24); fenceLine(-14, -24, -14, -6); fenceLine(14, -24, 14, -6); fenceLine(-14, -6, -8.2, -6); fenceLine(8.2, -6, 14, -6);
+  fenceLine(-14, -24, 14, -24); fenceLine(-14, -24, -14, -6); fenceLine(14, -24, 14, -6); fenceLine(-14, -6, -9.9, -6); fenceLine(9.9, -6, 14, -6); // проходы у углов дома (калитки)
   // невидимые границы мира
   for (const [x, z, sx, sz] of [[0, -40, 140, 2], [0, 40, 140, 2], [-40, 0, 2, 140], [40, 0, 2, 140]]) WORLD.coll.addBox(x, 2, z, sx, 4, sz);
   HOUSE.trees = []; HOUSE.treeSpots = [[-7, -12], [0, -16], [7, -11], [-9, -20], [9, -20], [3, -21]];
@@ -73,6 +73,7 @@ function buildHouse() {
   wall(1, 0, 8, 0, F2, H2, mWP4); wall(-8, 0, -3, 0, F2, H2, mWP3);
   // лестница (ступени вдоль -Z, от z=0 вверх до z=-3) + перила
   stairs(-2.45, .15, '-z', 1.1, 0, F2, 10, mat('#7a5232'));
+  slab(-3, -3.32, -1.9, -2.83, F2, .2, mWood);
   bx(-1.88, F2, -1.6, .06, 1, 3.4, mat('#5a3a22')); bx(-2.45, F2, .25, 1.2, 1, .06, mat('#5a3a22'));
   bx(-1.9, 0, -1.5, .08, 1.0, 3.2, mat('#5a3a22'), { coll: false });
   // ---- двери ----
@@ -161,7 +162,7 @@ function furnishHouse() {
   interactable({ id: 'FUSE', mesh: fuseBox, pos: HOUSE.fuse.pos, init: { on: 1 }, hold: .6, range: 2.4,
     label: () => WS.FUSE.on ? 'Выключить электричество (щиток)' : 'Включить электричество (держи)', use: pid => GAME.useFuse(pid),
     apply: s => fuseLamp.material.color.set(s.on ? '#3f3' : '#f33') });
-  const counterTop = bx(-5.8, 0, .1, 3.2, 1.0, .7, mat('#7a5a3a')); bx(-5.8, 1, .1, 3.3, .06, .8, mat('#a88a5a'));
+  const counterTop = bx(-5.6, 0, .1, 2.6, 1.0, .7, mat('#7a5a3a')); bx(-5.6, 1, .1, 2.7, .06, .8, mat('#a88a5a'));
   textSignMesh(['ЯБЛОКИ ✦ МАГАЗИН'], -5.8, 2.15, -.35, 0, 2.4, '#3a1a0a', '#ffd06a');
   HOUSE.shop = { pos: new V3(-5.8, 0, -.5), npc: null };
   for (const sx of [-7.6, -3.6]) { bx(sx, 0, 5.2, .5, 2, 1.4, mat('#5a5a5e')); }
@@ -229,7 +230,7 @@ function buildHouseNav() {
   const link = (a, b, door) => { N[a].nb.push({ to: b, door }); N[b].nb.push({ to: a, door }); };
   // снаружи
   const O = 'out'; add('street', -1, 0, 14, O); add('porch', -1, 0, 8.6, O); add('frontL', -9.5, 0, 8, O); add('frontR', 9.5, 0, 8, O); add('sideL', -9.5, 0, -3, O); add('sideR', 9.5, 0, -3, O); add('backL', -8, 0, -8, O); add('backR', 6.5, 0, -8, O); add('yard', 0, 0, -13, O); add('yard2', -8, 0, -16, O); add('yard3', 8, 0, -16, O);
-  link('street', 'porch'); link('porch', 'frontL'); link('porch', 'frontR'); link('frontL', 'sideL'); link('frontR', 'sideR'); link('sideL', 'backL'); link('sideR', 'backR'); link('backL', 'yard'); link('backR', 'yard'); link('yard', 'yard2'); link('yard', 'yard3'); link('backL', 'backR');
+  link('street', 'porch'); link('porch', 'frontL'); link('porch', 'frontR'); link('frontL', 'sideL'); link('frontR', 'sideR'); add('cornerL', -9.1, 0, -7.2, O); add('cornerR', 9.1, 0, -7.2, O); link('sideL', 'cornerL'); link('cornerL', 'backL'); link('sideR', 'cornerR'); link('cornerR', 'backR'); link('backL', 'yard'); link('backR', 'yard'); link('yard', 'yard2'); link('yard', 'yard3'); link('backL', 'backR');
   // 1 этаж
   add('foyer', -1, 0, 4.4, 'hall'); add('hallM', -.6, 0, 1.6, 'hall'); add('hallS', -.4, 0, -4.4, 'hall2'); add('stairB', -2.45, 0, .9, 'hall');
   add('livD', 1, 0, 3.5); add('liv', 4, 0, 3.6, 'living'); add('liv2', 6, 0, 1.2, 'living'); add('arch', 6.7, 0, 0);
@@ -238,7 +239,7 @@ function buildHouseNav() {
   add('dinD', -3, 0, -4.5); add('din', -5.5, 0, -2.4, 'dining'); add('din2', -6.6, 0, -1.9, 'dining');
   link('porch', 'foyer', 'D_front'); link('foyer', 'hallM'); link('hallM', 'stairB'); link('hallM', 'hallS'); link('hallM', 'livD'); link('foyer', 'livD'); link('livD', 'liv'); link('liv', 'liv2'); link('liv2', 'arch'); link('arch', 'kit');
   link('hallS', 'kitD'); link('hallM', 'kitD'); link('kitD', 'kit'); link('kit', 'kit2'); link('kit2', 'backIn'); link('backIn', 'backR', 'D_back');
-  link('foyer', 'garD'); link('hallM', 'garD'); link('garD', 'gar', 'D_garage'); link('gar', 'gar2'); link('gar2', 'gdD'); link('gdD', 'din2', 'D_gd'); link('din2', 'din');
+  link('foyer', 'garD'); link('hallM', 'garD'); link('garD', 'gar', 'D_garage'); add('garBk', -7.55, 0, .1, 'garage'); link('gar', 'gar2'); link('gar2', 'garBk'); link('garBk', 'gdD'); link('gdD', 'din2', 'D_gd'); link('din2', 'din');
   link('hallS', 'dinD'); link('dinD', 'din', 'D_dining');
   // лестница и 2 этаж
   add('stairT', -2.45, F2, -3.7, 'hallU'); add('hallU1', -1, F2, -4.4, 'hallU'); add('hallU2', -.4, F2, .6, 'hallU'); add('hallU3', -.6, F2, 4.4, 'hallU');
@@ -248,7 +249,9 @@ function buildHouseNav() {
   add('b3D', -3, F2, 3); add('b3', -5, F2, 3.6, 'bed3'); add('b3b', -5.5, F2, 1, 'bed3'); link('hallU3', 'b3D'); link('hallU2', 'b3D'); link('b3D', 'b3', 'D_bed3'); link('b3', 'b3b');
   add('baD', -3, F2, -4.5); add('ba', -5.2, F2, -3, 'bath'); link('hallU1', 'baD'); link('baD', 'ba', 'D_bath');
   // окна первого этажа — проходы для взлома
-  const nearest = (p, inside) => { let best = null, bd = 1e9; for (const k in N) { const n = N[k]; if (!n.room || (inside ? n.room === 'out' : n.room !== 'out')) continue; if (Math.abs(n.p.y - p.y) > 1) continue; const d = n.p.distanceTo(p); if (d < bd) { bd = d; best = k; } } return best; };
+  // ближайший обычный узел с прямой видимостью (узлы окон не считаются — иначе окно ссылается само на себя)
+  const nearest = (p, inside) => { const c = []; for (const k in N) { const n = N[k]; if (n.win || !n.room || (inside ? n.room === 'out' : n.room !== 'out')) continue; if (Math.abs(n.p.y - p.y) > 1) continue; c.push([n.p.distanceTo(p), k]); } c.sort((a, b) => a[0] - b[0]);
+    for (const [, k] of c) if (WORLD.coll.los({ x: p.x, y: p.y + 1, z: p.z }, { x: N[k].p.x, y: N[k].p.y + 1, z: N[k].p.z }, b => !b.door)) return k; return c.length ? c[0][1] : null; };
   for (const w of WORLD.windows) { if (w.y > 1) continue; const a = 'wi_' + w.id, b = 'wo_' + w.id; add(a, w.inPt.x, 0, w.inPt.z, w.room); add(b, w.outPt.x, 0, w.outPt.z, 'out'); N[a].win = w.id; N[b].win = w.id; link(a, b, 'win:' + w.id); link(a, nearest(w.inPt, true)); link(b, nearest(w.outPt, false)); }
   WORLD.nav = N;
 }
