@@ -26,6 +26,7 @@ const WYRM = {
     if (!best) return false; m.stepTo(best.p, dt, spd); return true;
   },
 
+  glowTex() { return canvasTex('wyrmGlow', 64, 64, g => { const r = g.createRadialGradient(32, 32, 2, 32, 32, 32); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(.35, 'rgba(255,255,255,.55)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); }); },
   /* ---------- клиент: помехи на экране ---------- */
   mkOverlay(parent) {
     const wrap = document.createElement('div'); Object.assign(wrap.style, { position: 'absolute', inset: '0', pointerEvents: 'none', opacity: '0' });
@@ -44,12 +45,12 @@ const WYRM = {
     const vis = m.vis !== 0 && m.p.y > -50 && WORLD.level === 'house', hp = new V3(m.p.x, m.p.y + 1.4, m.p.z); c.ov = c.ov || [];
     UI.vps.forEach((v, i) => {
       const lp = v.lp; let o = c.ov[i];
-      let k = vis && lp ? clamp(1 - lp.cam.position.distanceTo(hp) / 10, 0, 1) : 0; if (k > 0 && m.a === 1) k = Math.min(1, k * 1.3 + .1);
+      let k = vis && lp ? clamp(1 - lp.cam.position.distanceTo(hp) / 10, 0, 1) ** 1.4 : 0; if (k > 0 && m.a === 1) k = Math.min(1, k * 1.3 + .08);
       if (k <= 0) { if (o && o.on) { o.on = false; o.wrap.style.opacity = '0'; o.wrap.style.display = 'none'; v.el.style.transform = ''; } return; }
       if (!o || o.wrap.parentNode !== v.el) { if (o) o.wrap.remove(); o = c.ov[i] = this.mkOverlay(v.el); }
       if (!o.on) { o.on = true; o.wrap.style.display = 'block'; } o.el = v.el;
       o.t -= dt; if (o.t <= 0) { o.t = .05; this.drawStatic(o, k); }
-      o.wrap.style.opacity = Math.min(.6, k * .42 + (Math.random() < k * .12 ? .25 : 0)).toFixed(2);
+      o.wrap.style.opacity = Math.min(.55, .04 + k * .36 + (Math.random() < k * .12 ? .22 : 0)).toFixed(2);
       v.el.style.transform = Math.random() < k * .22 ? `translate(${((Math.random() - .5) * 16 * k).toFixed(1)}px,${((Math.random() - .5) * 6 * k).toFixed(1)}px)` : '';
     });
   },
@@ -102,9 +103,9 @@ INMATES.def({
     MM.sph(head, .2, '#d8d1ca', 0, 0, .02, { sy: 1.3, sz: .95, seg: 14, seg2: 12 });
     const black = mat('#000000', { basic: true });
     for (const s of [-1, 1]) {
-      MM.sph(head, .068, '#7a0c0c', s * .078, .07, .15, { seg: 10, seg2: 8 });
-      MM.sph(head, .058, '#f6f2ea', s * .078, .07, .17, { seg: 10, seg2: 8 });
-      MM.sph(head, .017, '', s * .078, .07, .226, { seg: 6, seg2: 4, mat: black });
+      MM.sph(head, .064, '#7a0c0c', s * .078, .07, .15, { seg: 10, seg2: 8 });
+      MM.sph(head, .054, '#f6f2ea', s * .078, .07, .162, { seg: 10, seg2: 8 });
+      MM.sph(head, .013, '', s * .078, .066, .214, { seg: 6, seg2: 4, mat: black });
     }
     MM.box(head, .17, .08, .12, '#3a0606', 0, -.15, .1);              // пасть
     MM.box(head, .15, .03, .02, '#efe8d8', 0, -.125, .178);           // верхние зубы
@@ -118,8 +119,8 @@ INMATES.def({
       const st = new THREE.Mesh(new THREE.BoxGeometry(.085, L, .025), hair); st.position.y = -L / 2; pv.add(st); P.hair.push(pv);
     });
     // красное свечение вокруг головы
-    const halo = new THREE.Mesh(new THREE.SphereGeometry(.5, 16, 12), new THREE.MeshBasicMaterial({ color: '#ff2020', transparent: true, opacity: .26, side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-    head.add(halo); P.halo = halo;
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: WYRM.glowTex(), color: '#ff2020', transparent: true, opacity: .8, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    halo.scale.set(1.5, 1.5, 1); halo.position.set(0, .02, -.22); head.add(halo); P.halo = halo;
     // тело: сегменты (в позе по умолчанию — изгиб назад)
     const cols = [mat('#463c42'), mat('#362f34')];
     for (let i = 0; i < WYRM.SEG; i++) {
@@ -162,7 +163,7 @@ INMATES.def({
     P.head.rotation.set(chase ? .15 : (m.a === 2 ? .5 : Math.sin(t * .7) * .06), -sway * .8, Math.sin(t * .5) * .08);
     c.jaw = damp(c.jaw || 0, chase ? .85 : m.a === 2 ? .35 : .05, 8, dt); P.jaw.rotation.x = c.jaw;
     P.hair.forEach((h, i) => { h.rotation.x = (moving ? (chase ? .35 : .18) : .02) + Math.sin(t * 2.2 + i * 1.3) * .05; h.rotation.z = Math.sin(t * 1.7 + i) * .04; });
-    P.halo.material.opacity = (chase ? .34 : .22) + Math.sin(t * 5) * .04;
+    P.halo.material.opacity = (chase ? .95 : .7) + Math.sin(t * 5) * .1;
     // след головы в мировых координатах → сегменты тела
     const yaw = M.rotation.y, cs = Math.cos(yaw), sn = Math.sin(yaw), hx = m.p.x + sway * cs, hz = m.p.z - sway * sn, hy = m.p.y;
     let tr = c.trail;
