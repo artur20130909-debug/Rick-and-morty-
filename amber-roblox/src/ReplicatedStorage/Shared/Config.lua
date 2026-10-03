@@ -63,6 +63,20 @@ Config.AlertUnknown = {
 	"ГРАЖДАНАМ РЕКОМЕНДУЕТСЯ ОСТАВАТЬСЯ В ПОМЕЩЕНИИ ДО ПОЛУЧЕНИЯ НОВОЙ ИНФОРМАЦИИ.",
 }
 
+-- Указания телеведущего (как в 3.0): с 2-й ночи оповещение иногда даёт приказ.
+-- За неподчинение растут «помехи» (атрибут игрока Static); на 100% за игроком приходит Телеведущий.
+Config.DirectiveChance = 0.55
+Config.StaticRise, Config.StaticDecay = 7, 2.5      -- в секунду
+Config.Directives = {
+	{ code = "stay_inside",   text = "НЕ ВЫХОДИТЕ ИЗ ДОМА ДО РАССВЕТА." },
+	{ code = "lights_on",     text = "НЕ ДОПУСКАЙТЕ ОТКЛЮЧЕНИЯ СВЕТА В ДОМЕ." },
+	{ code = "no_hiding",     text = "НЕ ПРЯЧЬТЕСЬ. ОСТАВАЙТЕСЬ НА ВИДУ." },
+	{ code = "no_flashlight", text = "НЕ ПОЛЬЗУЙТЕСЬ ФОНАРИКАМИ." },
+	{ code = "upstairs",      text = "ОСТАВАЙТЕСЬ НА ВТОРОМ ЭТАЖЕ." },
+	{ code = "downstairs",    text = "НЕ ПОДНИМАЙТЕСЬ НА ВТОРОЙ ЭТАЖ." },
+	{ code = "together",      text = "ДЕРЖИТЕСЬ ВМЕСТЕ. НЕ ОСТАВАЙТЕСЬ ОДНИ.", coop = true },
+}
+
 -- Звуки. Ключ -> ID в Roblox. Сгенерированные файлы лежат в assets/sounds (см. assets/MANIFEST.md).
 -- Загрузи их: Studio → View → Asset Manager → Bulk Import, затем ПКМ по звуку → Copy ID.
 Config.Sounds = {

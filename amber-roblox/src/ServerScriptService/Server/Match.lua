@@ -245,6 +245,18 @@ local function startAlert(m)
 	end
 	m.folder:SetAttribute("Inmate", key or "")
 	m.folder:SetAttribute("Unknown", m.unknown == true)
+	-- указание телеведущего (со 2-й ночи)
+	m.directive = nil
+	if m.night >= 2 and math.random() < Config.DirectiveChance then
+		local pool = {}
+		for _, d in ipairs(Config.Directives) do
+			if not d.coop or #m.players > 1 then table.insert(pool, d) end
+		end
+		if #pool > 0 then m.directive = pool[math.random(1, #pool)] end
+	end
+	if m.directive then data.directive = { code = m.directive.code, text = m.directive.text } end
+	m.folder:SetAttribute("DirectiveCode", m.directive and m.directive.code or "")
+	m.folder:SetAttribute("DirectiveText", m.directive and m.directive.text or "")
 	-- все к телевизору: смотрят трансляцию
 	ctx.HouseLogic.unhideAll(m)
 	local spots = m.house.alertSpots or {}
@@ -292,6 +304,74 @@ local function startNight(m)
 	m:fx("sound", "Stinger")
 end
 
+-- нарушает ли игрок указание телеведущего прямо сейчас
+local function violating(m, plr, code)
+	local _, hrp = charParts(plr)
+	if not hrp then return false end
+	if code == "stay_inside" then return not m:isIndoors(hrp.Position) end
+	if code == "lights_on" then return m.power == false end
+	if code == "no_hiding" then return plr:GetAttribute("Hidden") == true end
+	if code == "no_flashlight" then return plr:GetAttribute("Flashlight") == true end
+	if code == "upstairs" or code == "downstairs" then
+		local r = m:roomAt(hrp.Position)
+		local floor = r and r:GetAttribute("Floor") or 1
+		if code == "upstairs" then return floor ~= 2 end
+		return floor == 2
+	end
+	if code == "together" then
+		local alone = true
+		local others = 0
+		for _, p in ipairs(m:alivePlayers()) do
+			if p ~= plr then
+				others = others + 1
+				local _, r = charParts(p)
+				if r and (r.Position - hrp.Position).Magnitude < 40 then alone = false end
+			end
+		end
+		return others > 0 and alone
+	end
+	return false
+end
+
+-- за игроком пришёл Телеведущий
+local function summonBroadcaster(m, plr)
+	m.summoned = m.summoned or {}
+	if m.summoned[plr] then return end
+	m.summoned[plr] = true
+	m:toast("ТЕЛЕВЕДУЩИЙ ПРИШЁЛ ЗА " .. string.upper(plr.DisplayName), Color3.fromRGB(255, 60, 60))
+	local spawned = false
+	if ctx.InmateAI and inmateInfo("Broadcaster") then
+		local ok, inm = pcall(ctx.InmateAI.spawn, m, "Broadcaster")
+		if ok and inm then
+			inm.forcedTarget = plr
+			if inm.model then inm.model:SetAttribute("TargetUserId", plr.UserId) end
+			if not table.find(m.inmates, inm) then table.insert(m.inmates, inm) end
+			spawned = true
+		end
+	end
+	if not spawned then
+		m:fxTo(plr, "sound", "Static")
+		task.delay(2, function()
+			if m:isAlive(plr) then m:killPlayer(plr, { key = "Broadcaster" }) end
+		end)
+	end
+end
+
+local function updateStatic(m, dt)
+	local code = m.directive and m.directive.code
+	for _, plr in ipairs(m:alivePlayers()) do
+		local st = plr:GetAttribute("Static") or 0
+		if code and m.nightT > 15 and violating(m, plr, code) then
+			st = st + Config.StaticRise * dt
+		else
+			st = st - Config.StaticDecay * dt
+		end
+		st = math.clamp(st, 0, 100)
+		plr:SetAttribute("Static", math.floor(st * 10 + 0.5) / 10)
+		if st >= 100 then summonBroadcaster(m, plr) end
+	end
+end
+
 local function startDawn(m)
 	m:setPhase("dawn")
 	m.dawnT = 0
@@ -310,6 +390,10 @@ local function startDawn(m)
 			ctx.Data.addXp(plr, 15)
 		end
 	end
+	m.directive = nil
+	m.summoned = {}
+	m.folder:SetAttribute("DirectiveCode", "")
+	m.folder:SetAttribute("DirectiveText", "")
 	m:fx("sound", "Dawn")
 	m:toast("Рассвет! Ночь " .. m.night .. " позади. +$" .. Config.DawnBonus, Color3.fromRGB(255, 220, 140))
 end
@@ -397,6 +481,7 @@ local function step(m, dt)
 			Match.finish(m, false, "Никто не дожил до утра. Ночь " .. m.night)
 			return
 		end
+		updateStatic(m, dt)
 		if m.clock >= T.nightEnd then startDawn(m) end
 	elseif m.phase == "dawn" then
 		m.dawnT = m.dawnT + dt
