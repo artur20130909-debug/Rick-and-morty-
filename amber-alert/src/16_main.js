@@ -60,6 +60,31 @@ function torchFrame() {
   for (const lp of LOCALS) { lp.avatar.torchLens.material.color.set(lp.light ? '#fff6c8' : '#333'); }
   for (const id in GAME.remotes) GAME.remotes[id].avatar.torchLens.material.color.set(GAME.remotes[id].l ? '#fff6c8' : '#333');
 }
+/* ---- готовые треки: лобби и день в доме ---- */
+if (typeof MUS_SRC !== 'undefined') {
+  if (MUS_SRC.lobby) MUS.def('lobby', { src: MUS_SRC.lobby, vol: .8, loopEnd: 57.2, xfade: 2.5 });
+  if (MUS_SRC.day) MUS.def('day', { src: MUS_SRC.day, vol: .7, loopStart: 4.6, start: 4.6, loopEnd: 70.5, xfade: 2.5 });
+}
+/* ---- музыка по ситуации (у всех клиентов): лобби, день, тема заключённого ночью с «напряжением», рассвет, итог ---- */
+function musicFrame() {
+  let want = null, inten = 0; const st = GAME.st;
+  if (GAME.scene === 'menu' || GAME.scene === 'lobby') want = 'lobby';
+  else if (GAME.scene === 'house') {
+    const ph = st.phase;
+    if (ph === 'day') want = 'day';
+    else if (ph === 'night') {
+      const T = INMATES.types[st.inmate], k = T && !st.unknown ? 'inm_' + (T.music || T.key) : 'night'; want = MUS.songs[k] ? k : 'night';
+      let d = 99, chase = false; const me = LOCALS.find(l => l.alive) || LOCALS[0];
+      if (me) for (const m of INM) { if (m.vis === 0 || m.p.y < -40) continue; const dd = m.p.distanceTo(me.body.p); if (m.type === 'broadcaster' && m.target === me.id) { want = 'inm_broadcaster'; } d = Math.min(d, dd); if (m.a === 1 && dd < 18) chase = true; }
+      inten = chase ? 1 : clamp(1 - d / 24, .1, .65);
+      if (INM.some(m => m.type === 'broadcaster' && !m.gone && LOCALS.some(l => l.id === m.target))) want = 'inm_broadcaster';
+    }
+    else if (ph === 'dawn') want = 'dawn';
+    else if (ph === 'end') want = GAME.lastWin ? 'win' : 'lose';
+  }
+  if (want !== MUS.key) { if (want) MUS.play(want); else MUS.stop(.6); }
+  MUS.intensity(inten);
+}
 /* ---- скример ---- */
 function scareFrame(dt) {
   for (const lp of LOCALS) { const s = lp.scare; if (!s) continue; s.t += dt;
@@ -88,7 +113,7 @@ function frame(t) {
       for (const lp of LOCALS) { const s = lp.input; if (!s) continue; if (s.press.menu && !UI.modal) UI.pause(); else if (s.press.menu && UI.modal && now() - (UI.pauseT || 0) > .35) UI.closeModal(); if (s.press.chat && lp.i === 0 && NET.role !== 'solo') UI.openChat(); }
       scareFrame(dt);
     } else { menuCamFrame(t / 1000); for (const f of WORLD.ticks) f(dt); }
-    lobbyFrame(dt); houseFrame(dt); skyFrame(); torchFrame();
+    lobbyFrame(dt); houseFrame(dt); skyFrame(); torchFrame(); musicFrame();
     const focus = LOCALS.length ? LOCALS.map(l => l.cam.position) : [MENUCAM.position];
     R.pool.update(focus); weatherFrame(dt, focus[0]);
     AU.setListener(LOCALS[0] ? LOCALS[0].cam : MENUCAM);
@@ -101,7 +126,7 @@ function frame(t) {
 function boot() {
   loadSettings(); MAINPROF = loadProfile();
   R.init(); UI.init(); buildLobby(); GAME.scene = 'menu'; UI.show('menu'); AU.ambient('lobby');
-  window.AA = { GAME, NET, LOCALS, WORLD, WS, INM, UI, R, AU, INMATES, HOUSE, LOBBY, THREE, V3, Inmate, MM, wsSet, setWeather };
+  window.AA = { GAME, NET, LOCALS, WORLD, WS, INM, UI, R, AU, INMATES, HOUSE, LOBBY, MUS, THREE, V3, Inmate, MM, wsSet, setWeather, PXSheet, PXActor, PXC, PXK, lookSheetDef };
   // тестовый помощник: прогнать игровую логику на sec секунд без отрисовки (шаг 50 мс)
   AA.sim = sec => { for (let t = 0; t < sec; t += .05) { GAME.localTick(.05); if (GAME.isHost()) GAME.hostTick(.05); houseFrame(.05); endFramePresses(); } return true; };
   if (QS.get('autostart') === 'solo') UI.startSolo();

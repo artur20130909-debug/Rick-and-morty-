@@ -37,7 +37,7 @@ function buildLobby() {
   WORLD.coll.addBox(0, 2.1, -8, 9, 4.2, 5);
   const npcS = new Avatar({ skin: 1, shirt: 6, pants: 1, hat: 'cap', face: 'grin', hatColor: '#ffb000' }); npcS.setName('Торговец Amber', '#ffb000'); npcS.root.position.set(0, 0, -4.7); npcS.root.rotation.y = 0; g.add(npcS.root); WORLD.coll.addBox(0, .9, -4.7, .7, 1.8, .5);
   const cnt = bx(0, 0, -4.1, 4, 1, .6, mat('#6a4a2a'));
-  interactable({ id: 'K_SHOP', mesh: [cnt, npcS.torso.children[0], npcS.head, glassS], pos: new V3(0, 1.3, -4), range: 3.4, label: () => 'Amber-магазин: классы и скины', use: () => UI.openLobbyPanel('shop') });
+  interactable({ id: 'K_SHOP', mesh: [cnt, npcS.actor.mesh, glassS], pos: new V3(0, 1.3, -4), range: 3.4, label: () => 'Amber-магазин: классы и скины', use: () => UI.openLobbyPanel('shop') });
   WORLD.lamps.push({ pos: new V3(0, 3, -4), on: () => true, color: '#ffcf70', power: 8, range: 10 });
   const rsg = textPlane(['REVIVES', 'возрождения · ящики'], 1.3, { bg: '#1a0a0a', color: '#ff5a5a', size: 46, pad: 12, radius: 10, fog: false }); rsg.position.set(1.35, 1.42, -3.95); rsg.rotation.y = -.2; g.add(rsg); bx(1.35, 1.0, -4.0, .06, .12, .06, mat('#2a2a30'), { coll: false });
   // ---- порталы за магазином ----
@@ -73,7 +73,7 @@ function kiosk(id, x, z, ry, title, color, npcLook, panel) {
   const lampP = new V3(0, 2.2, .6).applyAxisAngle(new V3(0, 1, 0), ry).add(new V3(x, 0, z));
   WORLD.lamps.push({ pos: lampP, on: () => true, color, power: 5, range: 6 });
   const cs = Math.abs(Math.cos(ry)), sn = Math.abs(Math.sin(ry)); WORLD.coll.addBox(x, .6, z, 3.2 * cs + 1.6 * sn, 1.2, 1.6 * cs + 3.2 * sn);
-  interactable({ id, mesh: [base, top, npc.torso.children[0], npc.head], pos: new V3(x, 1.2, z), range: 3.4, label: () => panel, use: () => UI.openLobbyPanel(id) });
+  interactable({ id, mesh: [base, top, npc.actor.mesh], pos: new V3(x, 1.2, z), range: 3.4, label: () => panel, use: () => UI.openLobbyPanel(id) });
 }
 function portalGate(id, x, z, label, color, map) {
   const gr = new THREE.Group(); gr.position.set(x, 0, z); WORLD.add(gr);

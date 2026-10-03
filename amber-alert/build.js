@@ -11,10 +11,16 @@ const peer = fs.readFileSync(path.join(dir, 'vendor/peerjs.min.js'), 'utf8');
 // INM_ONLY=key — собрать только с одним файлом заключённого из src/12z_*.js (для изолированных тестов)
 const only = process.env.INM_ONLY;
 const files = fs.readdirSync(src).filter(f => f.endsWith('.js') && (!only || !f.startsWith('12z_') || f === '12z_' + only + '.js')).sort();
-const game = files.map(f => `/* ===== ${f} ===== */\n` + fs.readFileSync(path.join(src, f), 'utf8')).join('\n');
+// готовые музыкальные треки (assets/music/*.mp3) встраиваются как data URL сразу после 01c_songs.js
+const mdir = path.join(dir, 'assets/music');
+const tracks = fs.existsSync(mdir) ? fs.readdirSync(mdir).filter(f => f.endsWith('.mp3')).sort() : [];
+const trackJs = '/* ===== музыкальные треки (сгенерировано build.js) ===== */\nconst MUS_SRC = {' + tracks.map(f => `${JSON.stringify(f.replace(/\.mp3$/, ''))}:"data:audio/mpeg;base64,${fs.readFileSync(path.join(mdir, f)).toString('base64')}"`).join(',\n') + '};\n';
+const parts = []; for (const f of files) { parts.push(`/* ===== ${f} ===== */\n` + fs.readFileSync(path.join(src, f), 'utf8')); if (f === '01c_songs.js') parts.push(trackJs); }
+if (!files.includes('01c_songs.js')) parts.unshift(trackJs);
+const game = parts.join('\n');
 const head = fs.readFileSync(path.join(src, 'head.html'), 'utf8');
 for (const [n, s] of [['three', three], ['peer', peer], ['game', game]]) if (/<\/script/i.test(s)) throw new Error(n + ' contains </script');
 const out = head + '<script>' + peer + '</script>\n<script type="module">\n' + three + game + '\n</script></body></html>\n';
 const outPath = process.env.OUT || path.join(dir, 'index.html');
 fs.writeFileSync(outPath, out);
-console.log(outPath, (out.length / 1024).toFixed(0) + ' KB, game sources:', files.join(' '));
+console.log(outPath, (out.length / 1024).toFixed(0) + ' KB, game sources:', files.join(' '), '| tracks:', tracks.join(' '));

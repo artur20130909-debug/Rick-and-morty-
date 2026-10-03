@@ -15,6 +15,7 @@ const AU = {
     this.noise = c.createBuffer(1, c.sampleRate * 2, c.sampleRate); const nd = this.noise.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
     this.listener = c.listener;
     if (this.pendingAmb !== undefined) { const k = this.pendingAmb; this.pendingAmb = undefined; this.ambKind = null; this.ambient(k); }
+    if (MUS.pending) { const k = MUS.pending; MUS.pending = null; MUS.play(k); }
   },
   t() { return this.ctx ? this.ctx.currentTime : 0; },
   setVol(v) { SETTINGS.volume = v; if (this.master) this.master.gain.setTargetAtTime(v, this.t(), .05); },
@@ -96,9 +97,9 @@ const AU = {
     const g = c.createGain(); g.gain.value = .0001; g.gain.setTargetAtTime(1, t, 1); g.connect(this.music); const nodes = [];
     const lfoNoise = (fq, v, q = .7) => { const s = c.createBufferSource(); s.buffer = this.noise; s.loop = true; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = fq; f.Q.value = q; const gg = c.createGain(); gg.gain.value = v; const l = c.createOscillator(); l.frequency.value = .07 + Math.random() * .08; const lg = c.createGain(); lg.gain.value = fq * .4; l.connect(lg); lg.connect(f.frequency); s.connect(f); f.connect(gg); gg.connect(g); s.start(); l.start(); nodes.push(s, l); };
     const drone = (f, v, type = 'sine') => { const o = c.createOscillator(); o.type = type; o.frequency.value = f; const gg = c.createGain(); gg.gain.value = v; const lp = c.createBiquadFilter(); lp.frequency.value = 500; o.connect(lp); lp.connect(gg); gg.connect(g); o.start(); nodes.push(o); };
-    if (kind === 'lobby') { lfoNoise(420, .05); drone(55, .05); drone(82.4, .03, 'triangle'); this.lobbyMusic(g, nodes); }
-    else if (kind === 'night') { lfoNoise(300, .09); lfoNoise(1200, .02, 2); drone(41, .07); drone(61.7, .025, 'sawtooth'); }
-    else if (kind === 'tense') { lfoNoise(500, .07); drone(46.2, .1, 'sawtooth'); drone(49, .06, 'sawtooth'); drone(98, .02, 'square'); }
+    if (kind === 'lobby') { lfoNoise(420, .03); }   // мелодию лобби играет MUS
+    else if (kind === 'night') { lfoNoise(300, .06); lfoNoise(1200, .015, 2); drone(41, .04); }
+    else if (kind === 'tense') { lfoNoise(500, .05); drone(46.2, .06, 'sawtooth'); drone(49, .04, 'sawtooth'); }
     else if (kind === 'dawn') { lfoNoise(2000, .015, 1); drone(130.8, .03, 'triangle'); drone(196, .02, 'triangle'); }
     this.amb = { g, stop: () => nodes.forEach(n => { try { n.stop(); } catch (_) { } }) };
   },

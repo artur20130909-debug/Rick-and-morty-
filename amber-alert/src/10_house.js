@@ -193,7 +193,7 @@ function furnishHouse() {
   const npcA = new Avatar({ skin: 1, shirt: 3, pants: 1, hat: 'cap', face: 'grin', hatColor: '#c4281c' }); // вывеска над прилавком вместо таблички с именем
   npcA.root.position.set(-5.8, 0, -.45); npcA.root.rotation.y = 0; g.add(npcA.root); HOUSE.shop.npc = npcA;
   WORLD.coll.addBox(-5.8, .9, -.45, .7, 1.8, .5);
-  interactable({ id: 'SHOP', mesh: [npcA.torso.children[0], npcA.head, counterTop], pos: new V3(-5.8, 1.3, .1), range: 3,
+  interactable({ id: 'SHOP', mesh: [npcA.actor.mesh, counterTop], pos: new V3(-5.8, 1.3, .1), range: 3,
     label: () => GAME.shopOpen() ? 'Магазин: продать яблоки и купить вещи' : 'Магазин закрыт до утра', use: pid => GAME.openShop(pid) });
 }
 function textSignMesh(lines, x, y, z, ry, w, bg, fg) { const p = textPlane(lines, w, { bg, color: fg, size: 52, pad: 18, radius: 12 }); p.position.set(x, y, z); p.rotation.y = ry; WORLD.add(p); return p; }

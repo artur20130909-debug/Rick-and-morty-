@@ -6,7 +6,7 @@ class LocalPlayer {
     this.i = i; this.src = src; this.id = info.id; this.name = info.name; this.look = info.look;
     this.body = new Body({ r: .3, h: 1.75 }); this.cam = new THREE.PerspectiveCamera(74, 1, .05, 120); this.cam.rotation.order = 'YXZ';
     this.cam.layers.enableAll(); this.cam.layers.disable(1 + i);   // своё тело не видно
-    this.avatar = new Avatar(this.look, this.name); this.avatar.root.traverse(o => o.layers.set(1 + i)); R.scene.add(this.avatar.root);
+    this.avatar = new Avatar(this.look, this.name); this.avatar.setLayer(1 + i); R.scene.add(this.avatar.root);
     this.eye = EYE; this.stamina = 1; this.crouch = false; this.light = false; this.battery = 1; this.lean = 0; this.bob = 0; this.stepAcc = 0;
     this.hidden = null; this.alive = true; this.spectate = null; this.noise = 0; this.speed = 0; this.focus = null; this.shake = 0; this.frozen = false;
     this.inv = []; this.slot = 0; this.hp = 100;

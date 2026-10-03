@@ -114,7 +114,7 @@ const GAME = {
       case 'toast': UI.toast(m.text); break;
       case 'chat': UI.chat(m.name, m.text); break;
       case 'shopres': UI.shopResult(m); break;
-      case 'end': UI.results(m); this.awardLocal(m); break;
+      case 'end': this.lastWin = !!m.win; UI.results(m); this.awardLocal(m); break;
     }
   },
   applyPlayers(list) {
