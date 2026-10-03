@@ -652,7 +652,7 @@ defChar('president', Object.assign({}, CH.evil, { name: 'Президент Мо
 defChar('presevil', Object.assign({}, CH.president, { name: 'Злой Морти', patch: 1, emo: 'angry', pose: 'hips' }));
 defChar('rick', { name: 'Рик', voice: 'rick', skin: '#f2e2c8', leg: 34, legW: 7, hipW: 13, pants: '#7b5d3b', shoe: '#3a3534', shoeK: 'shoe',
   torso: 30, shW: 22, waist: 17, shirt: '#8fd3e6', top: 'coat', sleeve: 'long', sleeveC: '#f5f7f8', arm: 29, armW: 5, neck: 4, neckW: 5.5,
-  hw: 22, hh: 26, jaw: .6, chin: .3, cheek: .05, eyeR: 4.1, eyeGap: 4.2, eyeY: -1.5, pup: .8, hair: '#a9dcea', hk: 'rick', brow: 'uni', nose: 'rick', mouth: 'rick', mouthY: 9.5, mouthW: 6, pose: 'gun', emo: 'tired' });
+  hw: 23, hh: 23.5, jaw: .74, chin: .5, cheek: .02, eyeR: 4, eyeGap: 4.3, eyeY: -2.4, pup: .78, hair: '#a9dcea', hk: 'rick', brow: 'uni', nose: 'rick', mouth: 'rick', mouthY: 6.9, mouthW: 5.2, pose: 'gunlow', emo: 'tired' });
 defChar('summer', { name: 'Саммер', voice: 'summer', skin: '#f6cfa6', leg: 32, legW: 7, hipW: 13, pants: '#f1f1ef', shoe: '#222', shoeK: 'flat',
   torso: 25, shW: 18, waist: 15, shirt: '#ec7cc8', top: 'tank', arm: 23, armW: 4.2, neck: 4, neckW: 5, hw: 22, hh: 24, jaw: .62, chin: .38,
   eyeR: 4.2, eyeGap: 4.4, eyeY: -1, pup: 1, hair: '#ea7a2e', hk: 'summer', lash: 1, brow: 'thin', nose: 'line', mouth: 'smile', mouthY: 8, mouthW: 4.2, pose: 'clasp' });
@@ -660,8 +660,8 @@ defChar('jerry', { name: 'Джерри', voice: 'jerry', skin: '#f1c9a1', leg: 3
   torso: 27, shW: 25, waist: 22, shirt: '#5c7a37', top: 'polo', arm: 24, armW: 5, neck: 4, neckW: 7, hw: 25, hh: 27, jaw: .92, chin: .58, cheek: .05,
   eyeR: 4.5, eyeGap: 4.7, eyeY: -2, pup: .95, hair: '#7a5843', hk: 'jerry', brow: 'thin', nose: 'line', mouth: 'grin', mouthY: 9.5, mouthW: 6.5, pose: 'hips' });
 defChar('beth', { name: 'Бет', voice: 'beth', skin: '#f6d6c4', leg: 33, legW: 7, hipW: 13, pants: '#2f4a92', shoe: '#efefef', shoeK: 'flat',
-  torso: 25, shW: 19, waist: 15, shirt: '#ec6a50', top: 'blouse', arm: 23, armW: 4.2, neck: 5, neckW: 5, hw: 21, hh: 25, jaw: .55, chin: .3,
-  eyeR: 4.2, eyeGap: 4.4, eyeY: -1.5, pup: .85, hair: '#f2cd6a', hk: 'beth', lash: 1, brow: 'arch', nose: 'line', mouth: 'lips', mouthY: 8.5, mouthW: 4.5, pose: 'behind' });
+  torso: 25, shW: 19, waist: 15, shirt: '#ec6a50', top: 'blouse', arm: 23, armW: 4.2, neck: 4.5, neckW: 5, hw: 21.5, hh: 23, jaw: .66, chin: .44,
+  eyeR: 3.8, eyeGap: 4.2, eyeY: -1.8, pup: .8, hair: '#f2cd6a', hk: 'beth', lash: 1, brow: 'arch', nose: 'line', mouth: 'lips', mouthY: 6.9, mouthW: 3.4, pose: 'behind' });
 defChar('jessica', { name: 'Джессика', voice: 'jessica', skin: '#f8d8bb', leg: 26, legW: 6.8, hipW: 13, pants: '#405a9a', shoe: '#c0405a', shoeK: 'flat',
   torso: 22, shW: 18, waist: 15, shirt: '#c8a0e8', top: 'tank', arm: 21, armW: 4.2, neck: 3.5, neckW: 5, hw: 22, hh: 24, jaw: .6, chin: .36,
   eyeR: 4.2, eyeGap: 4.4, eyeY: -1, pup: 1, hair: '#d2562f', hk: 'long', lash: 1, nose: 'line', mouth: 'smile', mouthW: 4 });
@@ -714,6 +714,7 @@ const POSES = {
 // поза «на одну руку»: правая (s=+1) рука особая, левая обычная
 const ONEARM = {
   gun: (d, g) => [d.shW / 2 + 6, g.shY + 3, d.shW / 2 + 6.5, g.shY - d.arm * .5],
+  gunlow: (d, g) => [d.shW / 2 + 2.6, g.shY + d.arm * .5, d.shW / 2 + 4.2, g.shY + d.arm * .94],
   wave: (d, g) => [d.shW / 2 + 7, g.shY - 1, d.shW / 2 + 9 + sin(T / 5) * 3.5, g.shY - d.arm * .62],
   point: (d, g) => [d.shW / 2 + d.arm * .48, g.shY + 3, d.shW / 2 + d.arm * .98, g.shY + 1.5],
   think: (d, g) => [d.shW / 2 + 4, g.shY + d.arm * .55, 3, g.chinY + 1],
@@ -723,32 +724,100 @@ const ONEARM = {
 };
 
 /* ---------- пиксельные спрайты персонажей ----------
-   В пиксель-режиме персонаж рисуется вектором в 4 раза крупнее сетки арта, затем уменьшается «по ближайшему пикселю»
-   (без сглаживания), полупрозрачные края отсекаются и добавляется контур в 1 пиксель — как у спрайтов Undertale.
+   В пиксель-режиме персонаж рисуется вектором в 4 раза крупнее сетки арта — два прохода:
+   1) цвет: все заливки как есть, но чёрные линии OL не рисуются (под ними остаётся цвет детали);
+   2) маска линий: заливки чёрные (перекрывают линии), линии OL — белые.
+   Затем уменьшение «по ближайшему пикселю», внутренние линии утончаются ровно до 1 пикселя и красятся
+   тёмным оттенком соседней детали («selout», как в Deltarune), а снаружи — ровно один пиксель тёмного контура.
+   Тёмные заливки (обувь, костюм, повязка, тёмные волосы) — это заливки, их линии не трогают.
    Центр персонажа всегда попадает на границу пикселя, поэтому симметричное лицо остаётся симметричным. */
-const PXS = 4, PXHI = document.createElement('canvas'), PXHX = PXHI.getContext('2d'), PXLO = document.createElement('canvas'), PXLX = PXLO.getContext('2d', { willReadFrequently: true });
-const PX_OL = [43, 34, 32];
-// общий конвейер: fn рисует вектор в «крупный» холст с матрицей mat → уменьшение по ближайшему пикселю → контур → лица
+const PXS = 4, PXHI = document.createElement('canvas'), PXHX = PXHI.getContext('2d', { willReadFrequently: true }), PXHM = document.createElement('canvas'), PXMX = PXHM.getContext('2d', { willReadFrequently: true });
+const PXLO = document.createElement('canvas'), PXLX = PXLO.getContext('2d', { willReadFrequently: true });
+const PX_OL = [43, 34, 32], PX_LK = .68;   // цвет внешнего контура; насколько линия темнее своей детали (0..1 → к цвету OL)
+// подмена цветов на «крупных» холстах (только они рисуют спрайты, на остальную игру это не влияет)
+(() => {
+  const P = CanvasRenderingContext2D.prototype, dF = Object.getOwnPropertyDescriptor(P, 'fillStyle'), dS = Object.getOwnPropertyDescriptor(P, 'strokeStyle'), memo = new Map();
+  const solid = v => { if (typeof v !== 'string') return true; let r = memo.get(v); if (r === undefined) { const m = /^rgba\(([^)]*)\)/.exec(v.replace(/\s/g, '')); r = !m || !(parseFloat(m[1].split(',')[3]) < .5); memo.set(v, r); } return r; };
+  const NONE = 'rgba(0,0,0,0)';
+  Object.defineProperty(PXHX, 'strokeStyle', { get() { return dS.get.call(this); }, set(v) { dS.set.call(this, v === OL ? NONE : v); } });
+  Object.defineProperty(PXMX, 'fillStyle', { get() { return dF.get.call(this); }, set(v) { dF.set.call(this, solid(v) ? '#000' : NONE); } });
+  Object.defineProperty(PXMX, 'strokeStyle', { get() { return dS.get.call(this); }, set(v) { dS.set.call(this, v === OL ? '#fff' : solid(v) ? '#000' : NONE); } });
+  Object.defineProperty(PXMX, 'shadowBlur', { get() { return 0; }, set(v) { } });
+})();
+// общий конвейер: fn рисует вектор (два прохода) → уменьшение → линии в 1 пиксель → selout → внешний контур → лица
 function pxRender(lw, lh, mat, fn) {
-  const hw = lw * PXS, hh = lh * PXS; if (PXHI.width < hw || PXHI.height < hh) { PXHI.width = Math.max(PXHI.width, hw); PXHI.height = Math.max(PXHI.height, hh); }
+  const hw = lw * PXS, hh = lh * PXS, N = lw * lh;
+  for (const c of [PXHI, PXHM]) if (c.width < hw || c.height < hh) { c.width = Math.max(c.width, hw); c.height = Math.max(c.height, hh); }
   if (PXLO.width < lw || PXLO.height < lh) { PXLO.width = Math.max(PXLO.width, lw); PXLO.height = Math.max(PXLO.height, lh); }
-  const main = x; x = PXHX; x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, hw, hh); x.setTransform(...mat); x.globalAlpha = 1;
-  const faces = PXF = [];
-  try { fn(); } catch (e) { console.error(e); } finally { PXF = null; }
-  x = PXLX; x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, lw, lh); x.imageSmoothingEnabled = false; x.drawImage(PXHI, 0, 0, hw, hh, 0, 0, lw, lh);
-  const img = x.getImageData(0, 0, lw, lh), d = img.data, N = lw * lh, op = new Uint8Array(N);
-  for (let i = 0; i < N; i++) { const a = d[i * 4 + 3]; if (a < 120) d[i * 4 + 3] = 0; else { d[i * 4 + 3] = 255; op[i] = 1; } }
-  for (let yy = 0; yy < lh; yy++) for (let xx = 0; xx < lw; xx++) { const i = yy * lw + xx; if (op[i]) continue;
-    if ((xx > 0 && op[i - 1]) || (xx < lw - 1 && op[i + 1]) || (yy > 0 && op[i - lw]) || (yy < lh - 1 && op[i + lw])) { d[i * 4] = PX_OL[0]; d[i * 4 + 1] = PX_OL[1]; d[i * 4 + 2] = PX_OL[2]; d[i * 4 + 3] = 255; } }
+  const main = x, q = TXQ, faces = []; TXQ = null;   // надписи на одежде рисуются прямо в спрайт
+  try {
+    x = PXHX; x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, hw, hh); x.setTransform(...mat); x.globalAlpha = 1; PXF = faces; fn();
+    x = PXMX; x.setTransform(1, 0, 0, 1, 0, 0); x.globalAlpha = 1; x.fillStyle = '#000'; x.fillRect(0, 0, hw, hh); x.setTransform(...mat); PXF = []; fn();
+  } catch (e) { console.error(e); } finally { PXF = null; TXQ = q; x = main; }
+  const C = PXHX.getImageData(0, 0, hw, hh).data, M = PXMX.getImageData(0, 0, hw, hh).data, img = PXLX.createImageData(lw, lh), d = img.data;
+  const op = new Uint8Array(N), ln = new Uint8Array(N), H4 = hw * 4, TM = 16 * 255 * .13;
+  // 1) уменьшение: цвет — центральный пиксель блока 4×4, линия — доля белого в блоке маски
+  let x0 = lw, x1 = -1, y0 = lh, y1 = -1;
+  for (let j = 0, k = 0; j < lh; j++) for (let i = 0; i < lw; i++, k++) {
+    const c = ((j * PXS + 2) * hw + i * PXS + 2) * 4;
+    if (C[c + 3] >= 120) { op[k] = 1; d[k * 4] = C[c]; d[k * 4 + 1] = C[c + 1]; d[k * 4 + 2] = C[c + 2]; d[k * 4 + 3] = 255; }
+    let s = 0, b = (j * PXS * hw + i * PXS) * 4; for (let r = 0; r < 4; r++, b += H4) s += M[b] + M[b + 4] + M[b + 8] + M[b + 12];
+    if (s >= TM) ln[k] = 1;
+    if (op[k] || ln[k]) { if (i < x0) x0 = i; if (i > x1) x1 = i; if (j < y0) y0 = j; if (j > y1) y1 = j; }
+  }
+  if (x1 < 0) { PXLX.putImageData(img, 0, 0); return PXLO; }
+  x0 = Math.max(1, x0 - 1); y0 = Math.max(1, y0 - 1); x1 = Math.min(lw - 2, x1 + 1); y1 = Math.min(lh - 2, y1 + 1);
+  // 2) линии у края силуэта убираем (там будет внешний контур — иначе он двойной); линия «в воздухе» (антенна) — тёмный пиксель
+  const wire = [], L = [];
+  for (let j = y0; j <= y1; j++) for (let i = x0, k = j * lw + x0; i <= x1; i++, k++) { if (!ln[k]) continue;
+    if (!op[k]) { ln[k] = 0; if (!(op[k - 1] | op[k + 1] | op[k - lw] | op[k + lw] | op[k - lw - 1] | op[k - lw + 1] | op[k + lw - 1] | op[k + lw + 1])) wire.push(k); }
+    else if (!op[k - 1] || !op[k + 1] || !op[k - lw] || !op[k + lw]) ln[k] = 0; else L.push(k); }
+  // 3) утончение до 1 пикселя: последовательно убираем «простые» точки (связность сохраняется, концы линий остаются)
+  const nb = [1, -lw + 1, -lw, -lw - 1, -1, lw - 1, lw, lw + 1];   // E NE N NW W SW S SE
+  for (let it = 0, ch = 1; ch && it < 4; it++) { ch = 0;
+    for (const k of L) { if (!ln[k]) continue;
+      if (ln[k - 1] && ln[k + 1] && ln[k - lw] && ln[k + lw]) continue;   // не граничная
+      let n = 0, y8 = 0; const v = nb.map(o => ln[k + o]); for (const t of v) n += t; if (n < 2) continue;   // конец линии
+      for (let a = 0; a < 8; a += 2) y8 += (1 - v[a]) - (1 - v[a]) * (1 - v[a + 1]) * (1 - v[(a + 2) % 8]);
+      if (y8 === 1) { ln[k] = 0; ch = 1; } } }
+  // 4) selout: линия = тёмный оттенок самой тёмной из соседних деталей
+  const lum = k => d[k * 4] * 2 + d[k * 4 + 1] * 5 + d[k * 4 + 2];
+  const lc = [];
+  for (const k of L) { if (!ln[k]) continue; let bk = k, bl = 1e9;
+    for (const o of [0, 1, -1, lw, -lw]) { const t = k + o; if (op[t] && (!ln[t] || t === k)) { const l = lum(t); if (l < bl) { bl = l; bk = t; } } }
+    lc.push(k, d[bk * 4], d[bk * 4 + 1], d[bk * 4 + 2]); }
+  for (let n = 0; n < lc.length; n += 4) { const k = lc[n] * 4; for (let c = 0; c < 3; c++) d[k + c] = lc[n + 1 + c] + (PX_OL[c] - lc[n + 1 + c]) * PX_LK; }
+  // 5) внешний контур ровно в 1 пиксель
+  for (let j = y0; j <= y1; j++) for (let i = x0, k = j * lw + x0; i <= x1; i++, k++) { if (op[k]) continue;
+    if (op[k - 1] || op[k + 1] || op[k - lw] || op[k + lw]) { d[k * 4] = PX_OL[0]; d[k * 4 + 1] = PX_OL[1]; d[k * 4 + 2] = PX_OL[2]; d[k * 4 + 3] = 255; } }
+  for (const k of wire) { d[k * 4] = PX_OL[0]; d[k * 4 + 1] = PX_OL[1]; d[k * 4 + 2] = PX_OL[2]; d[k * 4 + 3] = 255; }
   for (const F of faces) try { pxFaceDraw(d, lw, lh, F); } catch (e) { console.error(e); }
-  x.putImageData(img, 0, 0); x = main;
+  PXLX.putImageData(img, 0, 0);
   return PXLO;
+}
+// размер холста спрайта (в единицах персонажа): полуширина и высота с запасом на руки, причёски и шляпы
+function pxBox(d) { return d && !d.draw ? [d.shW / 2 + 20, d.shoeH + d.leg + d.torso + d.neck + d.hh * 1.4 + 10] : [36, 98]; }
+// кэш готовых спрайтов: одинаковый персонаж в одном состоянии перерисовывается не чаще раза в 3 кадра
+// (как анимация пиксельных спрайтов ~20 кадров/с); состояние рта/взгляда/позы — часть ключа, остальное обновится по сроку
+const PXC = new Map(); let pxcSweep = 0;
+function pxCached(key, lw, lh, render) {
+  let e = PXC.get(key);
+  if (!e || T - e.t >= 3 || T < e.t || e.lw !== lw || e.lh !== lh) {
+    const lo = render();
+    if (!e) { const cv = document.createElement('canvas'); e = { cv, cx: cv.getContext('2d') }; PXC.set(key, e); }
+    if (e.cv.width < lw || e.cv.height < lh) { e.cv.width = Math.max(e.cv.width, lw); e.cv.height = Math.max(e.cv.height, lh); }
+    e.cx.clearRect(0, 0, lw, lh); e.cx.drawImage(lo, 0, 0, lw, lh, 0, 0, lw, lh); e.t = T; e.lw = lw; e.lh = lh;
+  }
+  e.u = T;
+  if (T - pxcSweep > 120 || T < pxcSweep) { pxcSweep = T; for (const [kk, v] of PXC) if (T - v.u > 120 || T < v.u) PXC.delete(kk); }
+  return e.cv;
 }
 function drawCharPx(id, X, Y, o) {
   const m = x.getTransform(); if (Math.abs(m.b) > 1e-6 || Math.abs(m.c) > 1e-6) return drawCharVec(id, X, Y, o);
-  const k = m.a * PXK, sc = (o.sc || 1) * k;
-  const lw = Math.ceil(38 * sc / PXK * 2) * 2 + 8, lh = Math.ceil(84 * sc / PXK * 2) + 12, foot = lh - 4;
-  const lo = pxRender(lw, lh, [PXS / PXK * k, 0, 0, PXS / PXK * k, (lw / 2) * PXS, foot * PXS], () => drawCharVec(id, 0, 0, Object.assign({}, o, { sc: o.sc || 1, noShadow: true, alpha: null })));
+  const k = m.a * PXK, sc = (o.sc || 1) * k, bx = pxBox(CH[id]);
+  const lw = Math.ceil(bx[0] * sc / PXK) * 2 + 8, lh = Math.ceil(bx[1] * sc / PXK) + 10, foot = lh - 4;
+  const key = id + '|' + (o.dir || '') + '|' + (o.pose || '') + '|' + (o.emo || '') + '|' + (o.mov ? 1 : 0) + '|' + (o.sit ? 1 : 0) + '|' + (o.look || '') + '|' + (o.talk ? (T / 3.4 | 0) % 2 + 1 : 0) + '|' + (o.col || '') + '|' + sc.toFixed(3);
+  const lo = pxCached(key, lw, lh, () => pxRender(lw, lh, [PXS / PXK * k, 0, 0, PXS / PXK * k, (lw / 2) * PXS, foot * PXS], () => drawCharVec(id, 0, 0, Object.assign({}, o, { sc: o.sc || 1, noShadow: true, alpha: null }))));
   const d0 = CH[id]; if (!o.noShadow && d0 && !d0.draw) shadow(X, Y, d0.hipW * .95 * (o.sc || 1), 3.2 * (o.sc || 1), .25); else if (!o.noShadow) shadow(X, Y, 12 * (o.sc || 1), 3.4 * (o.sc || 1), .22);
   const p = m.transformPoint(new DOMPoint(X, Y)), px = Math.round(p.x) - lw / 2, py = Math.round(p.y) - foot;
   x.save(); x.setTransform(1, 0, 0, 1, 0, 0); x.imageSmoothingEnabled = false; if (o.alpha != null) x.globalAlpha *= o.alpha; x.drawImage(lo, 0, 0, lw, lh, px, py, lw, lh); x.restore();
@@ -757,7 +826,8 @@ function drawCharPx(id, X, Y, o) {
 function pxPortrait(id, X, Y, sz, o, bx, by, bw, bh) {
   if (!PIX) return portrait(id, X, Y, sz, o);
   const lw = Math.ceil(bw / PXK), lh = Math.ceil(bh / PXK), k = PXS / PXK;
-  const lo = pxRender(lw, lh, [k, 0, 0, k, -bx * k, -by * k], () => portrait(id, X, Y, sz, Object.assign({ vec: 1 }, o)));
+  const key = 'P|' + id + '|' + JSON.stringify(o) + '|' + (o.talk ? (T / 3.4 | 0) % 2 : 0) + '|' + [X, Y, sz, bx, by, bw, bh].join(',');
+  const lo = pxCached(key, lw, lh, () => pxRender(lw, lh, [k, 0, 0, k, -bx * k, -by * k], () => portrait(id, X, Y, sz, Object.assign({ vec: 1 }, o))));
   x.save(); x.imageSmoothingEnabled = false; x.drawImage(lo, 0, 0, lw, lh, bx, by, lw * PXK, lh * PXK); x.restore();
 }
 // ---- лицо по пикселям: при пиксель-рендере face() только записывает геометрию, черты рисуются точными пикселями ----
@@ -775,7 +845,7 @@ function pxFaceRecord(d, v, o, emo) {
 function pxFaceDraw(D, lw, lh, F) {
   const set = (xx, yy, c) => { xx = Math.round(xx); yy = Math.round(yy); if (xx < 0 || yy < 0 || xx >= lw || yy >= lh) return; const i = (yy * lw + xx) * 4; D[i] = c[0]; D[i + 1] = c[1]; D[i + 2] = c[2]; D[i + 3] = 255; };
   const hex = h => { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
-  const d = F.d, OLc = [43, 34, 32], WH = [255, 255, 255], PU = [16, 14, 18], SK = hex(d.skin), SKD = hex(shade(d.skin, -.28)), A = PXS;
+  const d = F.d, OLc = [43, 34, 32], WH = [255, 255, 255], PU = [16, 14, 18], SK = hex(d.skin), SKD = hex(shade(d.skin, -.28)), LID = hex(shade(d.skin, -.45)), A = PXS;
   const emo = F.emo, cells = new Set(), key = (a, b) => a + ',' + b;
   // клетки глаза: правый считаем, левый — зеркалом относительно центра лица (в анфас), чтобы глаза были одинаковыми
   // глаз — аккуратный шаблон: белок 3×3 (у больших глаз 3×4, у маленьких 2×3) с контуром; в анфас правый глаз ставится
@@ -791,9 +861,15 @@ function pxFaceDraw(D, lw, lh, F) {
   let top = 1e9, bot = -1e9;
   for (const q of E2) {
     const ys = q.cl.map(c => c[1]), xs = q.cl.map(c => c[0]); if (!ys.length) continue; const y0 = Math.min(...ys), y1 = Math.max(...ys), x0 = Math.min(...xs), x1 = Math.max(...xs); top = Math.min(top, y0); bot = Math.max(bot, y1); q.box = [x0, y0, x1, y1];
-    // контур глаза
-    for (const [i, j] of q.cl) for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!cells.has(key(i + a, j + b))) set(i + a, j + b, d.glasses ? [34, 34, 34] : OLc);
+    // моргание: закрытое веко — кожа и тонкая линия
     if (F.blink) { for (const [i, j] of q.cl) set(i, j, SK); for (let i = x0; i <= x1; i++) set(i, Math.round((y0 + y1) / 2), OLc); continue; }
+    // контур глаза в 1 пиксель: сверху тёмный (как веко), по бокам и снизу — тенью кожи, чтобы глаза не выглядели очками
+    // (у персонажей в очках контур остаётся тёмным — это оправа)
+    // большие глаза (портрет) — тёмная дуга сверху и снаружи, светлая тень снизу и у переносицы; маленькие — тёмный только верх
+    const big = q.e.rx / A >= 2.6, inr = Math.sign(mx - (x0 + x1 + 1) / 2) || 1, cS = big ? OLc : hex(shade(d.skin, -.3)), cB = hex(shade(d.skin, big ? -.18 : -.2));
+    const ring = up => { for (const [i, j] of q.cl) for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!cells.has(key(i + a, j + b)) && (b < 0) === up)
+      set(i + a, j + b, d.glasses ? [34, 34, 34] : up ? (lid ? LID : OLc) : b > 0 || a === inr ? cB : cS); };
+    ring(false); ring(true);
     for (const [i, j] of q.cl) set(i, j, WH);
     // зрачок: центр глаза + взгляд; у большого глаза — 2×2
     const lk = Math.max(-1, Math.min(1, Math.round(F.look[0] / A * .8))), cx = Math.max(x0, Math.min(x1, Math.floor((x0 + x1) / 2 + .5) + (x1 - x0 >= 2 ? lk : 0))), cy = Math.max(y0, Math.min(y1, Math.floor((y0 + y1) / 2 + .5 + F.look[1] / A)));
@@ -820,7 +896,7 @@ function pxFaceDraw(D, lw, lh, F) {
   else if (emo === 'smug' || d.mouth === 'smirk') { line(mya, -w, w - 1, OLc); set(mxa + w, mya - 1, OLc); }
   else if (d.mouth === 'flat') line(mya, -w, w, OLc);
   else if (d.mouth === 'wavy' || d.mouth === 'rick') { for (let i = -w; i <= w; i++) set(mxa + i, mya + ((i + w) % 2 ? 0 : 1) * (i < 0 ? 1 : 0), OLc); if (d.mouth === 'rick') { set(mxa + w, mya + 1, [190, 225, 235]); set(mxa + w, mya + 2, [190, 225, 235]); } }
-  else if (d.mouth === 'lips') { line(mya, -w, w, [194, 74, 104]); line(mya + 1, -w + 1, w - 1, [150, 50, 80]); }
+  else if (d.mouth === 'lips') { const w2 = Math.max(1, w - 1); line(mya, -w2, w2, [178, 70, 96]); if (w2 >= 3) line(mya + 1, -w2 + 2, w2 - 2, [222, 128, 146]); }
   else if (d.mouth === 'grin') { line(mya, -w, w, OLc); line(mya + 1, -w + 1, w - 1, [255, 255, 255]); set(mxa - w - 1, mya - 1, OLc); set(mxa + w + 1, mya - 1, OLc); }
   else { line(mya + 1, -w + 1, w - 1, OLc); set(mxa - w, mya, OLc); set(mxa + w, mya, OLc); }
   if (emo === 'blush') for (const q of E2) { set(q.box[0], bot + 2, [255, 120, 140]); set(q.box[2], bot + 2, [255, 120, 140]); }
@@ -948,7 +1024,8 @@ function armDraw(d, sx, sy, ex, ey, hx, hy, dark) {
   else {
     const L = hyp(ex - sx, ey - sy) || 1, ux = (ex - sx) / L, uy = (ey - sy) / L, nx = -uy, ny = ux, k = L * .5, w0 = (d.armW + 3.6) / 2, w1 = (d.armW + 2.4) / 2;
     const ax = sx - ux * 2.5, ay = sy - uy * 2.5, bx = sx + ux * k, by = sy + uy * k;
-    PG([ax + nx * w0, ay + ny * w0, bx + nx * w1, by + ny * w1, bx - nx * w1, by - ny * w1, ax - nx * w0, ay - ny * w0], dark ? shade(d.shirt, -.12) : d.shirt);
+    const sp = [ax + nx * w0, ay + ny * w0, bx + nx * w1, by + ny * w1, bx - nx * w1, by - ny * w1, ax - nx * w0, ay - ny * w0];
+    PG(sp, dark ? shade(d.shirt, -.12) : d.shirt, null); PG(sp, null, OL, LW, false);   // верхний край рукава (шов на плече) без линии
   }
   E(hx, hy, d.armW * .62, d.armW * .7, sk, OL, LW * .9);
 }
@@ -977,6 +1054,7 @@ function frontBody(d, g, o, pose, emo, back) {
       const p = armPos(s);
       armDraw(d, s * sx, sy, p[0], p[1], p[2], p[3], 0);
       if (s === 1 && pose === 'gun' && !back) portalGun(p[2], p[3], 0);
+      if (s === 1 && pose === 'gunlow' && !back) portalGun(p[2], p[3] + 1, 0, PI * .92);
       if (s === 1 && pose === 'phone' && !back) { RR(p[2] - 2, p[3] - 7, 4, 7, 1, '#222'); R(p[2] - 1.3, p[3] - 6.2, 2.6, 5, '#7ad0ff'); }
       if (s === 1 && pose === 'drink' && !back) { RR(p[2] - 2, p[3] - 3, 4.2, 6, 1, '#7a4a2a'); }
     }
@@ -1002,7 +1080,8 @@ function sideBody(d, g, o, pose, emo) {
   }
   if (d.top === 'coat') { const c = d.sleeveC, yb = g.hipY + d.leg * .58; PG([-d.shW * .36, g.shY + 1, 2, g.shY, 4.5, g.shY + 8, 6, yb - 2, 3 + sw * 3, yb, -d.shW * .36 - 4 + sw * 2, yb, -d.shW * .38, g.shY + 6], c); }
   // ближняя рука
-  if (pose === 'gun') { p = [ax + 7, sy + 2, ax + 9, sy - d.arm * .45]; armDraw(d, ax, sy, p[0], p[1], p[2], p[3], 0); portalGun(p[2], p[3], 0); }
+  if (pose === 'gun') { p = [ax + d.arm * .48, sy + 1.5, ax + d.arm * .92, sy - 1]; armDraw(d, ax, sy, p[0], p[1], p[2], p[3], 0); portalGun(p[2] + 1, p[3] + 1.5, 0, PI * .5); }   // в профиль — целится вперёд, не закрывая лицо
+  else if (pose === 'gunlow') { p = [ax + 2 + sw * 4, sy + d.arm * .5, ax + 4 + sw * 6, sy + d.arm * .92]; armDraw(d, ax, sy, p[0], p[1], p[2], p[3], 0); portalGun(p[2] + 1, p[3] + 1, 0, PI * .62); }
   else if (pose === 'point') { p = [ax + d.arm * .5, sy + 1, ax + d.arm, sy]; armDraw(d, ax, sy, p[0], p[1], p[2], p[3], 0); }
   else if (pose === 'phone') { p = [ax + 5, sy + d.arm * .45, ax + 7, sy + d.arm * .1]; armDraw(d, ax, sy, p[0], p[1], p[2], p[3], 0); RR(p[2] - 1, p[3] - 7, 4, 7, 1, '#222'); }
   else if (pose === 'hips') { p = [ax - 6, sy + d.arm * .45, ax - 1, g.hipY]; armDraw(d, ax, sy, p[0], p[1], p[2], p[3], 0); }
@@ -1010,8 +1089,8 @@ function sideBody(d, g, o, pose, emo) {
   else { p = armA(sw + .05); armDraw(d, ax, sy, p[0], p[1], p[2], p[3], 0); }
   head(d, g, 's', o, emo);
 }
-function portalGun(hx, hy, k) {
-  x.save(); x.translate(hx, hy);
+function portalGun(hx, hy, k, ang = 0) {
+  x.save(); x.translate(hx, hy); if (ang) x.rotate(ang);
   RR(-2.4, -10, 4.8, 13, 1.2, '#d6dade'); R(-2.4, -6, 4.8, 2, '#9aa3a8', OL, .6);
   glow('#7dff5a', 6, () => { RR(-1.6, -14, 3.2, 5, 1.2, '#7dff5a', OL, .7); });
   E(0, -12.2, .7, 1.2, '#eaffd8', null);
@@ -1125,7 +1204,7 @@ function face(d, v, o, emo) {
   else if (d.mouth === 'wavy') { x.strokeStyle = OL; x.lineWidth = 1; x.beginPath(); x.moveTo(mx - mw * .6, my); x.quadraticCurveTo(mx - mw * .3, my - 1, mx, my); x.quadraticCurveTo(mx + mw * .3, my + 1, mx + mw * .6, my); x.stroke(); }
   else if (d.mouth === 'rick') { x.strokeStyle = OL; x.lineWidth = 1.1; x.beginPath(); x.moveTo(mx - mw * .8, my + .8); x.quadraticCurveTo(mx - mw * .3, my - .6, mx, my + .2); x.quadraticCurveTo(mx + mw * .4, my + .9, mx + mw * .8, my - .2); x.stroke(); LN(mx + mw * .55, my + .4, mx + mw * .55, my + 3 + sin(T / 30) * .6, 'rgba(180,230,240,.9)', .9); }
   else if (d.mouth === 'grin') path(() => { x.moveTo(mx - mw * .75, my - 1); x.quadraticCurveTo(mx, my + 3.2, mx + mw * .75, my - 1); }, null, OL, 1.15);
-  else if (d.mouth === 'lips') { path(() => { x.moveTo(mx - mw * .7, my); x.quadraticCurveTo(mx - mw * .2, my - 1.3, mx, my - .6); x.quadraticCurveTo(mx + mw * .2, my - 1.3, mx + mw * .7, my); x.quadraticCurveTo(mx, my + 2.1, mx - mw * .7, my); }, '#c24a68', OL, .8); LN(mx - mw * .6, my + .1, mx + mw * .6, my + .1, '#7a2440', .7); }
+  else if (d.mouth === 'lips') { path(() => { x.moveTo(mx - mw * .6, my); x.quadraticCurveTo(mx - mw * .2, my - .8, mx, my - .4); x.quadraticCurveTo(mx + mw * .2, my - .8, mx + mw * .6, my); x.quadraticCurveTo(mx, my + 1.2, mx - mw * .6, my); }, '#c85a74', null); LN(mx - mw * .55, my, mx + mw * .55, my, '#8a3050', .7); }
   else if (d.mouth === 'flat') LN(mx - mw * .5, my + .4, mx + mw * .5, my + .4, OL, 1.1);
   else QL(mx - mw * .6, my - .3, mx, my + 1.6, mx + mw * .6, my - .3, OL, 1.1);
   // румянец
@@ -1137,7 +1216,7 @@ function hairBack(d, g, v, pre) { // слой за головой/телом
   const a = d.hw / 2, b = d.hh / 2, hy = g.hcy, c = d.hair;
   x.save(); x.translate(0, hy);
   if (d.hk === 'beth') {
-    if (v === 'u') { /* рисуется в hairFront целиком */ }
+    if (v === 'u' || v === 's') { /* сзади и в профиль — рисуется в hairFront целиком */ }
     else path(() => { x.moveTo(-a - 1, -b * .2); x.bezierCurveTo(-a - 4, b * .6, -a - 3, b + 6, -a - 6, b + 9); x.quadraticCurveTo(-a + 2, b + 11, -a + 3, b + 5); x.lineTo(a - 3, b + 5); x.quadraticCurveTo(a - 2, b + 11, a + 6, b + 9); x.bezierCurveTo(a + 3, b + 6, a + 4, b * .6, a + 1, -b * .2); x.closePath(); }, c);
   } else if (d.hk === 'long') {
     if (v !== 'u') path(() => { x.moveTo(-a - 1, -b * .4); x.bezierCurveTo(-a - 4, b, -a - 3, b + 12, -a + 1, b + 14); x.lineTo(a - 1, b + 14); x.bezierCurveTo(a + 3, b + 12, a + 4, b, a + 1, -b * .4); x.closePath(); }, c);
@@ -1203,6 +1282,12 @@ function hairFront(d, v, o) {
   }
   if (hk === 'beth') {
     if (v === 'u') { path(() => { x.moveTo(-a - 2, -b * .4); x.bezierCurveTo(-a - 3, -b - 3, a + 3, -b - 3, a + 2, -b * .4); x.bezierCurveTo(a + 4, b * .6, a + 3, b + 6, a + 6, b + 9); x.quadraticCurveTo(0, b + 12, -a - 6, b + 9); x.bezierCurveTo(-a - 3, b + 6, -a - 4, b * .6, -a - 2, -b * .4); }, c); return; }
+    if (k) {   // профиль: шапка волос от чёлки через макушку к затылку и до плеч, лицо открыто спереди
+      path(() => { x.moveTo(a + 1.2, -b * .12); x.bezierCurveTo(a + 2, -b - 2.6, -a * .7, -b - 3.2, -a - 2, -b * .25); x.bezierCurveTo(-a - 3.6, b * .45, -a - 2.6, b + 5, -a - 4.5, b + 9);
+        x.quadraticCurveTo(-a * .4, b + 10.5, -a * .15, b + 4.5); x.quadraticCurveTo(-a * .35, b * .2, a * .05, -b * .42); x.quadraticCurveTo(a * .55, -b * .62, a + 1.2, -b * .12); x.closePath(); }, c);
+      QL(-a * .5, -b * .95, a * .1, -b * 1.12, a * .6, -b * .82, hl, 1.4); QL(-a * .9, b * .1, -a * 1.1, b * .7, -a * 1.5, b + 4, 'rgba(0,0,0,.12)', 1.2);
+      return;
+    }
     path(() => {
       x.moveTo(-a - 1.5, b * .5);
       x.bezierCurveTo(-a - 3.5, -b * .5, -a * .8, -b - 2.6, 0, -b - 2.2);
