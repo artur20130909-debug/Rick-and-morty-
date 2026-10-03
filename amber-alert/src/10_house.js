@@ -41,7 +41,7 @@ function buildHouse() {
   wall(X0, Z1, X1, Z1, 0, F2, mWP2, [{ c: -1, w: 1.1, y0: 0, y1: 2.15 }, { c: -5.5, w: 3.2, y0: 0, y1: 2.4 }, { c: 4.5, w: 1.4, y0: .95, y1: 2.05 }], .2, mSiding);
   wall(X0, Z1, X1, Z1, F2, H2, mWP4, [{ c: 4.5, w: 1.4, y0: .95, y1: 2.05 }, { c: -5.5, w: 1.2, y0: .95, y1: 2.05 }], .2, mSiding);
   // задняя стена (z=-6): задняя дверь кухни x=6.5, окна
-  wall(X0, Z0, X1, Z0, 0, F2, mWP1, [{ c: 6.5, w: 1.0, y0: 0, y1: 2.1 }, { c: 3.6, w: 1.2, y0: 1.0, y1: 2.0 }, { c: -5.5, w: 1.2, y0: .95, y1: 2.05 }], .2, mSiding);
+  wall(X0, Z0, X1, Z0, 0, F2, mWP1, [{ c: 6.5, w: 1.2, y0: 0, y1: 2.1 }, { c: 3.6, w: 1.2, y0: 1.0, y1: 2.0 }, { c: -5.5, w: 1.2, y0: .95, y1: 2.05 }], .2, mSiding);
   wall(X0, Z0, X1, Z0, F2, H2, mWP3, [{ c: 4.5, w: 1.2, y0: .95, y1: 2.05 }, { c: -5.5, w: .9, y0: 1.2, y1: 2.0 }], .2, mSiding);
   // боковые стены
   wall(X1, Z0, X1, Z1, 0, F2, mWP2, [{ c: 4.8, w: 1.2, y0: .95, y1: 2.05 }, { c: -3, w: 1.2, y0: 1.0, y1: 2.0 }], .2, mSiding);
@@ -78,7 +78,7 @@ function buildHouse() {
   bx(-1.9, 0, -1.5, .08, 1.0, 3.2, mat('#5a3a22'), { coll: false });
   // ---- двери ----
   const dOut = door('D_front', -1, 6, 'x', 0, { w: 1.1, color: '#7a2a22', front: true, panels: true, opensTo: -1 });
-  door('D_back', 6.5, -6, 'x', 0, { w: 1.0, color: '#d8d0b8', front: true, panels: true, opensTo: 1 });
+  door('D_back', 6.5, -6, 'x', 0, { w: 1.2, color: '#d8d0b8', front: true, panels: true, opensTo: 1 });
   door('D_garage', -3, 3.5, 'z', 0, { w: 1.0, color: '#c9b38a' }); door('D_dining', -3, -4.5, 'z', 0, { w: 1.0, color: '#c9b38a' }); door('D_gd', -6.6, -1, 'x', 0, { w: 1.0, color: '#c9b38a', lockable: false });
   door('D_bed1', 1, 3, 'z', F2, { w: 1.0, color: '#d8ccb0', opensTo: -1 }); door('D_bed2', 1, -3, 'z', F2, { w: 1.0, color: '#d8ccb0', opensTo: -1 }); door('D_bed3', -3, 3, 'z', F2, { w: 1.0, color: '#d8ccb0' }); door('D_bath', -3, -4.5, 'z', F2, { w: 1.0, color: '#e8e8e8' });
   // ворота гаража (закрыты, декоративные)
@@ -147,10 +147,11 @@ function furnishHouse() {
   plant(1.5, 5.5); plant(7.5, .5); lamp(7.4, 5.4);
   // кухня
   const counter = mat('#d8cfb8'), cab = mat('#8a6a42');
-  bx(7.55, 0, -3.4, .8, .9, 4.6, cab); bx(7.55, .9, -3.4, .85, .05, 4.6, counter);
-  bx(4.4, 0, -5.55, 4.2, .9, .8, cab); bx(4.4, .9, -5.55, 4.2, .05, .85, counter);
+  // столешницы не загораживают заднюю дверь (x 6..7): свободный проход ~1.7 м
+  bx(7.55, 0, -3.2, .8, .9, 3.4, cab); bx(7.55, .9, -3.2, .85, .05, 3.4, counter);
+  bx(3.8, 0, -5.55, 3.2, .9, .8, cab); bx(3.8, .9, -5.55, 3.2, .05, .85, counter);
   bx(7.55, 0, -.9, .8, 1.9, .8, mat('#e8e8e2')); // холодильник
-  bx(5.5, .95, -5.6, .6, .02, .45, mat('#8a9aa2'), { coll: false });
+  bx(4.6, .95, -5.6, .6, .02, .45, mat('#8a9aa2'), { coll: false });
   table(4.2, -2.6, 1.6, 1, '#9a7a52'); for (const [cx, cz] of [[3.3, -2.6], [5.1, -2.6], [4.2, -3.3], [4.2, -1.9]]) chair(cx, cz, '#7a5a3a');
   const radio = bx(7.5, .95, -4.6, .5, .3, .3, mat('#3a2a1a'), { coll: false });
   // кладовка-укрытие

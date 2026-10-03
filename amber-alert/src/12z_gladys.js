@@ -11,7 +11,7 @@
 (() => {
   const PORCH_T = 60, RED_EVERY = 15, WARN = .9, RED_DUR = 4, RED_GRACE = .6, FIRST_RED = 11;
   const V_ROAM = 3.0, V_CHASE = 4.6, REACH = 1.05;
-  const GREEN = '#4dff74', RED = '#ff2a2a';
+  const GREEN = '#6dff8c', RED = '#ff2a2a';
   const SPOT = new V3(-.45, 0, 6.85);                 // у входной двери на крыльце
   const DOOR = new V3(-1, 1.1, 6.1);
   const BIKE_PARK = [-2.05, 7.05, .5];               // где она бросает велосипед (x, z, поворот)
@@ -178,7 +178,7 @@
     ],
     tip: 'Не открывай ей дверь. Свет стал красным — замри: она видит только тех, кто двигается.',
     model() {
-      const g = new THREE.Group(), p = { g }; g.userData.parts = p;
+      const g = new THREE.Group(), p = { g }; g.userData.parts = p; g.rotation.order = 'YXZ';
       const SK = '#ecd0b8', ST = stripeMat(), legH = .66, torH = .64, W = .66, top = legH + torH;
       // мешковатые полосатые штанины и огромные красные туфли
       p.ll = limb(g, .28, legH, .3, ST, -.16, legH, 0); p.rl = limb(g, .28, legH, .3, ST, .16, legH, 0);
@@ -196,14 +196,14 @@
       const h = p.head = new THREE.Group(); h.position.set(0, top + .03, 0); g.add(h); p.headH = top;
       MM.box(h, .44, .44, .42, SK, 0, .23, 0);
       MM.box(h, .06, .09, .07, '#dcb49a', 0, .2, .23);                                   // нос
-      MM.sph(h, .075, '#ee5472', -.14, .14, .2, { sz: .35, seg: 10, seg2: 8 }); MM.sph(h, .075, '#ee5472', .14, .14, .2, { sz: .35, seg: 10, seg2: 8 }); // румяна
+      for (const s of [-1, 1]) MM.sph(h, .072, '#ee5472', s * .155, .155, .2, { sz: .35, seg: 10, seg2: 8 });          // румяна
       const eyeW = mat('#fbfbf4');
       for (const s of [-1, 1]) { MM.sph(h, .058, '', s * .1, .29, .2, { mat: eyeW, seg: 8, seg2: 6, sz: .5 }); MM.sph(h, .027, '#141414', s * .1, .29, .23, { seg: 6, seg2: 5 }); }
       const glassM = mat('#3a2a1a');
       for (const s of [-1, 1]) { const r = new THREE.Mesh(new THREE.TorusGeometry(.078, .013, 5, 14), glassM); r.position.set(s * .1, .29, .235); h.add(r); }
       MM.box(h, .06, .015, .015, '', 0, .3, .24, { mat: glassM });
-      MM.box(h, .24, .055, .03, '#9a1424', 0, .07, .21); MM.box(h, .18, .03, .02, '#f4efe0', 0, .085, .222);   // накрашенная улыбка
-      for (const s of [-1, 1]) MM.box(h, .05, .055, .03, '#9a1424', s * .135, .1, .21, { rz: s * .5 });          // уголки рта вверх
+      MM.box(h, .2, .04, .02, '#f4efe0', 0, .085, .214);                                 // зубы
+      for (let i = -2; i <= 2; i++) MM.box(h, .062, .034, .03, '#8a0c1e', i * .052, .055 + i * i * .011, .216, { rz: i * .28 }); // широкая накрашенная улыбка
       MM.box(h, .12, .02, .02, '#9a9a96', -.1, .37, .215, { rz: .15 }); MM.box(h, .12, .02, .02, '#9a9a96', .1, .37, .215, { rz: -.15 }); // брови
       // седые кудри (пушистая копна)
       const HA = mat('#c9c9c2'), HB = mat('#a9a9a2');
@@ -256,7 +256,7 @@
       g.rotation.x = 0; g.rotation.z = moving ? Math.sin(m.walkT) * .06 : 0;      // переваливается с ноги на ногу
       p.head.rotation.set(0, 0, Math.sin(t * 1.6) * .1); p.la.rotation.z = -.1; p.ra.rotation.z = .1;
       if (bikeOn) { p.ra.rotation.x = -.42; p.ra.rotation.z = .08; }
-      if (a === 1) { g.rotation.x = .16; p.la.rotation.x = p.ra.rotation.x = -1.45; p.la.rotation.z = -.15; p.ra.rotation.z = .15; p.head.rotation.set(-.15, 0, Math.sin(t * 9) * .12); }
+      if (a === 1) { g.rotation.x = .16; p.la.rotation.x = p.ra.rotation.x = -1.45; p.la.rotation.z = .1; p.ra.rotation.z = -.1; p.head.rotation.set(-.15, 0, Math.sin(t * 9) * .12); }
       else if (a === 2) { g.rotation.z = Math.sin(t * 3) * .14; p.head.rotation.set(.3, 0, .4); p.la.rotation.x = Math.sin(t * 4) * .4; p.ra.rotation.x = -Math.sin(t * 4) * .4; }
       else if (a === 3) { p.head.rotation.set(0, 0, .25 + Math.sin(t * 1.2) * .1); p.la.rotation.x = -.2; }
       else if (a === 4) { p.la.rotation.x = -1.75 + Math.abs(Math.sin(t * 10)) * .35; p.la.rotation.z = .25; p.head.rotation.set(-.05, 0, .15); }

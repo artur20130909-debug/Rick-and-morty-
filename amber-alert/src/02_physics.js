@@ -47,11 +47,26 @@ function rayBox(ox, oy, oz, dx, dy, dz, b) {
 // Контроллер персонажа (общий для игроков и угроз)
 class Body {
   constructor(o = {}) { this.p = new V3(o.x || 0, o.y || 0, o.z || 0); this.v = new V3(); this.r = o.r || .32; this.h = o.h || 1.75; this.step = o.step || .42; this.ground = true; this.yaw = 0; this.pitch = 0; }
+  // «доводка у углов»: если шаг вперёд упёрся, ищем сдвиг вбок до 0.35 м, после которого путь свободен, и смещаемся к нему
+  nudge(world, axis, fwd) {
+    const y = this.p.y, r = this.r, h = this.h, st = this.step, ok = (x, z) => !world.blocked(x, y, z, r, h, st);
+    for (const off of [.05, .1, .15, .2, .25, .3, .35]) for (const sgn of [1, -1]) {
+      const o = off * sgn, sx = axis === 'x' ? this.p.x + o : this.p.x, sz = axis === 'z' ? this.p.z + o : this.p.z;
+      if (!ok(sx, sz)) continue;
+      if (!ok(axis === 'x' ? sx : sx + fwd, axis === 'z' ? sz : sz + fwd)) continue;
+      const step = Math.sign(o) * Math.min(Math.abs(o), Math.abs(fwd) * .9 + .01);
+      if (axis === 'x') { if (ok(this.p.x + step, this.p.z)) this.p.x += step; } else if (ok(this.p.x, this.p.z + step)) this.p.z += step;
+      return true;
+    }
+    return false;
+  }
   move(world, wx, wz, dt, jump) {
     // горизонталь по осям раздельно — скольжение вдоль стен
-    const nx = this.p.x + wx * dt, nz = this.p.z + wz * dt;
-    if (!world.blocked(nx, this.p.y, this.p.z, this.r, this.h, this.step)) this.p.x = nx;
-    if (!world.blocked(this.p.x, this.p.y, nz, this.r, this.h, this.step)) this.p.z = nz;
+    const nx = this.p.x + wx * dt, nz = this.p.z + wz * dt, y = this.p.y, r = this.r, h = this.h, st = this.step;
+    if (!world.blocked(nx, y, this.p.z, r, h, st)) this.p.x = nx;
+    else if (Math.abs(wx) > Math.abs(wz) * 2) this.nudge(world, 'z', wx * dt);   // упёрся в косяк — съехать вбок и пройти
+    if (!world.blocked(this.p.x, y, nz, r, h, st)) this.p.z = nz;
+    else if (Math.abs(wz) > Math.abs(wx) * 2) this.nudge(world, 'x', wz * dt);
     // вертикаль
     const g = world.groundAt(this.p.x, this.p.z, this.r, this.p.y + this.step);
     if (jump && this.ground) { this.v.y = 6.2; this.ground = false; }
