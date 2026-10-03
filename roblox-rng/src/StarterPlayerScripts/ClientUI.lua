@@ -1005,6 +1005,7 @@ local R15J = { RS = { "RightUpperArm", "RightShoulder" }, LS = { "LeftUpperArm",
 local R6J = { RS = { "Torso", "Right Shoulder" }, LS = { "Torso", "Left Shoulder" }, RH = { "Torso", "Right Hip" }, LH = { "Torso", "Left Hip" },
 	Neck = { "Torso", "Neck" }, Root = { "HumanoidRootPart", "RootJoint" } }
 
+local IDENT = CFrame.new()
 local poseStates = setmetatable({}, { __mode = "k" })
 local function buildPoseState(char)
 	local hum = char:FindFirstChildOfClass("Humanoid")
@@ -1015,8 +1016,7 @@ local function buildPoseState(char)
 		local part = char:FindFirstChild(path[1])
 		local m = part and part:FindFirstChild(path[2])
 		if m and m:IsA("Motor6D") then
-			local rot = m.C0 - m.C0.Position
-			joints[key] = { motor = m, rot = rot, rinv = rot:Inverse(), cur = CFrame.new(), w = 0 }
+			joints[key] = { motor = m, pos = CFrame.new(m.C0.Position), rot = m.C0 - m.C0.Position, cur = IDENT, w = 0 }
 			n = n + 1
 		end
 	end
@@ -1033,8 +1033,14 @@ local function poseTarget(def, key, r6)
 	return def[key]
 end
 
--- Stepped идёт ПОСЛЕ анимаций: смешиваем анимацию с позой через Motor6D.Transform
-RunService.Stepped:Connect(function(_, dt)
+-- если для позы указана своя анимация (Abilities.Config.Animations) — её играет сервер, встроенную позу не трогаем
+local function hasAnim(pose)
+	local id = pose and CFG.Animations and CFG.Animations[pose]
+	return id ~= nil and id ~= ""
+end
+
+-- поза = поворот сустава через Motor6D.C0 (стандартные анимации C0 не трогают, поэтому поза точно видна)
+local function stepPoses(dt)
 	local now = os.clock()
 	for _, p in ipairs(Players:GetPlayers()) do
 		local char = p.Character
@@ -1049,13 +1055,13 @@ RunService.Stepped:Connect(function(_, dt)
 				local token = char:GetAttribute("PoseToken")
 				if pose ~= st.pose or token ~= st.token then
 					if pose and pose == st.pose then
-						for _, j in pairs(st.joints) do j.cur = j.cur:Lerp(CFrame.new(), 0.6) end   -- тот же удар ещё раз — «замах»
+						for _, j in pairs(st.joints) do j.cur = j.cur:Lerp(IDENT, 0.6) end   -- тот же удар ещё раз — «замах»
 					end
 					st.pose, st.token, st.start = pose, token, now
 				end
 				local name = pose
 				if pose == "ultCharge" and now - st.start < 0.7 then name = "ultHair" end
-				local def = name and POSES[name]
+				local def = (name and not hasAnim(pose)) and POSES[name] or nil
 				local speed = def and def.speed or 12
 				local a = 1 - math.exp(-dt * speed)
 				local aw = 1 - math.exp(-dt * math.max(14, speed))
@@ -1073,14 +1079,32 @@ RunService.Stepped:Connect(function(_, dt)
 						end
 						if j.w > 0.003 then
 							any = true
-							j.motor.Transform = j.motor.Transform:Lerp(j.rinv * j.cur * j.rot, j.w)
+							j.motor.C0 = j.pos * IDENT:Lerp(j.cur, j.w) * j.rot
 						elseif j.w > 0 then
 							j.w = 0
-							j.motor.Transform = CFrame.new()
+							j.motor.C0 = j.pos * j.rot
 						end
 					end
 				end
 				st.active = any or pose ~= nil
+			end
+		end
+	end
+end
+local poseWarned = false
+RunService.RenderStepped:Connect(function(dt)
+	local ok, err = pcall(stepPoses, dt)
+	if not ok and not poseWarned then
+		poseWarned = true
+		warn("[RNG] Ошибка поз: " .. tostring(err))
+	end
+end)
+-- стандартные анимации (стойка, ходьба) приглушаем на тех суставах, где сейчас поза
+RunService.Stepped:Connect(function()
+	for _, st in pairs(poseStates) do
+		if st.active then
+			for _, j in pairs(st.joints) do
+				if j.w > 0.01 and j.motor.Parent then j.motor.Transform = j.motor.Transform:Lerp(IDENT, j.w * 0.85) end
 			end
 		end
 	end
@@ -1119,7 +1143,7 @@ local function cineCombo(a, b, dur, my)
 		local ang = math.rad(-50 + e / dur * 110)
 		local dir = perp * math.cos(ang) + axis * math.sin(ang)
 		local look = mid
-		if e > 1.55 then look = mid:Lerp(pb + Vector3.new(0, 2, 0), math.min(1, (e - 1.55) / 0.4)) end
+		if e > 1.65 then look = mid:Lerp(pb + Vector3.new(0, 2, 0), math.min(1, (e - 1.65) / 0.4)) end
 		local target = CFrame.lookAt(mid + dir * (10 - e * 1.2) + Vector3.new(0, 2.2 + e * 0.6, 0), look)
 		cf = cf and cf:Lerp(target, 1 - math.exp(-dt * 12)) or target
 		cam.CFrame = cf * shakeCF()
@@ -1128,7 +1152,7 @@ local function cineCombo(a, b, dur, my)
 	end
 end
 
--- ульта: крупный план (поправил кок) → общий план (заряд) → вспышка → из-за плеча вдоль луча
+-- ульта: крупный план (поправил кок) → общий план (заряд) → вспышка → сзади-сбоку (луч вырастает) → издалека сбоку (весь луч)
 local function cineUlt(hrp, dur, my)
 	local cam = workspace.CurrentCamera
 	cam.CameraType = Enum.CameraType.Scriptable
@@ -1161,9 +1185,16 @@ local function cineUlt(hrp, dur, my)
 				addShake(1.2)
 				play(sLunge, 0.5)
 			end
-			local k = math.min(1, (e - 1.4) / 1.7)
-			cf = CFrame.lookAt(cf0.Position - look * (8 + k * 3) + right * 3.5 + up * (3 + k), cf0.Position + look * 45 + up * 0.5)
-			fov = 75 + k * 5
+			if e < 2.25 then
+				local k = (e - 1.4) / 0.85
+				cf = CFrame.lookAt(cf0.Position - look * (14 + k * 4) + right * (10 + k * 3) + up * (6 + k * 2), cf0.Position + look * 60)
+				fov = 78
+			else
+				local k = math.min(1, (e - 2.25) / 1.5)
+				local mid = cf0.Position + look * 90
+				cf = CFrame.lookAt(mid + right * (80 + k * 10) - look * 20 + up * (12 + k * 4), mid)
+				fov = 72
+			end
 		end
 		cam.CFrame = cf * shakeCF()
 		cam.FieldOfView = fov

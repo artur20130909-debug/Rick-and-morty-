@@ -19,6 +19,20 @@ Abilities.Config = {
 		"73905683100406",    -- LARPZO: вокал
 	},
 	RyuSongVolume = 1,
+	-- СВОИ АНИМАЦИИ (Animation Editor → Publish to Roblox): вставь ID — и вместо встроенной позы
+	-- заиграет твоя анимация. Пусто — остаётся встроенная поза.
+	Animations = {
+		punchR = "",     -- удар правой (комбо Рю и обычный удар F), ~0.25 с
+		punchL = "",     -- удар левой (комбо Рю), ~0.25 с
+		kick = "",       -- пинок, последний удар комбо, ~0.3 с
+		uppercut = "",   -- апперкот-подброс в конце комбо, ~0.6 с
+		slide = "",      -- рывок-скольжение «Вот каков десерт!», ~0.6 с
+		eat = "",        -- Рю ест десерт, ~1.1 с
+		ultCharge = "",  -- ульта: поза + заряд в ладонях, ~1.4 с
+		ultFire = "",    -- ульта: выстрел лучом, ~1.6 с (лучше зациклить)
+		stagger = "",    -- жертва: получает удар (откидывает голову), ~0.3 с
+		stagger2 = "",   -- жертва: сгибается от удара, ~0.3 с
+	},
 }
 
 Abilities.Rarities = {
@@ -841,15 +855,44 @@ local function projectile(attacker, startPos, dir, speed, life, radius, part, on
 	end)
 end
 
+-- своя анимация вместо встроенной позы (если ID указан в Abilities.Config.Animations)
+local poseTracks = setmetatable({}, { __mode = "k" })   -- [Animator] = { tracks = { [id] = трек }, current = трек }
+local function playPoseAnim(char, pose)
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	local animator = hum and hum:FindFirstChildOfClass("Animator")
+	if not animator then return end
+	local set = poseTracks[animator]
+	if not set then set = { tracks = {} }; poseTracks[animator] = set end
+	local id = pose and CFG.Animations and CFG.Animations[pose]
+	if id == "" then id = nil end
+	if set.current then set.current:Stop(0.12); set.current = nil end
+	if not id then return end
+	local tr = set.tracks[id]
+	if not tr then
+		local anim = Instance.new("Animation")
+		anim.AnimationId = "rbxassetid://" .. tostring(id)
+		tr = animator:LoadAnimation(anim)
+		tr.Priority = Enum.AnimationPriority.Action4
+		set.tracks[id] = tr
+	end
+	tr:Play(0.06)
+	set.current = tr
+end
+
 -- поза персонажа: клиенты плавно поворачивают суставы (все видят одно и то же)
 local function setPose(char, pose, dur)
 	if not char then return end
 	char:SetAttribute("Pose", pose)
 	local token = (char:GetAttribute("PoseToken") or 0) + 1
 	char:SetAttribute("PoseToken", token)
+	local ok, err = pcall(playPoseAnim, char, pose)
+	if not ok then warn("[RNG] Анимация «" .. tostring(pose) .. "» не запустилась: " .. tostring(err)) end
 	if dur then
 		task.delay(dur, function()
-			if char.Parent and char:GetAttribute("PoseToken") == token then char:SetAttribute("Pose", nil) end
+			if char.Parent and char:GetAttribute("PoseToken") == token then
+				char:SetAttribute("Pose", nil)
+				pcall(playPoseAnim, char, nil)
+			end
 		end)
 	end
 end
@@ -1063,8 +1106,9 @@ end
 
 ---------------------------------------------------------------- РЮ (Рю Исигори, «Магическая битва»)
 local RYU = Color3.fromRGB(150, 220, 255)
+local CYL = CFrame.Angles(0, math.rad(90), 0)   -- цилиндр лежит вдоль X: так он смотрит вдоль LookVector
 
--- внешний вид: огромный чёрный кок-помпадур, лёгкая аура проклятой энергии
+-- внешний вид: аккуратный чёрный кок (под размер головы), лёгкая аура проклятой энергии
 local function ryuLook(char, on)
 	if not char then return end
 	local old = char:FindFirstChild("RyuLook")
@@ -1084,21 +1128,22 @@ local function ryuLook(char, on)
 	if not on then return end
 	local head = char:FindFirstChild("Head")
 	if not head then return end
+	local s = math.clamp(head.Size.Y / 1.2, 0.7, 1.4)
 	local look = Instance.new("Model")
 	look.Name = "RyuLook"
 	local black = Color3.fromRGB(18, 16, 22)
 	local function hairPart(size, offset, rot)
-		local p = Map.make("Part", { Name = "Hair", Size = size, Color = black, Material = Enum.Material.SmoothPlastic, Anchored = false, CanCollide = false,
-			CanQuery = false, Massless = true, CastShadow = true, CFrame = head.CFrame * CFrame.new(offset) * rot, Parent = look })
+		local p = Map.make("Part", { Name = "Hair", Size = size * s, Color = black, Material = Enum.Material.SmoothPlastic, Anchored = false, CanCollide = false,
+			CanQuery = false, CanTouch = false, Massless = true, CastShadow = true, CFrame = head.CFrame * CFrame.new(offset * s) * rot, Parent = look })
 		Map.make("WeldConstraint", { Part0 = head, Part1 = p, Parent = p })
 		return p
 	end
-	-- основание причёски и длинный кок вперёд-вверх
-	hairPart(Vector3.new(1.3, 0.5, 1.3), Vector3.new(0, 0.62, 0.05), CFrame.new())
-	hairPart(Vector3.new(1.05, 0.9, 2.6), Vector3.new(0, 0.95, -0.85), CFrame.Angles(math.rad(22), 0, 0))
-	hairPart(Vector3.new(0.85, 0.75, 1.4), Vector3.new(0, 1.35, -2.05), CFrame.Angles(math.rad(38), 0, 0))
-	hairPart(Vector3.new(0.3, 0.9, 1.1), Vector3.new(0.62, 0.35, 0.15), CFrame.new())
-	hairPart(Vector3.new(0.3, 0.9, 1.1), Vector3.new(-0.62, 0.35, 0.15), CFrame.new())
+	-- шапка волос, небольшой кок вперёд, виски
+	hairPart(Vector3.new(1.24, 0.28, 1.2), Vector3.new(0, 0.6, 0.04), CFrame.new())
+	hairPart(Vector3.new(0.95, 0.4, 0.95), Vector3.new(0, 0.74, -0.4), CFrame.Angles(math.rad(14), 0, 0))
+	hairPart(Vector3.new(0.78, 0.34, 0.5), Vector3.new(0, 0.82, -0.86), CFrame.Angles(math.rad(26), 0, 0))
+	hairPart(Vector3.new(0.13, 0.5, 0.8), Vector3.new(0.62, 0.32, 0.12), CFrame.new())
+	hairPart(Vector3.new(0.13, 0.5, 0.8), Vector3.new(-0.62, 0.32, 0.12), CFrame.new())
 	look.Parent = char
 	if hrpA then
 		local e = emitter(hrpA, RYU, 10, 1.6, 0.8, 1)
@@ -1106,6 +1151,19 @@ local function ryuLook(char, on)
 		e.LightEmission = 0.4
 		e.Transparency = NumberSequence.new(0.6, 1)
 	end
+end
+
+-- вспышка удара: белый шар, кольцо ударной волны, искры
+local function impact(pos, dir, big)
+	burst(pos, Color3.fromRGB(255, 250, 235), big and 12 or 7, 0.18)
+	local ring = fx({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.3, 2, 2), Color = Color3.fromRGB(255, 235, 200), Material = Enum.Material.Neon, Transparency = 0.15,
+		CFrame = CFrame.lookAt(pos, pos + dir) * CYL })
+	tween(ring, 0.25, { Size = Vector3.new(0.1, big and 15 or 9, big and 15 or 9), Transparency = 1 })
+	Debris:AddItem(ring, 0.3)
+	local p = fx({ Size = Vector3.new(0.2, 0.2, 0.2), Transparency = 1, CFrame = CFrame.new(pos) })
+	local e = emitter(p, Color3.fromRGB(255, 220, 160), 0, 0.5, 0.25, 28)
+	e:Emit(big and 32 or 14)
+	Debris:AddItem(p, 0.7)
 end
 
 local Ryu = {}
@@ -1138,9 +1196,8 @@ Ryu.ryu1 = function(plr, char, hum, hrp)
 	end)
 end
 
--- 2: «Вот каков десерт!» — рывок; при попадании серия ударов в кинематографе и подброс
+-- 2: «Вот каков десерт!» — рывок; при попадании серия ударов в кинокамере и подброс
 Ryu.ryu2 = function(plr, char, hum, hrp)
-	local a = Abilities.RyuMoves[2]
 	setPose(char, "slide", 0.6)
 	local dir = flatUnit(hrp.CFrame.LookVector)
 	local bv = Instance.new("BodyVelocity")
@@ -1159,37 +1216,52 @@ Ryu.ryu2 = function(plr, char, hum, hrp)
 	trail.Enabled = false
 	Debris:AddItem(trail, 0.5)
 	if not caught then setPose(char, nil); return end
-	-- захват: оба замирают лицом друг к другу
+	-- захват: оба замирают лицом друг к другу (жертва остаётся на своей высоте)
 	local t = caught
 	lastHit[t.key] = { by = plr, t = os.clock() }
 	local face = CFrame.lookAt(hrp.Position, Vector3.new(t.hrp.Position.X, hrp.Position.Y, t.hrp.Position.Z))
 	hrp.Anchored = true
 	hrp.CFrame = face
+	local vy = t.hrp.Position.Y
+	local vp = face.Position + face.LookVector * 4
+	local vBase = CFrame.lookAt(Vector3.new(vp.X, vy, vp.Z), Vector3.new(face.Position.X, vy, face.Position.Z))
 	t.hrp.Anchored = true
-	t.hrp.CFrame = CFrame.lookAt(face.Position + face.LookVector * 4, face.Position)
+	t.hrp.CFrame = vBase
 	if t.char then setPose(t.char, "stagger") end
 	local watchers = { plr }
 	if t.plr then table.insert(watchers, t.plr) end
-	for _, w in ipairs(watchers) do CineEv:FireClient(w, "combo", hrp, t.hrp, 2.6) end
+	for _, w in ipairs(watchers) do CineEv:FireClient(w, "combo", hrp, t.hrp, 2.8) end
 	popText(hrp.Position + Vector3.new(0, 4, 0), "ВОТ КАКОВ ДЕСЕРТ!", Color3.fromRGB(255, 220, 140), true)
+	task.wait(0.15)
 	local seq = { "punchR", "punchL", "punchR", "punchL", "kick" }
 	for i, pose in ipairs(seq) do
 		if not t.hrp.Parent or hum.Health <= 0 then break end
+		local last = (i == #seq)
 		setPose(char, pose)
-		task.wait(0.28)
-		local hitPos = t.hrp.Position + Vector3.new(0, 1, 0)
-		burst(hitPos, Color3.fromRGB(255, 240, 220), 6 + i, 0.2)
+		-- выпад вперёд на удар
+		tween(hrp, 0.07, { CFrame = face * CFrame.new(0, 0, -1.1) })
+		task.wait(0.08)
+		local hitPos = t.hrp.Position + Vector3.new(0, 0.8, 0) - face.LookVector * 1
+		impact(hitPos, face.LookVector, last)
 		damage(t, plr, 4)
-		for _, w in ipairs(watchers) do ShakeEv:FireClient(w, hitPos, 0.35) end
+		for _, w in ipairs(watchers) do ShakeEv:FireClient(w, hitPos, last and 0.6 or 0.4) end
 		if t.char then setPose(t.char, (i % 2 == 0) and "stagger" or "stagger2") end
+		-- жертву отбрасывает на шаг назад и качает, потом возвращает
+		t.hrp.CFrame = vBase * CFrame.new(0, 0, last and 1.4 or 0.7) * CFrame.Angles(math.rad(last and 22 or 13), math.rad(math.random(-12, 12)), 0)
+		tween(t.hrp, 0.16, { CFrame = vBase })
+		tween(hrp, 0.14, { CFrame = face })
+		task.wait(0.2)
 	end
-	setPose(char, "uppercut", 0.6)
-	task.wait(0.15)
+	-- апперкот: подброс вверх
+	setPose(char, "uppercut", 0.7)
+	tween(hrp, 0.1, { CFrame = face * CFrame.new(0, 1.2, -1.2) })
+	task.wait(0.12)
 	hrp.Anchored = false
 	if t.hrp.Parent then
 		t.hrp.Anchored = false
+		impact(t.hrp.Position + Vector3.new(0, 1, 0), Vector3.new(0, 1, 0), true)
 		burst(t.hrp.Position, RYU, 16, 0.35)
-		for _, w in ipairs(watchers) do ShakeEv:FireClient(w, t.hrp.Position, 0.8) end
+		for _, w in ipairs(watchers) do ShakeEv:FireClient(w, t.hrp.Position, 0.9) end
 		knock(t, plr, face.LookVector, 90, 110, 9)
 		if t.char then setPose(t.char, nil) end
 	end
@@ -1198,75 +1270,126 @@ end
 -- 3 (G): УЛЬТА «Гранитный залп» — поза, заряд, песня, огромный луч
 Ryu.ryu3 = function(plr, char, hum, hrp)
 	local look = flatUnit(hrp.CFrame.LookVector)
+	if look.Magnitude < 0.5 then look = Vector3.new(0, 0, -1) end
 	hrp.Anchored = true
 	hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + look)
 	setPose(char, "ultCharge")
-	CineEv:FireClient(plr, "ult", hrp, nil, 3.4)
+	CineEv:FireClient(plr, "ult", hrp, nil, 3.9)
 	AnnounceEv:FireAllClients("РЮ: «ГРАНИТНЫЙ ЗАЛП»!", RYU, true)
 	-- реплика: в JJS Рю иногда кричит «Let's larp!»
 	popText(hrp.Position + Vector3.new(0, 4.5, 0), (math.random() < 0.15) and "LET'S LARP!" or "ДО ПОСЛЕДНЕЙ КАПЛИ!", RYU, true)
 	-- песня LARPZO: все слои из Abilities.Config.RyuSong играют одновременно (музыка + вокал)
-	local old = hrp:FindFirstChild("RyuSong")
-	while old do old:Destroy(); old = hrp:FindFirstChild("RyuSong") end
+	local prevSong = hrp:FindFirstChild("RyuSong")
+	while prevSong do prevSong:Destroy(); prevSong = hrp:FindFirstChild("RyuSong") end
+	local sounds = {}
 	for _, id in ipairs(CFG.RyuSong or {}) do
 		if tostring(id) ~= "" then
 			local snd = Map.make("Sound", { Name = "RyuSong", SoundId = "rbxassetid://" .. tostring(id), Volume = CFG.RyuSongVolume or 1,
 				RollOffMaxDistance = 400, RollOffMinDistance = 40, Parent = hrp })
 			snd:Play()
+			table.insert(sounds, snd)
 			task.delay(22, function() if snd.Parent then tween(snd, 2, { Volume = 0 }); Debris:AddItem(snd, 2.1) end end)
 		end
 	end
+	if #sounds > 0 then
+		task.delay(4, function()
+			for _, snd in ipairs(sounds) do if snd.Parent and snd.IsLoaded then return end end
+			if plr.Parent then
+				AnnounceEv:FireClient(plr, "Песня не загрузилась (звук закрыт автором). Вставь свой ID в Abilities → Config.RyuSong", Color3.fromRGB(255, 160, 120), false)
+			end
+		end)
+	end
 	-- заряд в ладонях и трещины земли
-	local handPos = hrp.Position + look * 2.6 + Vector3.new(0, 0.6, 0)
+	local handPos = hrp.Position + look * 2.4 + Vector3.new(0, 0.6, 0)
 	local orb = fx({ Shape = Enum.PartType.Ball, Size = Vector3.new(0.5, 0.5, 0.5), Color = Color3.fromRGB(230, 250, 255), Material = Enum.Material.Neon, CFrame = CFrame.new(handPos) })
 	light(orb, RYU, 30)
 	local charge = emitter(orb, RYU, 140, 1.2, 0.4, -8)
-	tween(orb, 1.4, { Size = Vector3.new(4.5, 4.5, 4.5) })
+	tween(orb, 1.4, { Size = Vector3.new(5, 5, 5) })
 	for i = 1, 8 do
 		local ang = i / 8 * math.pi * 2
 		local crack = fx({ Size = Vector3.new(0.6, 0.15, 6), Color = RYU, Material = Enum.Material.Neon,
 			CFrame = CFrame.new(hrp.Position - Vector3.new(0, 2.9, 0) + Vector3.new(math.cos(ang), 0, math.sin(ang)) * 4) * CFrame.Angles(0, -ang + math.pi / 2, 0) })
 		tween(crack, 1.4, { Size = Vector3.new(0.6, 0.15, 10), Transparency = 0.6 })
-		Debris:AddItem(crack, 3.2)
+		Debris:AddItem(crack, 3.4)
 	end
 	task.wait(1.4)
-	if hum.Health <= 0 then hrp.Anchored = false; orb:Destroy(); return end
+	if hum.Health <= 0 or not hrp.Parent then
+		if hrp.Parent then hrp.Anchored = false end
+		orb:Destroy()
+		setPose(char, nil)
+		return
+	end
 	setPose(char, "ultFire")
 	charge.Enabled = false
-	-- луч
-	local LEN, W = 170, 12
-	local start = handPos
-	local beamCF = CFrame.lookAt(start + look * (LEN / 2), start + look * LEN)
-	local beam = fx({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(LEN, 1, 1), Color = Color3.fromRGB(235, 250, 255), Material = Enum.Material.Neon,
-		CFrame = beamCF * CFrame.Angles(0, math.rad(90), 0) })
-	local outer = fx({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(LEN, 2, 2), Color = RYU, Material = Enum.Material.ForceField, Transparency = 0,
-		CFrame = beamCF * CFrame.Angles(0, math.rad(90), 0) })
-	light(orb, RYU, 60)
-	tween(beam, 0.18, { Size = Vector3.new(LEN, W * 0.55, W * 0.55) }, Enum.EasingStyle.Back)
-	tween(outer, 0.18, { Size = Vector3.new(LEN, W, W) }, Enum.EasingStyle.Back)
-	ShakeEv:FireAllClients(start, 1)
+	-- ЛУЧ: за 0.25 с вырастает вперёд на 280 стадов, держится, пульсирует; три слоя — ядро, свечение, дымка
+	local LEN, W = 280, 16
+	local start = hrp.Position + look * 2.6 + Vector3.new(0, 1.2, 0)
+	local core = fx({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(1, W * 0.55, W * 0.55), Color = Color3.fromRGB(240, 252, 255), Material = Enum.Material.Neon })
+	local glow = fx({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(1, W, W), Color = RYU, Material = Enum.Material.Neon, Transparency = 0.45 })
+	local haze = fx({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(1, W * 1.6, W * 1.6), Color = Color3.fromRGB(110, 190, 255), Material = Enum.Material.Neon, Transparency = 0.82 })
+	local function place(L, k)
+		local cf = CFrame.lookAt(start + look * (L / 2), start + look * L) * CYL
+		core.CFrame, glow.CFrame, haze.CFrame = cf, cf, cf
+		core.Size = Vector3.new(L, W * 0.55 * k, W * 0.55 * k)
+		glow.Size = Vector3.new(L, W * k, W * k)
+		haze.Size = Vector3.new(L, W * 1.6 * k, W * 1.6 * k)
+	end
+	place(1, 1)
+	light(core, RYU, 60)
+	burst(start, Color3.fromRGB(235, 250, 255), 34, 0.5)
+	burst(start, RYU, 22, 0.35)
+	ShakeEv:FireAllClients(start, 1.2)
+	-- светящаяся борозда на земле вдоль луча
+	local g0 = Vector3.new(start.X, hrp.Position.Y - 2.9, start.Z)
+	local scar = fx({ Size = Vector3.new(W * 0.7, 0.2, LEN), Color = RYU, Material = Enum.Material.Neon, Transparency = 0.3,
+		CFrame = CFrame.lookAt(g0 + look * (LEN / 2), g0 + look * LEN) })
+	local sideV = Vector3.new(-look.Z, 0, look.X)
 	local hitSet, t0 = {}, os.clock()
-	while os.clock() - t0 < 1.3 do
-		local pulse = 1 + math.sin(os.clock() * 40) * 0.06
-		outer.Size = Vector3.new(LEN, W * pulse, W * pulse)
+	local ringT, rocks = 0, false
+	while os.clock() - t0 < 1.55 do
+		local e = os.clock() - t0
+		local L = math.max(1, LEN * math.min(1, e / 0.25))
+		place(L, 1 + math.sin(e * 40) * 0.07)
+		-- кольца бегут по лучу
+		if e >= ringT then
+			ringT = ringT + 0.09
+			local ring = fx({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.6, W * 1.2, W * 1.2), Color = Color3.fromRGB(225, 245, 255), Material = Enum.Material.Neon,
+				Transparency = 0.3, CFrame = CFrame.lookAt(start, start + look) * CYL })
+			tween(ring, 0.5, { CFrame = CFrame.lookAt(start + look * 140, start + look * 141) * CYL, Size = Vector3.new(0.3, W * 2, W * 2), Transparency = 1 }, Enum.EasingStyle.Linear)
+			Debris:AddItem(ring, 0.55)
+		end
+		-- обломки земли взлетают вдоль луча
+		if not rocks and e >= 0.25 then
+			rocks = true
+			for _ = 1, 14 do
+				local p = g0 + look * (10 + math.random() * (LEN - 20)) + sideV * ((math.random() - 0.5) * W)
+				local sz = 1.5 + math.random() * 2.5
+				local rock = fx({ Size = Vector3.new(sz, sz, sz), Color = Color3.fromRGB(110, 105, 100), Material = Enum.Material.Slate,
+					CFrame = CFrame.new(p) * CFrame.Angles(math.random() * 3, math.random() * 3, 0) })
+				tween(rock, 0.7, { CFrame = rock.CFrame + Vector3.new(0, 8 + math.random() * 10, 0), Transparency = 1 })
+				Debris:AddItem(rock, 0.75)
+			end
+		end
 		for _, t in ipairs(allTargets(plr)) do
 			if not hitSet[t.key] then
 				local rel = t.hrp.Position - start
 				local along = rel:Dot(look)
 				local side = (rel - look * along).Magnitude
-				if along > 0 and along < LEN and side < W * 0.6 then
+				if along > -2 and along < L and side < W * 0.8 then
 					hitSet[t.key] = true
-					knock(t, plr, look, 150, 45, 50)
-					burst(t.hrp.Position, RYU, 18, 0.35)
+					knock(t, plr, look, 170, 50, 50)
+					burst(t.hrp.Position, RYU, 20, 0.35)
 				end
 			end
 		end
 		RunService.Heartbeat:Wait()
 	end
-	tween(beam, 0.35, { Size = Vector3.new(LEN, 0.2, 0.2), Transparency = 1 })
-	tween(outer, 0.35, { Size = Vector3.new(LEN, 0.4, 0.4), Transparency = 1 })
+	tween(core, 0.4, { Size = Vector3.new(LEN, 0.2, 0.2), Transparency = 1 })
+	tween(glow, 0.4, { Size = Vector3.new(LEN, 0.4, 0.4), Transparency = 1 })
+	tween(haze, 0.4, { Size = Vector3.new(LEN, 0.6, 0.6), Transparency = 1 })
 	tween(orb, 0.35, { Size = Vector3.new(0.2, 0.2, 0.2), Transparency = 1 })
-	Debris:AddItem(beam, 0.4); Debris:AddItem(outer, 0.4); Debris:AddItem(orb, 0.4)
+	tween(scar, 3, { Transparency = 1 })
+	Debris:AddItem(core, 0.45); Debris:AddItem(glow, 0.45); Debris:AddItem(haze, 0.45); Debris:AddItem(orb, 0.4); Debris:AddItem(scar, 3.1)
 	task.wait(0.4)
 	hrp.Anchored = false
 	setPose(char, nil)
@@ -2533,6 +2656,7 @@ local R15J = { RS = { "RightUpperArm", "RightShoulder" }, LS = { "LeftUpperArm",
 local R6J = { RS = { "Torso", "Right Shoulder" }, LS = { "Torso", "Left Shoulder" }, RH = { "Torso", "Right Hip" }, LH = { "Torso", "Left Hip" },
 	Neck = { "Torso", "Neck" }, Root = { "HumanoidRootPart", "RootJoint" } }
 
+local IDENT = CFrame.new()
 local poseStates = setmetatable({}, { __mode = "k" })
 local function buildPoseState(char)
 	local hum = char:FindFirstChildOfClass("Humanoid")
@@ -2543,8 +2667,7 @@ local function buildPoseState(char)
 		local part = char:FindFirstChild(path[1])
 		local m = part and part:FindFirstChild(path[2])
 		if m and m:IsA("Motor6D") then
-			local rot = m.C0 - m.C0.Position
-			joints[key] = { motor = m, rot = rot, rinv = rot:Inverse(), cur = CFrame.new(), w = 0 }
+			joints[key] = { motor = m, pos = CFrame.new(m.C0.Position), rot = m.C0 - m.C0.Position, cur = IDENT, w = 0 }
 			n = n + 1
 		end
 	end
@@ -2561,8 +2684,14 @@ local function poseTarget(def, key, r6)
 	return def[key]
 end
 
--- Stepped идёт ПОСЛЕ анимаций: смешиваем анимацию с позой через Motor6D.Transform
-RunService.Stepped:Connect(function(_, dt)
+-- если для позы указана своя анимация (Abilities.Config.Animations) — её играет сервер, встроенную позу не трогаем
+local function hasAnim(pose)
+	local id = pose and CFG.Animations and CFG.Animations[pose]
+	return id ~= nil and id ~= ""
+end
+
+-- поза = поворот сустава через Motor6D.C0 (стандартные анимации C0 не трогают, поэтому поза точно видна)
+local function stepPoses(dt)
 	local now = os.clock()
 	for _, p in ipairs(Players:GetPlayers()) do
 		local char = p.Character
@@ -2577,13 +2706,13 @@ RunService.Stepped:Connect(function(_, dt)
 				local token = char:GetAttribute("PoseToken")
 				if pose ~= st.pose or token ~= st.token then
 					if pose and pose == st.pose then
-						for _, j in pairs(st.joints) do j.cur = j.cur:Lerp(CFrame.new(), 0.6) end   -- тот же удар ещё раз — «замах»
+						for _, j in pairs(st.joints) do j.cur = j.cur:Lerp(IDENT, 0.6) end   -- тот же удар ещё раз — «замах»
 					end
 					st.pose, st.token, st.start = pose, token, now
 				end
 				local name = pose
 				if pose == "ultCharge" and now - st.start < 0.7 then name = "ultHair" end
-				local def = name and POSES[name]
+				local def = (name and not hasAnim(pose)) and POSES[name] or nil
 				local speed = def and def.speed or 12
 				local a = 1 - math.exp(-dt * speed)
 				local aw = 1 - math.exp(-dt * math.max(14, speed))
@@ -2601,14 +2730,32 @@ RunService.Stepped:Connect(function(_, dt)
 						end
 						if j.w > 0.003 then
 							any = true
-							j.motor.Transform = j.motor.Transform:Lerp(j.rinv * j.cur * j.rot, j.w)
+							j.motor.C0 = j.pos * IDENT:Lerp(j.cur, j.w) * j.rot
 						elseif j.w > 0 then
 							j.w = 0
-							j.motor.Transform = CFrame.new()
+							j.motor.C0 = j.pos * j.rot
 						end
 					end
 				end
 				st.active = any or pose ~= nil
+			end
+		end
+	end
+end
+local poseWarned = false
+RunService.RenderStepped:Connect(function(dt)
+	local ok, err = pcall(stepPoses, dt)
+	if not ok and not poseWarned then
+		poseWarned = true
+		warn("[RNG] Ошибка поз: " .. tostring(err))
+	end
+end)
+-- стандартные анимации (стойка, ходьба) приглушаем на тех суставах, где сейчас поза
+RunService.Stepped:Connect(function()
+	for _, st in pairs(poseStates) do
+		if st.active then
+			for _, j in pairs(st.joints) do
+				if j.w > 0.01 and j.motor.Parent then j.motor.Transform = j.motor.Transform:Lerp(IDENT, j.w * 0.85) end
 			end
 		end
 	end
@@ -2647,7 +2794,7 @@ local function cineCombo(a, b, dur, my)
 		local ang = math.rad(-50 + e / dur * 110)
 		local dir = perp * math.cos(ang) + axis * math.sin(ang)
 		local look = mid
-		if e > 1.55 then look = mid:Lerp(pb + Vector3.new(0, 2, 0), math.min(1, (e - 1.55) / 0.4)) end
+		if e > 1.65 then look = mid:Lerp(pb + Vector3.new(0, 2, 0), math.min(1, (e - 1.65) / 0.4)) end
 		local target = CFrame.lookAt(mid + dir * (10 - e * 1.2) + Vector3.new(0, 2.2 + e * 0.6, 0), look)
 		cf = cf and cf:Lerp(target, 1 - math.exp(-dt * 12)) or target
 		cam.CFrame = cf * shakeCF()
@@ -2656,7 +2803,7 @@ local function cineCombo(a, b, dur, my)
 	end
 end
 
--- ульта: крупный план (поправил кок) → общий план (заряд) → вспышка → из-за плеча вдоль луча
+-- ульта: крупный план (поправил кок) → общий план (заряд) → вспышка → сзади-сбоку (луч вырастает) → издалека сбоку (весь луч)
 local function cineUlt(hrp, dur, my)
 	local cam = workspace.CurrentCamera
 	cam.CameraType = Enum.CameraType.Scriptable
@@ -2689,9 +2836,16 @@ local function cineUlt(hrp, dur, my)
 				addShake(1.2)
 				play(sLunge, 0.5)
 			end
-			local k = math.min(1, (e - 1.4) / 1.7)
-			cf = CFrame.lookAt(cf0.Position - look * (8 + k * 3) + right * 3.5 + up * (3 + k), cf0.Position + look * 45 + up * 0.5)
-			fov = 75 + k * 5
+			if e < 2.25 then
+				local k = (e - 1.4) / 0.85
+				cf = CFrame.lookAt(cf0.Position - look * (14 + k * 4) + right * (10 + k * 3) + up * (6 + k * 2), cf0.Position + look * 60)
+				fov = 78
+			else
+				local k = math.min(1, (e - 2.25) / 1.5)
+				local mid = cf0.Position + look * 90
+				cf = CFrame.lookAt(mid + right * (80 + k * 10) - look * 20 + up * (12 + k * 4), mid)
+				fov = 72
+			end
 		end
 		cam.CFrame = cf * shakeCF()
 		cam.FieldOfView = fov
