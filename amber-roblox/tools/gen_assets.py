@@ -2807,7 +2807,7 @@ def shield_poly(cx, top, w, h, k=60):
 
 
 def key_layer(S, col):
-    kl = Image.new('RGBA', (int(0.12 * S), int(0.42 * S)), (0, 0, 0, 0))
+    kl = Image.new('RGBA', (int(0.1 * S), int(0.34 * S)), (0, 0, 0, 0))
     d = ImageDraw.Draw(kl)
     w, h = kl.size
     d.ellipse((w * 0.12, 0, w * 0.88, w * 0.76), outline=col, width=int(w * 0.13))
@@ -2871,7 +2871,7 @@ def i_blackridge(rng, n):
     d.ellipse((mx - mr * 0.55, my - mr * 1.05, mx + mr * 1.4, my + mr * 0.8), fill=bone)
     d.line([(c - w / 2, yb), (c + w / 2, yb)], fill=gold, width=int(0.01 * S))
     for s in (-1, 1):
-        put(im, key_layer(S, gold), c, top + 0.65 * h, 'mm', rot=38 * s)
+        put(im, key_layer(S, gold), c, top + 0.64 * h, 'mm', rot=36 * s)
     # надписи
     arc_text(im, 'BLACK RIDGE', font('serif-bold', int(0.078 * S)), c, 0.62 * S, 0.47 * S, -90, bone, track=1.04,
              stroke=int(0.006 * S), stroke_fill=ink)
@@ -3134,14 +3134,14 @@ def i_poster2(rng, w, h):
 
 
 def dog_photo(h, w, rng):
-    S = Image.new('RGB', (w, h), (120, 130, 110))
+    S = Image.new('RGB', (w, h), (190, 200, 175))
     d = ImageDraw.Draw(S)
-    d.rectangle((0, 0, w, h * 0.45), fill=(170, 175, 170))
-    d.rectangle((0, h * 0.3, w, h * 0.45), fill=(110, 105, 95))
+    d.rectangle((0, 0, w, h * 0.45), fill=(235, 235, 230))
+    d.rectangle((0, h * 0.3, w, h * 0.45), fill=(205, 200, 190))
     for i in range(0, w, w // 10):
-        d.rectangle((i, h * 0.18, i + w * 0.03, h * 0.45), fill=(200, 196, 185))
-    d.rectangle((0, h * 0.22, w, h * 0.25), fill=(200, 196, 185))
-    gold, dk = (205, 160, 95), (150, 105, 55)
+        d.rectangle((i, h * 0.18, i + w * 0.03, h * 0.45), fill=(150, 146, 135))
+    d.rectangle((0, h * 0.22, w, h * 0.25), fill=(150, 146, 135))
+    gold, dk = (150, 105, 55), (80, 50, 25)
     cx, cy = w * 0.5, h * 0.62
     d.ellipse((cx - w * 0.3, cy - h * 0.16, cx + w * 0.22, cy + h * 0.12), fill=gold)
     for lx in (-0.24, -0.12, 0.08, 0.16):
@@ -3151,7 +3151,7 @@ def dog_photo(h, w, rng):
                (cx - w * 0.25, cy - h * 0.12)], fill=gold)
     hx, hy = cx + w * 0.22, cy - h * 0.2
     d.ellipse((hx - w * 0.13, hy - h * 0.13, hx + w * 0.13, hy + h * 0.12), fill=gold)
-    d.ellipse((hx + w * 0.03, hy - h * 0.01, hx + w * 0.24, hy + h * 0.1), fill=(215, 175, 115))
+    d.ellipse((hx + w * 0.03, hy - h * 0.01, hx + w * 0.24, hy + h * 0.1), fill=(175, 130, 80))
     d.ellipse((hx + w * 0.19, hy + h * 0.0, hx + w * 0.25, hy + h * 0.05), fill=(30, 25, 20))
     d.polygon([(hx - w * 0.1, hy - h * 0.08), (hx - w * 0.17, hy + h * 0.12), (hx - w * 0.06, hy + h * 0.1)], fill=dk)
     d.ellipse((hx + w * 0.02, hy - h * 0.06, hx + w * 0.06, hy - h * 0.02), fill=(20, 18, 15))
@@ -3160,8 +3160,8 @@ def dog_photo(h, w, rng):
     a = np.asarray(S).astype(float) / 255.0
     a = ndimage.gaussian_filter(a, (1.5, 1.5, 0))
     g = 1 - (0.3 * a[..., 0] + 0.59 * a[..., 1] + 0.11 * a[..., 2])
-    g += 0.08 * per_noise(h, w, rng, 3)
-    return np.clip((g - 0.15) * 1.5, 0, 1)
+    g += 0.03 * per_noise(h, w, rng, 3)
+    return np.clip((g - 0.12) * 1.4, 0, 1)
 
 
 @img('Poster3', (512, 1024), 'Листовка «LOST DOG»: ксерокопия с фото пса Бисквита, приметы, телефон 555-0143, награда, '
@@ -3171,7 +3171,7 @@ def i_poster3(rng, w, h):
     rgb = poster_paper(H, W, rng, '#f1efe6', 0.025)
     ph_h, ph_w = int(H * 0.28), int(W * 0.84)
     g = dog_photo(ph_h, ph_w, rng)
-    ink = halftone(g, cell=6, ang=45) * 0.7 + 0.3 * smoothstep(0.55, 0.7, g)
+    ink = halftone(g, cell=5, ang=45) * 0.75 + 0.25 * smoothstep(0.5, 0.65, g)
     y0, x0 = int(H * 0.17), int(W * 0.08)
     rgb[y0:y0 + ph_h, x0:x0 + ph_w] *= (1 - 0.9 * np.clip(ink, 0, 1))[..., None]
     rgb[y0 - 4:y0 + ph_h + 4, x0 - 4:x0] *= 0.15

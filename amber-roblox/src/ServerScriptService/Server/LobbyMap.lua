@@ -159,9 +159,9 @@ local function buildSpawn(root)
 	}, root)
 	-- нарисованная стрелка «к кабинкам»
 	local acf = CF(x, 0.81, z + 2.2)
-	P(f, "Arrow", V3(0.6, 0.02, 3.4), acf, 0, 0, -1.2, C.amber, M.SmoothPlastic)
-	P(f, "Arrow", V3(0.6, 0.02, 2.6), acf * ANG(0, rad(40), 0), -0.75, 0, 0.4, C.amber, M.SmoothPlastic)
-	P(f, "Arrow", V3(0.6, 0.02, 2.6), acf * ANG(0, rad(-40), 0), 0.75, 0, 0.4, C.amber, M.SmoothPlastic)
+	P(f, "Arrow", V3(0.6, 0.02, 3.6), acf, 0, 0, -0.4, C.amber, M.SmoothPlastic)
+	B.part(f, "Arrow", V3(0.6, 0.02, 2.2), acf * CF(-0.707, 0, 0.757) * ANG(0, rad(40), 0), C.amber, M.SmoothPlastic)
+	B.part(f, "Arrow", V3(0.6, 0.02, 2.2), acf * CF(0.707, 0, 0.757) * ANG(0, rad(-40), 0), C.amber, M.SmoothPlastic)
 	return sp
 end
 
@@ -185,7 +185,7 @@ local function buildBooth(parent, i, diffKey, bx)
 	-- порог с полосами «зебра»
 	P(geo, "Threshold", V3(5.4, 0.08, 0.9), cf, 0, 0.52, 0.5, C.amber, M.SmoothPlastic)
 	for k = -2, 2 do
-		P(geo, "Stripe", V3(0.35, 0.09, 1.1), cf * ANG(0, rad(35), 0), k * 1.05, 0.53, 0.5 + k * 0.1, rgb(20, 20, 22), M.SmoothPlastic)
+		B.part(geo, "Stripe", V3(0.35, 0.09, 1.0), cf * CF(k * 1.05, 0.53, 0.5) * ANG(0, rad(35), 0), rgb(20, 20, 22), M.SmoothPlastic)
 	end
 	-- задняя стена со стальной «шлюзовой» дверью
 	P(geo, "BackWall", V3(W + 1.2, H, 0.8), cf, 0, H / 2 + 0.4, D + 0.4, rgb(66, 70, 76), M.Metal)
@@ -279,8 +279,9 @@ local function buildKiosk(parent, def)
 	P(m, "CounterStripe", V3(8.05, 0.5, 0.1), cf, 0, 3.0, -3.02, col, M.SmoothPlastic)
 	-- монитор на прилавке
 	P(m, "MonitorStand", V3(0.3, 0.8, 0.3), cf, 1.8, 4.2, -2.0, C.steelDark, M.Metal)
-	P(m, "Monitor", V3(2.4, 1.6, 0.3), cf * ANG(rad(-12), 0, 0), 1.8, 5.2, -2.0, rgb(24, 24, 28), M.SmoothPlastic)
-	local scr = P(m, "Screen", V3(2.1, 1.3, 0.05), cf * ANG(rad(-12), 0, 0), 1.8, 5.2, -2.18, C.screen, M.SmoothPlastic)
+	local mcf = cf * CF(1.8, 5.2, -2.0) * ANG(rad(12), 0, 0)
+	P(m, "Monitor", V3(2.4, 1.6, 0.3), mcf, 0, 0, 0, rgb(24, 24, 28), M.SmoothPlastic)
+	local scr = P(m, "Screen", V3(2.1, 1.3, 0.05), mcf, 0, 0, -0.18, C.screen, M.SmoothPlastic)
 	label(scr, NF.Front, def.title, col, { BackgroundTransparency = 0, BackgroundColor3 = rgb(8, 10, 14) }, { LightInfluence = 0 })
 	-- полка с коробками позади прилавка
 	P(m, "Shelf", V3(6, 3, 1.2), cf, 0, 1.9, 2.4, rgb(60, 50, 40), M.WoodPlanks)
@@ -296,7 +297,7 @@ local function buildKiosk(parent, def)
 	label(fascia, NF.Front, def.title, col)
 	for k = 0, 5 do
 		local stripe = (k % 2 == 0) and col or rgb(232, 228, 216)
-		P(m, "Awning", V3(1.6, 0.15, 2.4), cf * ANG(rad(-22), 0, 0), -4.0 + k * 1.6, 8.0, -4.6, stripe, M.Fabric)
+		B.part(m, "Awning", V3(1.6, 0.15, 2.4), cf * CF(-4.0 + k * 1.6, 8.6, -5.4) * ANG(rad(-22), 0, 0), stripe, M.Fabric)
 	end
 	-- тёплая лампа под крышей
 	local lamp = P(m, "Lamp", V3(3, 0.2, 0.6), cf, 0, 9.3, -1.2, rgb(255, 214, 160), M.Neon)
@@ -358,7 +359,7 @@ local function buildBillboard(root)
 		B.part(f, "Strut", V3(W + 2, 0.4, 0.4), CF(x, by, z + 2.0), C.steelDark, M.Metal)
 	end
 	-- служебный мостик под экраном с перилами
-	local wy = y - H / 2 - 1.2
+	local wy = y - H / 2 - 3.6
 	B.part(f, "Walkway", V3(W + 2, 0.25, 2.2), CF(x, wy, z - 1.2), rgb(70, 72, 76), M.DiamondPlate)
 	B.part(f, "WalkwayEdge", V3(W + 2, 0.7, 0.15), CF(x, wy - 0.3, z - 2.3), rgb(30, 32, 36), M.Metal)
 	local plate = B.part(f, "Plate", V3(16, 0.7, 0.1), CF(x, wy - 0.3, z - 2.4), rgb(16, 16, 18), M.SmoothPlastic)
@@ -1002,7 +1003,7 @@ local function bench(parent, cf)
 		P(m, "Slat", V3(6.2, 0.18, 0.5), cf, 0, 1.95, -0.6 + k * 0.6, vary(wood, 0.08), M.WoodPlanks)
 	end
 	for k = 0, 1 do
-		P(m, "Back", V3(6.2, 0.45, 0.16), cf * ANG(rad(-12), 0, 0), 0, 2.7 + k * 0.7, 0.95 + k * 0.12, vary(wood, 0.08), M.WoodPlanks)
+		B.part(m, "Back", V3(6.2, 0.45, 0.16), cf * CF(0, 2.7 + k * 0.7, 0.95 + k * 0.15) * ANG(rad(12), 0, 0), vary(wood, 0.08), M.WoodPlanks)
 	end
 	return m
 end
@@ -1240,12 +1241,12 @@ local function noticeBoard(parent, cf)
 	local m = B.model(parent, "NoticeBoard")
 	for s = -1, 1, 2 do P(m, "Leg", V3(0.35, 7, 0.35), cf, s * 3.2, 3.5, 0, rgb(70, 56, 40), M.Wood) end
 	P(m, "Board", V3(7, 4, 0.3), cf, 0, 5, 0, rgb(120, 92, 62), M.Wood)
-	P(m, "BoardRoof", V3(7.6, 0.25, 1.0), cf * ANG(rad(-15), 0, 0), 0, 7.2, 0, rgb(50, 44, 38), M.Wood)
+	B.part(m, "BoardRoof", V3(7.6, 0.25, 1.0), cf * CF(0, 7.2, 0) * ANG(rad(-15), 0, 0), rgb(50, 44, 38), M.Wood)
 	local texts = { "ПРОПАЛ\nРЕБЁНОК", "AMBER\nALERT", "ВЫ ВИДЕЛИ\nЕЁ?", "ПРОПАЛ\nБЕЗ ВЕСТИ", "НЕ ВЫХОДИТЕ\nНОЧЬЮ" }
 	for k = 1, 5 do
 		local px = -2.7 + (k - 1) * 1.35
 		local col = (k == 2) and rgb(255, 196, 40) or vary(rgb(226, 222, 206), 0.05)
-		local poster = P(m, "Poster", V3(1.15, 1.6, 0.04), cf * ANG(0, 0, rad(rr(-6, 6))), px, 5 + rr(-0.8, 0.8), -0.18, col, M.SmoothPlastic)
+		local poster = B.part(m, "Poster", V3(1.15, 1.6, 0.04), cf * CF(px, 5 + rr(-0.8, 0.8), -0.18) * ANG(0, 0, rad(rr(-6, 6))), col, M.SmoothPlastic)
 		label(poster, NF.Front, texts[k], rgb(150, 20, 16), { Font = Enum.Font.GothamBlack })
 	end
 	return m
@@ -1425,7 +1426,7 @@ local function dumpster(parent, cf)
 	local m = B.model(parent, "Dumpster")
 	local c = vary(rgb(40, 70, 52), 0.08)
 	P(m, "Box", V3(7, 4, 4), cf, 0, 2.4, 0, c, M.CorrodedMetal)
-	P(m, "Lid", V3(7.2, 0.25, 4.3), cf * ANG(rad(-6), 0, 0), 0, 4.5, 0.2, rgb(30, 30, 32), M.Plastic)
+	B.part(m, "Lid", V3(7.2, 0.25, 4.3), cf * CF(0, 4.55, 0) * ANG(rad(-6), 0, 0), rgb(30, 30, 32), M.Plastic)
 	for s = -1, 1, 2 do P(m, "Wheel", V3(0.6, 0.6, 0.6), cf, s * 3, 0.3, 1.4, rgb(20, 20, 20), M.Metal) end
 	return m
 end
@@ -1434,7 +1435,7 @@ local function wheelchair(parent, cf)
 	local m = B.model(parent, "Wheelchair")
 	local s = rgb(150, 152, 150)
 	P(m, "Seat", V3(2, 0.25, 2), cf, 0, 2, 0, rgb(40, 40, 46), M.Fabric)
-	P(m, "Back", V3(2, 2, 0.2), cf * ANG(rad(-10), 0, 0), 0, 3.1, 1.0, rgb(40, 40, 46), M.Fabric)
+	B.part(m, "Back", V3(2, 2, 0.2), cf * CF(0, 3.1, 1.0) * ANG(rad(10), 0, 0), rgb(40, 40, 46), M.Fabric)
 	for k = -1, 1, 2 do
 		B.cyl(m, "BigWheel", 0.15, 2.8, cf * CF(k * 1.15, 1.4, 0.4), s, M.Metal, { Transparency = 0.1 })
 		B.cyl(m, "SmallWheel", 0.15, 0.7, cf * CF(k * 0.8, 0.35, -1.0), rgb(30, 30, 30), M.Metal)

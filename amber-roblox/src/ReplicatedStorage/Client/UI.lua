@@ -1487,7 +1487,6 @@ Screens.Shop = function()
 		setText(money, "$ " .. tostring(m))
 		setText(apples, "🍎 " .. tostring(a) .. " шт.")
 		local p = price()
-		setText(sell.Text and sell or sell, "")
 		sell.Text = "🍎 ПРОДАТЬ ЯБЛОКИ  " .. tostring(a) .. " × $" .. tostring(p) .. " = $" .. tostring(a * p)
 		setEnabled(sell, open and a > 0 and not busy)
 		closed.Visible = not open
@@ -1637,6 +1636,229 @@ Screens.Classes = function()
 			render()
 		end
 	end)
+	return sh
+end
+
+-- ===================== досье заключённого =====================
+-- секретная папка: фото (вращающаяся 3D-модель во ViewportFrame), штамп, поля дела
+local function typedLine(parent, caption, value, order, color)
+	local row = frame(parent, { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = order })
+	vlist(row, 1)
+	label(row, caption, 12, F.mono, Color3.fromRGB(110, 98, 80), { Size = UDim2.new(1, 0, 0, 14), TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 1 })
+	local v = label(row, value, 16, F.mono, color or COL.ink, { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 2 })
+	return v, row
+end
+
+local function buildPreview(sh, photo, def)
+	local vf = mk("ViewportFrame", photo, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(26, 28, 32),
+		Ambient = Color3.fromRGB(150, 150, 160), LightColor = Color3.fromRGB(255, 232, 200), LightDirection = Vector3.new(-0.6, -1, -0.8) })
+	grad(vf, COL.white, Color3.fromRGB(120, 120, 130), 90)
+	local cam = mk("Camera", vf, { FieldOfView = 34 })
+	vf.CurrentCamera = cam
+	local wm = mk("WorldModel", vf)
+	local note = label(photo, "ФОТО\nОТСУТСТВУЕТ", 16, F.mono, COL.dim, { Size = UDim2.fromScale(1, 1), ZIndex = 3 })
+	if type(def.build) ~= "function" then return end
+	task.spawn(function()
+		local ok, model = pcall(def.build, ctx)
+		if not ok or typeof(model) ~= "Instance" then
+			if not ok then warnOnce("dossier build", model) end
+			return
+		end
+		if not sh.root.Parent then model:Destroy() return end
+		-- скрипты и звуки во ViewportFrame не нужны
+		for _, d in ipairs(model:GetDescendants()) do
+			if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("Sound") or d:IsA("ProximityPrompt") then d:Destroy() end
+		end
+		if model:IsA("Model") and model.PrimaryPart then model.PrimaryPart.Anchored = true end
+		model.Parent = wm
+		local cf, size = model:GetBoundingBox()
+		local base = model:GetPivot()
+		local h = math.max(size.Y, size.X * 0.8, 2)
+		local center = cf.Position
+		local dist = (h * 0.62) / math.tan(math.rad(17))
+		cam.CFrame = CFrame.lookAt(center + Vector3.new(0, h * 0.08, dist), center)
+		note.Visible = false
+		sh.preview = { model = model, base = base, center = center, animOk = type(def.animate) == "function" }
+	end)
+end
+
+Screens.Dossier = function(key)
+	local def = inmateDef(key)
+	local sh = modalShell("Dossier", "ДОСЬЕ · BLACK RIDGE", "ЛЕЧЕБНИЦА BLACK RIDGE // ОТДЕЛ СОДЕРЖАНИЯ // ДСП", 960, 620)
+	local body = sh.body
+	if not def then
+		label(body, "ДЕЛО НЕ НАЙДЕНО", 26, F.title, COL.red, { Size = UDim2.fromScale(1, 0.5) })
+		button(body, "← К СПИСКУ", "dark", function() UI.open("Dossiers") end, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0.6) })
+		return sh
+	end
+	-- папка и лист бумаги
+	local folder = frame(body, { Size = UDim2.new(1, 0, 1, -6), Position = UDim2.fromOffset(0, 6), BackgroundColor3 = COL.manila })
+	corner(folder, 6)
+	frame(folder, { Size = UDim2.fromOffset(180, 22), Position = UDim2.fromOffset(24, -14), BackgroundColor3 = COL.manila })
+	local paper = frame(folder, { Size = UDim2.new(1, -28, 1, -24), Position = UDim2.fromOffset(14, 12), BackgroundColor3 = COL.paper })
+	corner(paper, 2)
+	grad(paper, COL.white, Color3.fromRGB(225, 215, 190), 120)
+	stroke(paper, Color3.fromRGB(150, 130, 90), 1, 0.5)
+
+	-- фото
+	local polaroid = frame(paper, { Size = UDim2.fromOffset(280, 330), Position = UDim2.fromOffset(22, 22), BackgroundColor3 = Color3.fromRGB(246, 244, 238) })
+	stroke(polaroid, Color3.fromRGB(150, 140, 120), 1, 0.4)
+	local photo = frame(polaroid, { Size = UDim2.fromOffset(256, 270), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Color3.fromRGB(20, 22, 26), ClipsDescendants = true })
+	buildPreview(sh, photo, def)
+	label(polaroid, "INMATE № " .. tostring(def.num or "???"), 18, F.code, COL.ink, { Size = UDim2.new(1, 0, 0, 40), Position = UDim2.new(0, 0, 1, -44) })
+	-- скрепка
+	local clip = frame(paper, { Size = UDim2.fromOffset(16, 56), Position = UDim2.fromOffset(150, 6), BackgroundTransparency = 1 })
+	stroke(clip, Color3.fromRGB(150, 155, 165), 3, 0)
+	corner(clip, 8)
+	-- полоска цвета заключённого
+	local cbar = frame(paper, { Size = UDim2.fromOffset(280, 8), Position = UDim2.fromOffset(22, 362), BackgroundColor3 = (typeof(def.color) == "Color3" and def.color) or COL.red })
+	corner(cbar, 2)
+
+	-- поля дела
+	local sf = mk("ScrollingFrame", paper, { Size = UDim2.new(1, -350, 1, -100), Position = UDim2.fromOffset(326, 22), BackgroundTransparency = 1,
+		ScrollBarThickness = 5, ScrollBarImageColor3 = Color3.fromRGB(120, 100, 60), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y })
+	vlist(sf, 10)
+	pad(sf, 0, 10, 10, 0)
+	local nm = label(sf, tostring(def.name or "???"), 34, F.title, COL.ink, { Size = UDim2.new(1, 0, 0, 38), TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 1 })
+	textMax(nm, 34, 14)
+	nm.TextScaled = true
+	label(sf, tostring(def.en or ""), 16, F.code, Color3.fromRGB(110, 98, 80), { Size = UDim2.new(1, 0, 0, 18), TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 2 })
+	frame(sf, { Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = Color3.fromRGB(120, 100, 70), BackgroundTransparency = 0.4, LayoutOrder = 3 })
+	typedLine(sf, "ДЕЛО №", tostring(def.num or "???"), 4)
+	typedLine(sf, "КЛАССИФИКАЦИЯ", tostring(def.class or "НЕ УСТАНОВЛЕНА"), 5, Color3.fromRGB(150, 20, 24))
+	local lines = {}
+	for _, l in ipairs(def.alert or {}) do table.insert(lines, tostring(l)) end
+	typedLine(sf, "ИЗ ТЕКСТА ОПОВЕЩЕНИЯ", #lines > 0 and table.concat(lines, " ") or "[ДАННЫЕ ИЗЪЯТЫ]", 6)
+	local tipV, tipRow = typedLine(sf, "РЕКОМЕНДАЦИЯ ДЛЯ ГРАЖДАН", tostring(def.tip or "—"), 7, Color3.fromRGB(60, 40, 0))
+	-- выделение маркером
+	local hl = frame(tipRow, { Size = UDim2.new(1, 0, 1, -14), Position = UDim2.fromOffset(0, 15), BackgroundColor3 = Color3.fromRGB(255, 214, 60), BackgroundTransparency = 0.55, ZIndex = 0 })
+	hl.ZIndex = tipV.ZIndex - 1
+	-- зачёркнутые строки
+	local red = frame(sf, { Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1, LayoutOrder = 8 })
+	for i = 0, 2 do
+		frame(red, { Size = UDim2.new(0.35 + 0.2 * ((i * 37) % 3) / 2, 0, 0, 10), Position = UDim2.fromOffset(0, i * 15), BackgroundColor3 = COL.ink })
+	end
+
+	-- штамп
+	local stamp = label(paper, "СОВЕРШЕННО\nСЕКРЕТНО", 26, F.title, COL.stamp, { Size = UDim2.fromOffset(250, 76), Position = UDim2.fromOffset(40, 380),
+		Rotation = -9, TextTransparency = 0.15 })
+	stroke(stamp, COL.stamp, 3, 0.2)
+	-- низ листа
+	label(paper, "BLACK RIDGE ASYLUM · ЭКЗ. 1 ИЗ 1 · ВЫНОС ЗАПРЕЩЁН", 12, F.mono, Color3.fromRGB(120, 108, 90), { AnchorPoint = Vector2.new(0, 1),
+		Size = UDim2.new(1, -350, 0, 16), Position = UDim2.new(0, 326, 1, -14), TextXAlignment = Enum.TextXAlignment.Left })
+	button(paper, "← ВСЕ ДЕЛА", "dark", function() UI.open("Dossiers") end, { AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -18, 1, -40),
+		Size = UDim2.fromOffset(150, 38), TextSize = 14 })
+
+	local animErr = false
+	sh.tick = function(dt)
+		local p = sh.preview
+		if not p or not p.model.Parent then return end
+		local a = T * 0.7
+		local rot = p.base - p.base.Position
+		p.model:PivotTo(CFrame.new(p.base.Position) * CFrame.Angles(0, a, 0) * rot)
+		if p.animOk and not animErr then
+			local ok, err = pcall(def.animate, p.model, dt, T, ctx)
+			if not ok then
+				animErr = true
+				warnOnce("dossier animate " .. tostring(key), err)
+			end
+		end
+	end
+	sh.onClose = function()
+		if sh.preview and sh.preview.model then pcall(function() sh.preview.model:Destroy() end) end
+	end
+	return sh
+end
+
+-- ===================== список досье =====================
+Screens.Dossiers = function()
+	local sh = modalShell("Dossiers", "АРХИВ ДЕЛ", "BLACK RIDGE // КАРТОТЕКА ЗАКЛЮЧЁННЫХ", 760, 600)
+	local list = allInmates()
+	if #list == 0 then
+		label(sh.body, "АРХИВ ПУСТ", 24, F.title, COL.dim, { Size = UDim2.fromScale(1, 1) })
+		return sh
+	end
+	local sf = mk("ScrollingFrame", sh.body, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScrollBarThickness = 6,
+		ScrollBarImageColor3 = COL.amber, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y })
+	vlist(sf, 6)
+	pad(sf, 2, 12, 8, 2)
+	for i, e in ipairs(list) do
+		local d = e.def
+		local row = mk("TextButton", sf, { Size = UDim2.new(1, 0, 0, 62), BackgroundColor3 = COL.panel2, BackgroundTransparency = 0.15, LayoutOrder = i, Text = "" })
+		corner(row, 4)
+		local st = stroke(row, COL.line, 1, 0.85)
+		frame(row, { Size = UDim2.new(0, 6, 1, 0), BackgroundColor3 = (typeof(d.color) == "Color3" and d.color) or COL.amber })
+		label(row, tostring(d.num or "???"), 30, F.code, COL.amber, { Size = UDim2.fromOffset(90, 62), Position = UDim2.fromOffset(16, 0) })
+		label(row, tostring(d.name or e.key), 20, F.title, COL.txt, { Size = UDim2.new(1, -260, 0, 26), Position = UDim2.fromOffset(112, 7), TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd })
+		label(row, tostring(d.class or ""), 12, F.body, COL.dim, { Size = UDim2.new(1, -260, 0, 18), Position = UDim2.fromOffset(112, 35), TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd })
+		label(row, tostring(d.en or "") .. "  ›", 14, F.code, COL.dim, { AnchorPoint = Vector2.new(1, 0), Size = UDim2.fromOffset(140, 62), Position = UDim2.new(1, -14, 0, 0),
+			TextXAlignment = Enum.TextXAlignment.Right })
+		row.MouseEnter:Connect(function() st.Color = COL.amber st.Transparency = 0.2 end)
+		row.MouseLeave:Connect(function() st.Color = COL.line st.Transparency = 0.85 end)
+		row.Activated:Connect(function()
+			playSound("UiClick", { Volume = 0.35 })
+			UI.open("Dossier", e.key)
+		end)
+	end
+	return sh
+end
+
+-- ===================== задания (заглушка) =====================
+local QUESTS = {
+	{ name = "Собери 30 яблок", goal = 30, reward = 25, icon = "🍎" },
+	{ name = "Переживи 3 ночи", goal = 3, reward = 40, icon = "🌙" },
+	{ name = "Обезвредь заключённого", goal = 1, reward = 60, icon = "🎯" },
+}
+
+Screens.Quests = function()
+	local sh = modalShell("Quests", "ЗАДАНИЯ ДНЯ", "BLACK RIDGE // ЕЖЕДНЕВНЫЙ НАРЯД", 640, 440)
+	local box = frame(sh.body, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 })
+	vlist(box, 10)
+	for i, q in ipairs(QUESTS) do
+		local c = card(box, i)
+		c.Size = UDim2.new(1, 0, 0, 86)
+		pad(c, 10, 14, 10, 14)
+		label(c, q.icon, 30, F.body, COL.white, { Size = UDim2.fromOffset(40, 40) })
+		label(c, q.name, 18, F.title, COL.txt, { Size = UDim2.new(1, -170, 0, 22), Position = UDim2.fromOffset(52, 2), TextXAlignment = Enum.TextXAlignment.Left })
+		label(c, "◆ " .. tostring(q.reward), 18, F.title, COL.amber, { AnchorPoint = Vector2.new(1, 0), Size = UDim2.fromOffset(110, 22), Position = UDim2.new(1, 0, 0, 2),
+			TextXAlignment = Enum.TextXAlignment.Right })
+		local track = frame(c, { Size = UDim2.new(1, -52, 0, 10), Position = UDim2.fromOffset(52, 34), BackgroundColor3 = COL.black, BackgroundTransparency = 0.3 })
+		corner(track, 3)
+		frame(track, { Size = UDim2.fromScale(0, 1), BackgroundColor3 = COL.amber })
+		label(c, "0 / " .. tostring(q.goal), 12, F.mono, COL.dim, { Size = UDim2.new(1, -52, 0, 14), Position = UDim2.fromOffset(52, 50), TextXAlignment = Enum.TextXAlignment.Left })
+	end
+	local t = os.time()
+	local left = 86400 - (t % 86400)
+	label(box, string.format("Новые задания через %02d:%02d", math.floor(left / 3600), math.floor((left % 3600) / 60)), 13, F.mono, COL.dim,
+		{ Size = UDim2.new(1, 0, 0, 20), LayoutOrder = 10 })
+	return sh
+end
+
+-- ===================== коды (заглушка) =====================
+Screens.Codes = function()
+	local sh = modalShell("Codes", "КОДЫ", "BLACK RIDGE // ТЕРМИНАЛ ДОСТУПА", 560, 320)
+	local body = sh.body
+	label(body, "Введи код из сообщества игры:", 15, F.body, COL.dim, { Size = UDim2.new(1, 0, 0, 22), TextXAlignment = Enum.TextXAlignment.Left })
+	local tb = mk("TextBox", body, { Size = UDim2.new(1, 0, 0, 56), Position = UDim2.fromOffset(0, 30), BackgroundTransparency = 0.1, BackgroundColor3 = Color3.fromRGB(10, 12, 16),
+		Font = F.code, TextSize = 28, TextColor3 = COL.amber, PlaceholderText = "ВВЕДИ КОД", PlaceholderColor3 = Color3.fromRGB(110, 90, 40),
+		ClearTextOnFocus = false, Text = "" })
+	corner(tb, 5)
+	stroke(tb, COL.amber, 1.5, 0.4)
+	local function submit()
+		local code = string.gsub(tb.Text or "", "^%s+", "")
+		if code == "" then
+			UI.toast("Сначала введи код", COL.amber)
+			return
+		end
+		UI.toast("Код не найден", COL.red)
+		tb.Text = ""
+	end
+	tb.FocusLost:Connect(function(enter) if enter then submit() end end)
+	button(body, "ВВЕСТИ ✓", "green", submit, { Size = UDim2.new(1, 0, 0, 46), Position = UDim2.fromOffset(0, 100), TextSize = 17 })
+	label(body, "Подсказка: коды выходят вместе с обновлениями.", 12, F.mono, COL.dim, { Size = UDim2.new(1, 0, 0, 18), Position = UDim2.fromOffset(0, 160) })
 	return sh
 end
 
