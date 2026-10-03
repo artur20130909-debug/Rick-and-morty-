@@ -1,5 +1,5 @@
 /* ================= ЗВУК: синтезатор, секвенсор, треки, эффекты ================= */
-let AC = null, MASTER, MUS, SFXB, REV, NOISE, PULSE25, LEG, legDelay;
+let AC = null, MASTER, MUS, SFXB, REV, NOISE, PULSE25, PULSE12, LEG, legDelay;
 let pendingTrack = null;
 const VOL = { mus: .8, sfx: .9 };
 const mf = m => 440 * 2 ** ((m - 69) / 12);
@@ -27,6 +27,7 @@ function buildGraph() {
   const n = 32, re = new Float32Array(n), im = new Float32Array(n);
   for (let k = 1; k < n; k++) im[k] = 2 / (k * PI) * Math.sin(k * PI * .25);
   PULSE25 = AC.createPeriodicWave(re, im);
+  const im2 = new Float32Array(n); for (let k = 1; k < n; k++) im2[k] = 2 / (k * PI) * Math.sin(k * PI * .125); PULSE12 = AC.createPeriodicWave(re, im2);
   // «старая» шина для боевой музыки — как в оригинальной игре (задержка 0.3с)
   LEG = AC.createGain(); LEG.gain.value = .8;
   const d = AC.createDelay(), g = AC.createGain(), lp = AC.createBiquadFilter();
@@ -42,7 +43,7 @@ function envG(out, t, v, a, d, sus = 0, rel = 0) { // a=атака, d=длите
   else g.gain.exponentialRampToValueAtTime(.0001, t + d);
   g.connect(out); return g;
 }
-function osc(type, fr, t, end, dest) { const o = AC.createOscillator(); if (type === 'p25') o.setPeriodicWave(PULSE25); else o.type = type; o.frequency.value = fr; o.connect(dest); o.start(t); o.stop(end); return o; }
+function osc(type, fr, t, end, dest) { const o = AC.createOscillator(); if (type === 'p25') o.setPeriodicWave(PULSE25); else if (type === 'p12') o.setPeriodicWave(PULSE12); else o.type = type; o.frequency.value = fr; o.connect(dest); o.start(t); o.stop(end); return o; }
 function fm(out, t, fr, d, v, ratio, idx, idd, a = .004) {
   const g = envG(out, t, v, a, d), c = osc('sine', fr, t, t + d + .05, g);
   const m = AC.createOscillator(), mg = AC.createGain(); m.frequency.value = fr * ratio;
@@ -102,6 +103,14 @@ const INS = {
     lp.frequency.setValueAtTime(3600, t); lp.frequency.exponentialRampToValueAtTime(900, t + dd); lp.connect(g);
     osc('triangle', fr, t, t + dd + .05, lp); osc('sine', fr * 2.002, t, t + dd + .05, lp); osc('sawtooth', fr * .999, t, t + .3, envG(lp, t, v * .15, .002, .25));
   },
+  // ведущий чиптюн-голос: 25%-пульс, удвоение с расстройкой, вибрато с задержкой
+  lead(o, t, m, d, v) {
+    const fr = mf(m), g = envG(o, t, v, .005, d, .72, .07), lp = AC.createBiquadFilter(); lp.frequency.value = 5200; lp.connect(g);
+    const a = osc('p25', fr, t, t + d + .15, lp), b = osc('p25', fr, t, t + d + .15, lp); b.detune.value = 9;
+    if (d > .18) { const l = AC.createOscillator(), lg = AC.createGain(); l.frequency.value = 6; lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(fr * .016, t + .22); l.connect(lg); lg.connect(a.frequency); lg.connect(b.frequency); l.start(t); l.stop(t + d + .15); }
+  },
+  // тонкий 12.5%-пульс для арпеджио
+  chip(o, t, m, d, v) { const g = envG(o, t, v, .002, Math.min(d, .22), .4, .04); osc('p12', mf(m), t, t + Math.min(d, .22) + .08, g); },
   saw(o, t, m, d, v) { const g = envG(o, t, v, .005, d, .7, .06), lp = AC.createBiquadFilter(); lp.frequency.value = 2600; lp.Q.value = 2; lp.connect(g); osc('sawtooth', mf(m), t, t + d + .15, lp); osc('square', mf(m) * .5, t, t + d + .15, envG(lp, t, v * .3, .005, d, .7, .06)); },
 };
 const DRUM = {
@@ -155,8 +164,8 @@ function track(name, def) {
   if (def.drumsB) { const d = {}; for (const k in def.drumsB) d[k] = drumParse(def.drumsB[k]); def.drumsB = d; }
   TR[name] = def;
 }
-// Утро: босса-нова/лаунж, электропиано + вибрафон, мягкий свинг
-track('morning', {
+// Утро (запасной синтез-вариант; основной — готовый трек MUS_SRC.home, см. ниже)
+track('morning_syn', {
   bpm: 114, swing: .13, tr: 0, rev: .35,
   chords: ['Fmaj7', 'Em7 A7', 'Dm7', 'Cm7 F7', 'Bbmaj7', 'Bbm6', 'Am7 D7', 'Gm7 C7', 'Fmaj7', 'D7', 'Gm7', 'C7', 'Am7 D7', 'Gm7 C7', 'F6', 'Gm7 C7'],
   mel: ['A4:2 C5:2 E5:3 r:1 D5:2 C5:2 A4:4', 'G#4:2 A4:2 C#5:2 E5:2 G5:3 F5:1 E5:4', 'F5:3 E5:1 D5:2 C5:2 A4:4 r:4', 'Eb5:2 D5:2 C5:2 Bb4:2 A4:2 C5:2 Eb5:4',
@@ -166,16 +175,14 @@ track('morning', {
   parts: [{ t: 'mel', i: 'vibe', v: .13, o: 12 }, { t: 'mel', i: 'ep', v: .05, o: 0 }, { t: 'comp', i: 'ep', v: .045, p: 'bossa' }, { t: 'bass', i: 'bass', v: .3, p: 'bossa' }],
   drums: { r: 'x..x..x...x..x..', sh: 'oxoxoxoxoxoxoxox', k: 'x.......x.....o.', br: '....x.......x...' },
 });
-// Школа: грув в ля миноре ~92 BPM, жирный бас, щипковый синт-лид, «пузырьки-орбы»
+// Школа: бодрый чиптюн в духе Deltarune — пульс-лид, маримба октавой ниже, «прыгающий» бас
 track('school', {
-  bpm: 92, swing: .17, rev: .22,
-  chords: ['Am7', 'Am7', 'D9', 'D9', 'Fmaj7', 'Em7', 'Dm7', 'E7', 'Am7', 'Am7', 'D9', 'D9', 'Fmaj7', 'Em7', 'Dm7', 'E7'],
-  mel: ['E5:2 G5:2 A5:3 r:1 G5:1 E5:1 D5:2 E5:4', 'r:2 C5:1 D5:1 E5:2 G5:2 E5:2 D5:2 C5:2 A4:2', 'F#5:2 A5:2 E5:3 r:1 F#5:2 D5:2 r:4', 'C5:1 D5:1 E5:2 F#5:2 A5:2 C6:3 r:1 B5:2 A5:2',
-    'A5:3 r:1 G5:2 F5:2 E5:2 C5:2 E5:4', 'G5:2 B5:2 D6:3 r:1 B5:2 G5:2 E5:4', 'F5:2 A5:2 C6:2 A5:2 D6:3 r:1 C6:2 A5:2', 'G#5:3 r:1 B5:2 D6:2 E6:2 D6:1 B5:1 G#5:4',
-    'A5:2 r:2 A5:1 G5:1 E5:2 G5:2 r:2 A5:4', 'C6:3 r:1 B5:2 A5:2 G5:2 E5:2 G5:4', 'F#5:2 A5:2 C6:2 A5:2 E6:3 r:1 D6:4', 'C6:2 A5:2 F#5:2 E5:2 D5:4 r:4',
-    'C6:3 A5:1 G5:2 A5:2 C6:2 E6:2 C6:4', 'B5:3 G5:1 E5:2 G5:2 B5:2 D6:2 B5:4', 'A5:2 C6:2 D6:2 F6:2 E6:2 D6:2 C6:2 A5:2', 'B5:2 G#5:2 E5:2 D5:2 E5:8'],
-  parts: [{ t: 'mel', i: 'pluck', v: .085, o: 0 }, { t: 'mel', i: 'marimba', v: .11, o: -12 }, { t: 'comp', i: 'ep', v: .05, p: 'stab' }, { t: 'bass', i: 'sbass', v: .22, p: 'funk' }],
-  drums: { k: 'X......x..x.....', s: '....X.......X..o', h: 'x.xox.x.x.xox.xo', orb: '..............x.' },
+  bpm: 116, swing: .1, rev: .2,
+  chords: ['C', 'Em', 'Am', 'F', 'Dm', 'G', 'C', 'G'],
+  mel: ['E5:2 G5:2 C6:2 G5:2 E5:2 D5:2 C5:4', 'B4:2 E5:2 G5:2 B5:2 A5:2 G5:2 E5:4', 'A5:3 r:1 A5:2 C6:2 B5:2 A5:2 E5:4', 'F5:2 A5:2 C6:2 A5:2 G5:4 r:4',
+    'D5:2 F5:2 A5:2 D6:2 C6:2 A5:2 F5:4', 'G5:2 B5:2 D6:2 G6:3 r:1 F6:2 D6:2 B5:2', 'E6:3 r:1 D6:2 C6:2 G5:2 E5:2 C6:4', 'B5:2 C6:2 D6:2 B5:2 G5:4 r:4'],
+  parts: [{ t: 'mel', i: 'lead', v: .05, o: 0 }, { t: 'mel', i: 'marimba', v: .07, o: -12 }, { t: 'comp', i: 'piano', v: .025, p: 'off' }, { t: 'bass', i: 'tri', v: .2, p: 'root8' }],
+  drums: { k: 'x.......x..x....', s: '....x.......x...', h: 'x.o.x.o.x.o.x.o.' },
 });
 // Битва — оставлена как в оригинале (см. legacyBattle)
 TR.battle = { name: 'battle', legacy: 1, bpm: 156 };
@@ -186,7 +193,7 @@ track('title', {
   parts: [{ t: 'mel', i: 'bell', v: .07, o: 0 }, { t: 'arp', i: 'piano', v: .06, every: 2, o: 0 }, { t: 'comp', i: 'pad', v: .035, p: 'pad' }, { t: 'bass', i: 'bass', v: .26, p: 'whole' }],
   drums: { k: 'x.......x.......' },
 });
-track('town', {
+track('town_syn', {
   bpm: 124, swing: .06, rev: .18,
   chords: ['G', 'Em', 'C', 'D', 'G', 'B7', 'C Cm', 'G D'],
   mel: ['B4:2 D5:2 G5:2 D5:2 B5:3 A5:1 G5:4', 'E5:2 G5:2 B5:2 G5:2 E5:4 D5:2 E5:2', 'G5:3 r:1 E5:2 C5:2 E5:2 G5:2 C6:4', 'A5:2 F#5:2 D5:2 E5:2 F#5:3 G5:1 A5:4',
@@ -241,26 +248,114 @@ track('space', {
   parts: [{ t: 'arp', i: 'bell', v: .035, every: 2, o: 12 }, { t: 'comp', i: 'pad', v: .04, p: 'pad' }, { t: 'bass', i: 'bass', v: .2, p: 'whole' }],
 });
 
+
+/* ---------- боевые темы: у каждого врага своя (чиптюн в духе Undertale/Deltarune) ---------- */
+// Мистер Мисикс: гиперактивный мажор, «Я ХОЧУ ПОМОЧЬ!»
+track('battle_mees', {
+  bpm: 168, swing: 0, rev: .15,
+  chords: ['E', 'B', 'C#m', 'A', 'E', 'B', 'A', 'B'],
+  mel: ['E5:2 G#5:2 B5:2 G#5:2 E6:3 r:1 B5:2 G#5:2', 'F#5:2 A#5:2 C#6:2 A#5:2 F#6:3 r:1 D#6:2 C#6:2', 'C#6:2 B5:2 G#5:2 E5:2 G#5:2 B5:2 C#6:4', 'A5:2 B5:2 C#6:2 E6:2 D#6:2 C#6:2 B5:4',
+    'E6:1 D#6:1 E6:2 B5:2 G#5:2 E5:2 G#5:2 B5:4', 'D#6:1 C#6:1 D#6:2 B5:2 F#5:2 D#5:2 F#5:2 B5:4', 'C#6:2 E6:2 A6:2 E6:2 C#6:2 A5:2 C#6:2 E6:2', 'F#6:3 r:1 E6:2 D#6:2 C#6:2 B5:2 A#5:2 B5:2'],
+  parts: [{ t: 'mel', i: 'lead', v: .05, o: 0 }, { t: 'arp', i: 'chip', v: .03, every: 2, o: 12 }, { t: 'bass', i: 'tri', v: .22, p: 'root8' }],
+  drums: { k: 'x...x...x...x.x.', s: '....x.......x..o', h: 'xoxoxoxoxoxoxoxo' },
+});
+// Огурчик-Рик: рок-н-ролльный «безумный учёный» в ля миноре
+track('battle_pickle', {
+  bpm: 150, swing: 0, rev: .15,
+  chords: ['Am', 'F', 'G', 'Am', 'Am', 'F', 'G', 'E'],
+  mel: ['A4:2 C5:2 E5:2 A5:3 r:1 G5:2 E5:2 C5:2', 'F5:3 r:1 E5:2 F5:2 A5:4 G5:2 F5:2', 'G5:2 B5:2 D6:2 B5:2 G5:2 D5:2 G5:4', 'E6:4 D6:2 C6:2 B5:2 A5:2 G5:2 E5:2',
+    'A5:2 A5:1 A5:1 C6:2 A5:2 E6:3 r:1 D6:2 C6:2', 'F6:3 r:1 E6:2 C6:2 A5:2 C6:2 F6:4', 'G6:2 F6:2 E6:2 D6:2 B5:2 G5:2 B5:2 D6:2', 'E6:4 r:2 G#5:2 B5:2 E6:2 G#6:4'],
+  parts: [{ t: 'mel', i: 'saw', v: .042, o: 0 }, { t: 'mel', i: 'sq', v: .025, o: -12 }, { t: 'bass', i: 'sbass', v: .2, p: 'drive' }, { t: 'comp', i: 'pad', v: .018, p: 'pad' }],
+  drums: { k: 'x..x..x.x..x....', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.' },
+});
+// Злой Морти: тревожный ре минор, струнные и арпеджио фортепиано
+track('battle_evil', {
+  bpm: 140, swing: 0, rev: .35,
+  chords: ['Dm', 'Bb', 'F', 'C', 'Gm', 'Dm', 'A', 'A7'],
+  mel: ['D5:4 F5:2 A5:2 D6:6 C6:2', 'Bb5:4 A5:2 F5:2 D5:6 r:2', 'C6:4 A5:2 F5:2 C6:2 D6:2 F6:4', 'E6:6 D6:2 C6:2 G5:2 E5:4',
+    'D6:3 r:1 Bb5:2 G5:2 D6:2 Eb6:2 D6:4', 'A5:4 F5:2 D5:2 F5:2 A5:2 D6:4', 'C#6:4 E6:2 A6:2 G6:2 F6:2 E6:4', 'E6:2 C#6:2 A5:2 G5:2 E5:2 C#5:2 A4:4'],
+  parts: [{ t: 'mel', i: 'lead', v: .05, o: 0 }, { t: 'arp', i: 'piano', v: .035, every: 1, o: -12 }, { t: 'comp', i: 'str', v: .018, p: 'pad' }, { t: 'bass', i: 'sbass', v: .2, p: 'root8' }],
+  drums: { k: 'x.....x.x.......', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.', tk: '..x...x...x...x.' },
+});
+// Робот-надзиратель: механический до минор, чёткие «пип-пип»
+track('battle_robot', {
+  bpm: 132, swing: 0, rev: .12,
+  chords: ['Cm', 'Cm', 'Ab', 'G', 'Cm', 'Cm', 'Fm', 'G'],
+  mel: ['C5:1 r:1 C5:1 r:1 Eb5:2 G5:2 C6:2 G5:2 Eb5:2 G5:2', 'C6:2 Bb5:2 G5:2 Eb5:2 F5:2 G5:2 C5:4', 'Ab5:1 r:1 Ab5:1 r:1 C6:2 Eb6:2 Ab5:2 C6:2 Eb6:4', 'D6:2 B5:2 G5:2 F5:2 D5:2 B4:2 G4:4',
+    'G5:2 C6:2 Eb6:2 C6:2 G5:2 Eb5:2 C5:4', 'C6:1 C6:1 r:2 Bb5:1 Bb5:1 r:2 G5:2 Bb5:2 C6:4', 'F5:2 Ab5:2 C6:2 F6:2 Eb6:2 C6:2 Ab5:4', 'G5:4 B5:4 D6:4 G6:4'],
+  parts: [{ t: 'mel', i: 'pulse', v: .055, o: 0 }, { t: 'arp', i: 'chip', v: .03, every: 1, o: 0 }, { t: 'bass', i: 'tri', v: .24, p: 'drive' }],
+  drums: { k: 'x...x...x...x...', s: '....x.......x...', tk: 'x.xxx.xxx.xxx.xx' },
+});
+// Брэд: спортивный фанк-марш, «вышибалы!»
+track('battle_brad', {
+  bpm: 144, swing: 0, rev: .15,
+  chords: ['G', 'F', 'C', 'G', 'G', 'F', 'C', 'D'],
+  mel: ['G5:2 r:1 G5:1 F5:2 G5:2 B5:2 D6:2 B5:4', 'A5:2 r:1 A5:1 G5:2 F5:2 C5:2 F5:2 A5:4', 'G5:2 E5:2 C5:2 E5:2 G5:2 C6:2 E6:4', 'D6:3 r:1 B5:2 G5:2 D5:4 r:4',
+    'B5:2 D6:2 G6:2 D6:2 F6:2 D6:2 B5:4', 'C6:2 A5:2 F5:2 A5:2 C6:2 F6:2 C6:4', 'E6:2 G6:2 E6:2 C6:2 G5:2 E5:2 G5:4', 'F#5:2 A5:2 D6:2 F#6:2 A6:3 r:1 F#6:4'],
+  parts: [{ t: 'mel', i: 'sq', v: .045, o: 0 }, { t: 'mel', i: 'pulse', v: .018, o: 12 }, { t: 'bass', i: 'sbass', v: .2, p: 'funk' }, { t: 'comp', i: 'pluck', v: .028, p: 'stab' }],
+  drums: { k: 'x..x..x...x.....', s: '....x..o....x...', h: 'x.x.x.x.x.x.x.x.', c: '............x...' },
+});
+// Мясной рулет: «булькающий» вальяжный свинг на маримбе
+track('battle_slime', {
+  bpm: 110, swing: .12, rev: .25,
+  chords: ['F', 'D7', 'Gm', 'C7', 'F', 'D7', 'Gm7', 'C7'],
+  mel: ['C5:2 F5:2 A5:2 F5:2 C5:2 r:2 A4:4', 'F#5:2 A5:2 C6:2 A5:2 F#5:4 D5:4', 'Bb5:2 D6:2 Bb5:2 G5:2 D5:4 G5:4', 'E5:2 G5:2 Bb5:2 C6:2 Bb5:2 G5:2 E5:4',
+    'A5:3 G#5:1 A5:2 C6:2 F6:4 r:4', 'F#6:2 D6:2 A5:2 F#5:2 C6:4 A5:4', 'G5:2 Bb5:2 D6:2 F6:2 E6:2 D6:2 Bb5:4', 'C6:4 Bb5:2 G5:2 E5:2 C5:2 r:4'],
+  parts: [{ t: 'mel', i: 'marimba', v: .12, o: 0 }, { t: 'mel', i: 'chip', v: .018, o: 12 }, { t: 'bass', i: 'bass', v: .26, p: 'pulse' }, { t: 'comp', i: 'pluck', v: .025, p: 'off' }],
+  drums: { k: 'x.......x.......', s: '....o.......o...', sh: 'x.o.x.o.x.o.x.o.' },
+});
+// Рик-охранник: Цитадель рушится — быстрая тревожная погоня в ми миноре
+track('battle_guard', {
+  bpm: 160, swing: 0, rev: .2,
+  chords: ['Em', 'C', 'D', 'B', 'Em', 'C', 'Am', 'B7'],
+  mel: ['E5:2 G5:2 B5:2 E6:2 D6:2 B5:2 G5:2 B5:2', 'C6:3 r:1 B5:2 G5:2 E5:4 G5:4', 'F#5:2 A5:2 D6:2 F#6:2 E6:2 D6:2 A5:4', 'D#6:4 F#6:4 B5:4 D#6:4',
+    'G6:2 F#6:2 E6:2 B5:2 G5:2 B5:2 E6:4', 'E6:2 D6:2 C6:2 G5:2 E5:2 G5:2 C6:4', 'A5:2 C6:2 E6:2 A6:2 G6:2 E6:2 C6:4', 'B5:2 D#6:2 F#6:2 A6:2 B6:4 r:4'],
+  parts: [{ t: 'mel', i: 'saw', v: .042, o: 0 }, { t: 'arp', i: 'chip', v: .025, every: 1, o: 12 }, { t: 'bass', i: 'sbass', v: .2, p: 'root8' }],
+  drums: { k: 'x...x...x...x...', s: '....x.......x...', h: 'xoxoxoxoxoxoxoxo' },
+});
+
+// готовые треки (сгенерированы под стиль игры, встроены build.js как MUS_SRC); если не декодируются — играет синтез-вариант
+if (typeof MUS_SRC !== 'undefined' && MUS_SRC.home) TR.morning = { name: 'morning', src: MUS_SRC.home, start: 3.9, loopStart: 5.39, loopEnd: 55.385, xfade: 1.25, fallback: 'morning_syn' }; else TR.morning = TR.morning_syn;
+if (typeof MUS_SRC !== 'undefined' && MUS_SRC.town) TR.town = { name: 'town', src: MUS_SRC.town, loopStart: 2.14, loopEnd: 50.145, xfade: 1.09, fallback: 'town_syn' }; else TR.town = TR.town_syn;
+
 /* ---------- выравнивание громкости треков (замерено офлайн-рендером, цель ≈ −24 дБ RMS) ---------- */
-const TGAIN = { morning: .63, school: .5, title: .54, town: .54, evening: .72, night: .81, garage: .64, citadel: .59, escape: .45, fridge: .86, space: .6, battle: 1 };
+const TGAIN = { morning: .32, morning_syn: .63, town_syn: .49, school: .5, title: .54, town: .37, evening: .72, night: .81, garage: .64, citadel: .59, escape: .45, fridge: .86, space: .6, battle: 1,
+  battle_mees: .5, battle_pickle: .6, battle_evil: .5, battle_robot: .64, battle_brad: .54, battle_slime: .86, battle_guard: .5 };
 /* ---------- секвенсор ---------- */
 let CUR = null; const OLD = [];
 function music(name) {
   if (!AC) { pendingTrack = name; return; }
   if (CUR && CUR.name === name) return;
   const now = AC.currentTime;
-  if (CUR) { CUR.bus.gain.cancelScheduledValues(now); CUR.bus.gain.setTargetAtTime(.0001, now, .2); CUR.dead = now + 1.6; OLD.push(CUR); }
+  if (CUR) { CUR.bus.gain.cancelScheduledValues(now); CUR.bus.gain.setTargetAtTime(.0001, now, .2); CUR.dead = now + 1.6; OLD.push(CUR); if (CUR.srcs) { const ss = CUR.srcs; setTimeout(() => ss.forEach(x_ => { try { x_.stop(); } catch (_) { } }), 1700); } }
   CUR = null; if (!name || !TR[name]) return;
+  if (TR[name].bad && TR[name].fallback) return music(TR[name].fallback);
   const def = TR[name], bus = AC.createGain();
   bus.gain.setValueAtTime(.0001, now); bus.gain.setTargetAtTime(TGAIN[name] || 1, now + .05, .25);
+  if (def.src) { bus.connect(MUS); CUR = { name, def, bus, step: 0, nt: now + .12, srcs: [] }; playSample(CUR); return; }
   if (def.legacy) bus.connect(LEG); else { bus.connect(MUS); const s = AC.createGain(); s.gain.value = def.rev || .3; bus.connect(s); s.connect(REV); }
   CUR = { name, def, bus, step: 0, nt: now + .12 };
 }
 let battleKey = 0;
+// готовый трек (mp3 в data URL): декодируется один раз, играет петлёй с плавным переходом
+const BUFS = {};
+async function playSample(c) {
+  const def = c.def; let buf = BUFS[def.name];
+  if (!buf) { try { const bin = atob(def.src.split(',')[1]), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); buf = BUFS[def.name] = await AC.decodeAudioData(u.buffer); } catch (e) { console.warn('трек не декодирован', e); def.bad = 1; if (CUR === c && def.fallback) { CUR = null; music(def.fallback); } return; } }
+  if (CUR !== c) return;
+  // петля по тактам: новый проход стартует за xf секунд до loopStart, так что к моменту loopEnd он ровно на loopStart (биты совпадают)
+  const end = def.loopEnd || buf.duration - 2.5, xf = def.xfade || 1, L0 = Math.max(xf, def.loopStart || 0);
+  const go = (when, start, first) => { if (CUR !== c) return; const s = AC.createBufferSource(), e = AC.createGain(), len = end - start; s.buffer = buf; s.connect(e); e.connect(c.bus);
+    if (first) e.gain.setValueAtTime(1, when); else { e.gain.setValueAtTime(.0001, when); e.gain.linearRampToValueAtTime(1, when + xf); }
+    e.gain.setValueAtTime(1, when + len - xf); e.gain.linearRampToValueAtTime(.0001, when + len);
+    s.start(when, start); s.stop(when + len + .05); c.srcs.push(s); if (c.srcs.length > 4) c.srcs.shift();
+    const next = when + len - xf; setTimeout(() => go(next, L0 - xf, false), Math.max(0, (next - AC.currentTime - .8) * 1000)); };
+  go(AC.currentTime + .05, def.start || 0, true);
+}
 function schedMusic() {
   if (!AC) return;
   for (let i = OLD.length - 1; i >= 0; i--) if (AC.currentTime > OLD[i].dead) { try { OLD[i].bus.disconnect(); } catch (_) { } OLD.splice(i, 1); }
-  const c = CUR; if (!c) return;
+  const c = CUR; if (!c || c.def.src) return;
   const def = c.def, sd = def.legacy ? 30 / def.bpm : 15 / def.bpm;
   if (c.nt < AC.currentTime - .2) c.nt = AC.currentTime + .05;
   while (c.nt < AC.currentTime + .14) {

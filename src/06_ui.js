@@ -30,6 +30,7 @@ function uiAllowsMenu() { return typeof S !== 'undefined' && S === 'world' && !D
 function updateUI() {
   // затемнение
   if (FADE.a !== FADE.to) { FADE.a = FADE.to > FADE.a ? Math.min(FADE.to, FADE.a + FADE.sp * f) : Math.max(FADE.to, FADE.a - FADE.sp * f); if (FADE.a === FADE.to && FADE.r) { const r = FADE.r; FADE.r = null; r(); } }
+  else if (FADE.r) { const r = FADE.r; FADE.r = null; r(); } // уже на месте — не зависаем
   if (TOAST) { TOAST.k += f; if (TOAST.k > TOAST.n) TOAST = null; }
   if (CARD) { CARD.t += f; if ((CARD.t > CARD.n || (CARD.t > 40 && (inp.a || inp.tap))) && CARD.r) { inp.a = 0; inp.tap = null; const r = CARD.r; CARD.r = null; CARD.done = CARD.t; r(); } if (!CARD.r && CARD.t > (CARD.done || 0) + 1) CARD = null; return true; }
   if (CHOICE && !DLG) {

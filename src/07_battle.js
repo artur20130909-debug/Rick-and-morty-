@@ -42,7 +42,7 @@ function battle(key, o = {}) {
   return new Promise(res => {
     const e = Object.assign({}, ENEMY[key], o);
     B = { e, ph: 'intro', calm: 0, mad: 0, hp: 20, max: 20, inv: 0, bl: [], t: 0, x: 0, y: 0, sp: 0, msg: e.flav[0], sel: 0, res, shake: 0, eShake: 0, open: 0, pat: 0, rewinds: 0, items: G.items || (G.items = ['pancake', 'pancake', 'juice']), base: CUT };
-    battleKey = e.key || 0; S = 'battle'; music('battle');
+    battleKey = e.key || 0; S = 'battle'; music(TR['battle_' + key] ? 'battle_' + key : 'battle');
     cutscene(async () => { await fadeIn(14); await say([[e.name, e.intro]]); B.ph = 'menu'; });
   });
 }
