@@ -347,6 +347,8 @@ local function setupLighting()
 	setp(L.sky, "MoonAngularSize", 14)
 	setp(L.sky, "SunAngularSize", 16)
 	setp(Lighting, "GlobalShadows", true)
+	-- стиль освещения задан в файле места; с клиента пробуем молча (обычно не разрешено)
+	pcall(function() Lighting.LightingStyle = Enum.LightingStyle.Realistic end)
 	-- облака живут в Terrain
 	guarded("clouds", function()
 		local terrain = workspace:FindFirstChildOfClass("Terrain")
@@ -1507,7 +1509,9 @@ local function tick(d, cam)
 	if not inHouse then out.AtmDensity = out.AtmDensity + 0.025 * math.sin(T * 0.21) end
 
 	guarded("applyLighting", applyLighting, out)
-	guarded("vignette", updateVignette, out.Vignette, (inHouse and E.night > 0.5) and 0.93 * 0 + 0.07 * E.night or 0.05)
+	-- зерно плёнки (если есть картинка Grain): ночью в доме заметнее
+	local grain = inHouse and (0.03 + 0.05 * E.night) or 0.05
+	guarded("vignette", updateVignette, out.Vignette, grain)
 	guarded("loops", updateLoops, d, inHouse)
 	guarded("rainEmitter", updateRainEmitter)
 	if inHouse then

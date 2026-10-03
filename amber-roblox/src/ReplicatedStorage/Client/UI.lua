@@ -1,0 +1,1856 @@
+-- Интерфейс игрока (клиент): HUD дома и лобби, тосты, экстренное оповещение (EAS), магазин,
+-- киоски лобби (классы, досье, задания, коды), загрузка, итоги, смерть и наблюдение,
+-- мини-игра концентрации в укрытии, свой вид ProximityPrompt, вывески кабинок и билборд лобби.
+-- Всё строится кодом. Стиль — аналоговый хоррор 90-х: VHS-зерно, сканлайны, свечение ЭЛТ, янтарь.
+-- Вёрстка: «эталонные» пиксели + UIScale под размер экрана (телефон и ПК).
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local PPS = game:GetService("ProximityPromptService")
+local CAS = game:GetService("ContextActionService")
+local RS = game:GetService("ReplicatedStorage")
+
+local UI = {}
+
+local ctx, player, Config, Net, Sound
+local pgui = nil
+local started = false
+local T = 0                 -- время интерфейса (секунды)
+
+-- ===================== палитра и шрифты =====================
+local COL = {
+	amber = Color3.fromRGB(255, 176, 0),
+	amber2 = Color3.fromRGB(255, 122, 0),
+	amberDim = Color3.fromRGB(96, 66, 8),
+	red = Color3.fromRGB(232, 38, 43),
+	redDark = Color3.fromRGB(96, 6, 10),
+	panel = Color3.fromRGB(12, 13, 18),
+	panel2 = Color3.fromRGB(24, 26, 33),
+	panel3 = Color3.fromRGB(34, 37, 46),
+	line = Color3.fromRGB(255, 255, 255),
+	txt = Color3.fromRGB(242, 242, 242),
+	dim = Color3.fromRGB(154, 163, 178),
+	ok = Color3.fromRGB(54, 209, 107),
+	cyan = Color3.fromRGB(0, 230, 255),
+	blue = Color3.fromRGB(70, 140, 255),
+	black = Color3.new(0, 0, 0),
+	white = Color3.new(1, 1, 1),
+	paper = Color3.fromRGB(231, 223, 202),
+	paper2 = Color3.fromRGB(214, 203, 176),
+	ink = Color3.fromRGB(34, 31, 28),
+	manila = Color3.fromRGB(188, 152, 92),
+	stamp = Color3.fromRGB(190, 24, 30),
+}
+
+local F = {
+	title = Enum.Font.GothamBlack,
+	bold = Enum.Font.GothamBold,
+	body = Enum.Font.GothamMedium,
+	mono = Enum.Font.RobotoMono,
+	code = Enum.Font.Code,
+	cond = Enum.Font.Oswald,
+	osd = Enum.Font.Arcade,
+}
+
+-- цвет кабинок по сложности
+local DIFF_COL = {
+	easy = Color3.fromRGB(54, 209, 107),
+	normal = Color3.fromRGB(255, 176, 0),
+	hard = Color3.fromRGB(232, 38, 43),
+	endless = Color3.fromRGB(176, 92, 255),
+}
+
+-- ===================== надёжность =====================
+local warned = {}
+local function warnOnce(tag, err)
+	if warned[tag] then return end
+	warned[tag] = true
+	warn("[AA] UI " .. tostring(tag) .. ": " .. tostring(err))
+end
+
+local function safe(tag, fn, a, b, c, d)
+	local ok, err = pcall(fn, a, b, c, d)
+	if not ok then warnOnce(tag, err) end
+	return ok, err
+end
+
+-- ===================== конструктор экземпляров =====================
+local TEXTCLS = { TextLabel = true, TextButton = true, TextBox = true }
+
+local function mk(class, parent, props)
+	local o = Instance.new(class)
+	if TEXTCLS[class] then
+		o.BorderSizePixel = 0
+		o.BackgroundTransparency = 1
+		o.TextColor3 = COL.txt
+		o.Font = F.body
+		o.TextSize = 16
+		o.Text = ""
+	elseif class == "Frame" or class == "ScrollingFrame" or class == "ImageLabel" or class == "ImageButton" or class == "ViewportFrame" then
+		o.BorderSizePixel = 0
+	end
+	if class == "TextButton" or class == "ImageButton" then o.AutoButtonColor = false end
+	if props then
+		for k, v in pairs(props) do o[k] = v end
+	end
+	if parent then o.Parent = parent end
+	return o
+end
+
+local function frame(parent, props)
+	local f = mk("Frame", parent, { BackgroundColor3 = COL.panel })
+	if props then for k, v in pairs(props) do f[k] = v end end
+	return f
+end
+
+local function clear(parent, keep)
+	for _, ch in ipairs(parent:GetChildren()) do
+		if not (keep and keep[ch.ClassName]) then ch:Destroy() end
+	end
+end
+
+local function corner(o, r) return mk("UICorner", o, { CornerRadius = UDim.new(0, r or 6) }) end
+local function round(o) return mk("UICorner", o, { CornerRadius = UDim.new(1, 0) }) end
+
+local function stroke(o, color, th, tr, contextual)
+	local s = mk("UIStroke", nil, { Color = color or COL.line, Thickness = th or 1, Transparency = tr or 0 })
+	if not contextual then s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border end
+	s.Parent = o
+	return s
+end
+
+local function pad(o, t, r, b, l)
+	return mk("UIPadding", o, { PaddingTop = UDim.new(0, t or 0), PaddingRight = UDim.new(0, r or t or 0),
+		PaddingBottom = UDim.new(0, b or t or 0), PaddingLeft = UDim.new(0, l or r or t or 0) })
+end
+
+local function vlist(o, gap, halign)
+	return mk("UIListLayout", o, { FillDirection = Enum.FillDirection.Vertical, Padding = UDim.new(0, gap or 6),
+		SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = halign or Enum.HorizontalAlignment.Left })
+end
+
+local function hlist(o, gap, valign, halign)
+	return mk("UIListLayout", o, { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, gap or 6),
+		SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = valign or Enum.VerticalAlignment.Center,
+		HorizontalAlignment = halign or Enum.HorizontalAlignment.Left })
+end
+
+-- вертикальный/горизонтальный градиент цвета и прозрачности
+local function grad(o, c0, c1, rot, t0, t1)
+	return mk("UIGradient", o, {
+		Color = ColorSequence.new(c0 or COL.white, c1 or c0 or COL.white),
+		Transparency = NumberSequence.new(t0 or 0, t1 or t0 or 0),
+		Rotation = rot or 90,
+	})
+end
+
+local function textMax(o, maxSize, minSize)
+	return mk("UITextSizeConstraint", o, { MaxTextSize = maxSize or 24, MinTextSize = minSize or 8 })
+end
+
+local function label(parent, text, size, font, color, props)
+	local l = mk("TextLabel", parent, { Text = text or "", TextSize = size or 16, Font = font or F.body, TextColor3 = color or COL.txt })
+	if props then for k, v in pairs(props) do l[k] = v end end
+	return l
+end
+
+local function setText(l, s)
+	if l and l.Text ~= s then l.Text = s end
+end
+
+local function tween(o, t, props, style, dir)
+	local ok, tw = pcall(function()
+		local x = TweenService:Create(o, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props)
+		x:Play()
+		return x
+	end)
+	if ok then return tw end
+	for k, v in pairs(props) do pcall(function() o[k] = v end) end
+	return nil
+end
+
+local function clamp01(x)
+	x = tonumber(x) or 0
+	if x < 0 then return 0 end
+	if x > 1 then return 1 end
+	return x
+end
+
+local function playSound(key, props)
+	if Sound and Sound.play then pcall(Sound.play, key, nil, props) end
+end
+
+-- символы строки UTF-8 (для печатной машинки и глитча)
+local function chars(s)
+	local out = {}
+	for _, cp in utf8.codes(s) do table.insert(out, utf8.char(cp)) end
+	return out
+end
+
+local function utf8sub(s, n)
+	local cut = utf8.offset(s, n + 1)
+	if not cut then return s end
+	return string.sub(s, 1, cut - 1)
+end
+
+local function ulen(s)
+	return utf8.len(s) or #s
+end
+
+-- ===================== масштаб под экран =====================
+local VW, VH = 1280, 720
+local fits = {}
+local isTouch = false
+
+local function viewport()
+	local cam = workspace.CurrentCamera
+	if cam then
+		local v = cam.ViewportSize
+		if v and v.X > 10 and v.Y > 10 then VW, VH = v.X, v.Y end
+	end
+	return VW, VH
+end
+
+-- масштаб HUD: 1 при 1280×720, на телефонах меньше (но не мельче 0.5), сенсор — чуть крупнее
+local function hudScaleValue()
+	local s = math.min(VW / 1280, VH / 720)
+	if isTouch then s = s * 1.12 end
+	return math.clamp(s, 0.5, 1.25)
+end
+
+local function applyFit(f)
+	local s
+	if f.w then
+		s = math.min(VW * f.fill / f.w, VH * f.fill / f.h, f.max)
+	else
+		s = hudScaleValue() * f.mul
+	end
+	f.s.Scale = math.max(s, 0.3)
+end
+
+-- окно эталонного размера w×h, вписанное в экран
+local function fitScale(o, w, h, maxS, fill)
+	local f = { s = mk("UIScale", o), w = w, h = h, max = maxS or 1.2, fill = fill or 0.94 }
+	table.insert(fits, f)
+	applyFit(f)
+	return f.s
+end
+
+-- блок HUD с общим масштабом
+local function hudScale(o, mul)
+	local f = { s = mk("UIScale", o), mul = mul or 1 }
+	table.insert(fits, f)
+	applyFit(f)
+	return f.s
+end
+
+local lastVW, lastVH = 0, 0
+local function refit(force)
+	viewport()
+	if not force and VW == lastVW and VH == lastVH then return end
+	lastVW, lastVH = VW, VH
+	local alive = {}
+	for _, f in ipairs(fits) do
+		if f.s.Parent then
+			applyFit(f)
+			table.insert(alive, f)
+		end
+	end
+	fits = alive
+end
+
+-- ===================== экраны (ScreenGui) =====================
+local guis = {}
+
+local function screen(name, order, ignoreInset)
+	local g = mk("ScreenGui", nil, { Name = name, ResetOnSpawn = false, DisplayOrder = order or 0,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling })
+	g.IgnoreGuiInset = ignoreInset ~= false
+	g.Parent = pgui
+	return g
+end
+
+-- ===================== VHS-декор: сканлайны, зерно, виньетка =====================
+-- сканлайны: n тонких полос по высоте родителя
+local function addScanlines(parent, n, tr, z)
+	local box = frame(parent, { Name = "Scan", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = z or 50, ClipsDescendants = true })
+	for i = 0, n - 1 do
+		frame(box, { Size = UDim2.new(1, 0, 0, 1), Position = UDim2.fromScale(0, i / n), BackgroundColor3 = COL.black, BackgroundTransparency = tr or 0.85, ZIndex = z or 50 })
+	end
+	return box
+end
+
+-- «снег»: набор точек, которые каждый кадр прыгают в случайные места
+local function makeGrain(parent, n, z)
+	local g = { box = frame(parent, { Name = "Grain", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = z or 51, ClipsDescendants = true }), dots = {} }
+	for i = 1, n do
+		local d = frame(g.box, { Size = UDim2.fromOffset(2, 2), BackgroundColor3 = COL.white, BackgroundTransparency = 0.8, ZIndex = z or 51 })
+		g.dots[i] = d
+	end
+	return g
+end
+
+local rng = Random.new()
+local function stepGrain(g, alpha, big)
+	if not g or not g.box.Visible then return end
+	for _, d in ipairs(g.dots) do
+		local w = rng:NextInteger(1, big or 3)
+		d.Size = UDim2.fromOffset(w * rng:NextInteger(1, 4), w)
+		d.Position = UDim2.fromScale(rng:NextNumber(), rng:NextNumber())
+		local v = rng:NextNumber()
+		d.BackgroundColor3 = Color3.new(v, v, v)
+		d.BackgroundTransparency = 1 - (alpha or 0.25) * rng:NextNumber()
+	end
+end
+
+-- виньетка из четырёх краёв с градиентом
+local function addVignette(parent, color, depth, tr, z)
+	local box = frame(parent, { Name = "Vignette", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = z or 1 })
+	local d = depth or 0.22
+	local function edge(size, pos, rot)
+		local e = frame(box, { Size = size, Position = pos, BackgroundColor3 = color or COL.black, BackgroundTransparency = 0, ZIndex = z or 1 })
+		grad(e, color or COL.black, color or COL.black, rot, tr or 0.15, 1)
+		return e
+	end
+	edge(UDim2.fromScale(1, d), UDim2.fromScale(0, 0), 90)
+	edge(UDim2.fromScale(1, d), UDim2.fromScale(0, 1 - d), 270)
+	edge(UDim2.fromScale(d * 0.75, 1), UDim2.fromScale(0, 0), 0)
+	edge(UDim2.fromScale(d * 0.75, 1), UDim2.fromScale(1 - d * 0.75, 0), 180)
+	return box
+end
+
+-- текст с хроматическим сдвигом (красный/голубой слой позади)
+local function chromaLabel(parent, text, size, font, color, props, offset)
+	local holder = frame(parent, { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1) })
+	if props then for k, v in pairs(props) do holder[k] = v end end
+	local o = offset or 2
+	local z = holder.ZIndex
+	local r = label(holder, text, size, font, COL.red, { Size = UDim2.fromScale(1, 1), Position = UDim2.fromOffset(-o, 0), TextTransparency = 0.35, ZIndex = z })
+	local c = label(holder, text, size, font, COL.cyan, { Size = UDim2.fromScale(1, 1), Position = UDim2.fromOffset(o, 0), TextTransparency = 0.45, ZIndex = z })
+	local m = label(holder, text, size, font, color or COL.white, { Size = UDim2.fromScale(1, 1), ZIndex = z + 1 })
+	local layers = { r, c, m }
+	local api = { holder = holder, main = m, layers = layers, off = o }
+	function api.set(s)
+		for _, l in ipairs(layers) do setText(l, s) end
+	end
+	function api.prop(k, v)
+		for _, l in ipairs(layers) do l[k] = v end
+	end
+	function api.jitter(amount)
+		local a = amount or o
+		r.Position = UDim2.fromOffset(-a + rng:NextInteger(-1, 1), rng:NextInteger(-1, 1))
+		c.Position = UDim2.fromOffset(a + rng:NextInteger(-1, 1), rng:NextInteger(-1, 1))
+	end
+	return api
+end
+
+-- ===================== кнопки =====================
+local BTN = {
+	amber = { bg = Color3.fromRGB(255, 176, 0), fg = Color3.fromRGB(26, 16, 0), line = Color3.fromRGB(255, 213, 106) },
+	red = { bg = Color3.fromRGB(200, 22, 28), fg = COL.white, line = Color3.fromRGB(255, 138, 141) },
+	green = { bg = Color3.fromRGB(31, 157, 76), fg = COL.white, line = Color3.fromRGB(143, 240, 178) },
+	dark = { bg = Color3.fromRGB(43, 47, 58), fg = COL.txt, line = Color3.fromRGB(90, 96, 112) },
+	ghost = { bg = Color3.fromRGB(28, 30, 38), fg = COL.dim, line = Color3.fromRGB(70, 74, 88) },
+}
+
+local function setEnabled(b, on)
+	b:SetAttribute("Off", not on)
+	b.BackgroundTransparency = on and 0 or 0.55
+	b.TextTransparency = on and 0 or 0.45
+end
+
+local function setStyle(b, style)
+	local st = BTN[style] or BTN.dark
+	b.BackgroundColor3 = st.bg
+	b.TextColor3 = st.fg
+	local s = b:FindFirstChildOfClass("UIStroke")
+	if s then s.Color = st.line end
+	b:SetAttribute("Style", style)
+end
+
+local function button(parent, text, style, onClick, props)
+	local b = mk("TextButton", parent, { Text = text or "", Font = F.title, TextSize = 15, BackgroundTransparency = 0,
+		Size = UDim2.fromOffset(160, 40), Selectable = true })
+	corner(b, 4)
+	stroke(b, COL.line, 1, 0.2)
+	grad(b, COL.white, Color3.fromRGB(185, 185, 185), 90)
+	setStyle(b, style or "dark")
+	if props then for k, v in pairs(props) do b[k] = v end end
+	local sc = mk("UIScale", b)
+	b.MouseEnter:Connect(function()
+		if not b:GetAttribute("Off") then tween(sc, 0.08, { Scale = 1.04 }) end
+	end)
+	b.MouseLeave:Connect(function() tween(sc, 0.1, { Scale = 1 }) end)
+	b.Activated:Connect(function()
+		if b:GetAttribute("Off") then return end
+		playSound("UiClick", { Volume = 0.35 })
+		sc.Scale = 0.95
+		tween(sc, 0.12, { Scale = 1 })
+		if onClick then
+			task.spawn(function() safe("button", onClick, b) end)
+		end
+	end)
+	return b
+end
+
+-- ===================== состояние =====================
+local scene = "lobby"
+local sceneData = {}
+local openModals = {}       -- name -> { root, onClose }
+local selectedKey = ""
+local stamina, battery = 1, 1
+local flashlightOn = false
+local crosshairOn = true
+local hiddenIn = nil
+local deathText = nil
+local spectating = nil
+local updateMouse          -- объявлена ниже (модальные окна)
+
+-- разделы интерфейса (каждый — свой набор функций ниже)
+local Vhs, Hud, LobbyHud, Toasts, Eas, Loading, EndScr, Death, Qte, Prompts, Signs, Flash = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
+local Screens = {}          -- модальные окна: name -> function(shell, arg)
+
+-- ===================== данные матча и игрока =====================
+local cachedId, cachedFolder = nil, nil
+local function matchFolder()
+	local id = player and player:GetAttribute("MatchId") or 0
+	if not id or id == 0 then return nil end
+	if cachedId == id and cachedFolder and cachedFolder.Parent then return cachedFolder end
+	local ms = RS:FindFirstChild("Matches")
+	local f = ms and ms:FindFirstChild("Match_" .. tostring(id))
+	cachedId, cachedFolder = id, f
+	return f
+end
+
+local function mattr(name, default)
+	local f = matchFolder()
+	local v = f and f:GetAttribute(name)
+	if v == nil then return default end
+	return v
+end
+
+local function pattr(name, default)
+	local v = player and player:GetAttribute(name)
+	if v == nil then return default end
+	return v
+end
+
+local function inventory()
+	local inv = player and player:FindFirstChild("Inventory")
+	local out = {}
+	if inv then
+		for _, v in ipairs(inv:GetChildren()) do
+			if v:IsA("IntValue") or v:IsA("NumberValue") then out[v.Name] = v.Value end
+		end
+	end
+	return out
+end
+
+local function diffDef()
+	local key = mattr("Difficulty", "normal")
+	return (Config.Difficulties and Config.Difficulties[key]) or (Config.Difficulties and Config.Difficulties.normal) or {}, key
+end
+
+local function fmtClock(c)
+	c = tonumber(c) or 7
+	local h = math.floor(c) % 24
+	local m = math.floor((c % 1) * 60)
+	return string.format("%02d:%02d", h, m)
+end
+
+local function sortedKeys(t)
+	local keys = {}
+	for k in pairs(t or {}) do table.insert(keys, k) end
+	table.sort(keys, function(a, b)
+		local oa, ob = (t[a].order or 99), (t[b].order or 99)
+		if oa == ob then return a < b end
+		return oa < ob
+	end)
+	return keys
+end
+
+-- модуль заключённого из ReplicatedStorage.Inmates (может отсутствовать)
+local inmateCache = {}
+local function inmateDef(key)
+	if not key or key == "" then return nil end
+	if inmateCache[key] ~= nil then return inmateCache[key] or nil end
+	local folder = RS:FindFirstChild("Inmates")
+	local ms = folder and folder:FindFirstChild(key)
+	local def = false
+	if ms and ms:IsA("ModuleScript") then
+		local ok, res = pcall(require, ms)
+		if ok and type(res) == "table" then def = res else warnOnce("inmate " .. key, res) end
+	end
+	inmateCache[key] = def
+	return def or nil
+end
+
+local function allInmates()
+	local list = {}
+	local folder = RS:FindFirstChild("Inmates")
+	if not folder then return list end
+	for _, ms in ipairs(folder:GetChildren()) do
+		if ms:IsA("ModuleScript") then
+			local def = inmateDef(ms.Name)
+			if def then table.insert(list, { key = ms.Name, def = def }) end
+		end
+	end
+	table.sort(list, function(a, b)
+		local na, nb = tonumber(a.def.num) or 999, tonumber(b.def.num) or 999
+		if na == nb then return a.key < b.key end
+		return na < nb
+	end)
+	return list
+end
+
+local function remoteFunc(name)
+	local ok, f = pcall(Net.func, name)
+	if ok then return f end
+	return nil
+end
+
+local function invoke(name, a, b)
+	local f = remoteFunc(name)
+	if not f then return nil end
+	local ok, res = pcall(function() return f:InvokeServer(a, b) end)
+	if not ok then
+		warnOnce("invoke " .. name, res)
+		return nil
+	end
+	return res
+end
+
+-- ===================== общий VHS-слой поверх мира =====================
+-- тонкие сканлайны, зерно, виньетка, «полоса трекинга», которая медленно ползёт вниз
+function Vhs.build()
+	local g = guis.vhs
+	Vhs.root = frame(g, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 })
+	addVignette(Vhs.root, COL.black, 0.2, 0.35, 1)
+	Vhs.scan = addScanlines(Vhs.root, 180, 0.94, 2)
+	Vhs.grain = makeGrain(Vhs.root, 36, 3)
+	Vhs.band = frame(Vhs.root, { Size = UDim2.fromScale(1, 0.07), BackgroundColor3 = COL.white, ZIndex = 4 })
+	mk("UIGradient", Vhs.band, { Rotation = 90, Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.95), NumberSequenceKeypoint.new(1, 1) }) })
+	Vhs.tint = frame(Vhs.root, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(255, 190, 120), BackgroundTransparency = 0.985, ZIndex = 5 })
+	Vhs.acc = 0
+end
+
+function Vhs.step(dt)
+	if not Vhs.root then return end
+	Vhs.acc = Vhs.acc + dt
+	if Vhs.acc > 1 / 24 then
+		Vhs.acc = 0
+		stepGrain(Vhs.grain, 0.12)
+	end
+	local y = (T / 7) % 1.2 - 0.1
+	Vhs.band.Position = UDim2.fromScale(0, y)
+	Vhs.tint.BackgroundTransparency = 0.982 + 0.008 * math.sin(T * 31)
+end
+
+-- ===================== тосты =====================
+function Toasts.build()
+	local box = frame(guis.toast, { Name = "Toasts", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 64),
+		Size = UDim2.fromOffset(700, 300), BackgroundTransparency = 1 })
+	hudScale(box)
+	vlist(box, 6, Enum.HorizontalAlignment.Center)
+	Toasts.box = box
+	Toasts.items = {}
+	Toasts.n = 0
+	Toasts.last, Toasts.lastT = "", -10
+end
+
+local TextService = nil
+local function textWidth(text, size, font, maxW)
+	if TextService == nil then
+		local ok, s = pcall(function() return game:GetService("TextService") end)
+		TextService = ok and s or false
+	end
+	if TextService then
+		local ok, v = pcall(function() return TextService:GetTextSize(text, size, font, Vector2.new(maxW or 2000, 1000)) end)
+		if ok and v then return v.X, v.Y end
+	end
+	local n = ulen(text)
+	return math.min(n * size * 0.58, maxW or 2000), size + 4
+end
+
+function Toasts.push(text, color)
+	if text == "" then return end
+	-- одно и то же сообщение дважды подряд (двойная подписка) — не показываем
+	if text == Toasts.last and T - Toasts.lastT < 0.3 then return end
+	Toasts.last, Toasts.lastT = text, T
+	local accent = COL.amber
+	if typeof(color) == "Color3" then accent = color end
+	Toasts.n = Toasts.n + 1
+	local w, h = textWidth(text, 17, F.bold, 600)
+	local item = frame(Toasts.box, { Size = UDim2.fromOffset(w + 46, math.max(40, h + 18)), BackgroundColor3 = Color3.fromRGB(10, 11, 15),
+		BackgroundTransparency = 0.08, LayoutOrder = Toasts.n, ClipsDescendants = true })
+	corner(item, 4)
+	local st = stroke(item, accent, 1.5, 0.25)
+	frame(item, { Size = UDim2.new(0, 5, 1, 0), BackgroundColor3 = accent })
+	local glow = frame(item, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = accent, BackgroundTransparency = 0.88 })
+	grad(glow, COL.white, COL.white, 0, 0.2, 1)
+	local l = label(item, text, 17, F.bold, COL.txt, { Size = UDim2.new(1, -30, 1, 0), Position = UDim2.fromOffset(20, 0),
+		TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left })
+	stroke(l, COL.black, 1, 0.4, true)
+	table.insert(Toasts.items, item)
+	while #Toasts.items > 5 do
+		local old = table.remove(Toasts.items, 1)
+		old:Destroy()
+	end
+	local sc = mk("UIScale", item, { Scale = 0.85 })
+	tween(sc, 0.18, { Scale = 1 }, Enum.EasingStyle.Back)
+	task.delay(3.4, function()
+		if not item.Parent then return end
+		tween(item, 0.5, { BackgroundTransparency = 1 })
+		tween(glow, 0.5, { BackgroundTransparency = 1 })
+		tween(l, 0.5, { TextTransparency = 1 })
+		tween(st, 0.5, { Transparency = 1 })
+		task.delay(0.55, function()
+			for i, it in ipairs(Toasts.items) do
+				if it == item then table.remove(Toasts.items, i) break end
+			end
+			item:Destroy()
+		end)
+	end)
+end
+
+-- ===================== вспышки и скример-оверлей =====================
+function Flash.build()
+	local g = guis.fx
+	Flash.plate = frame(g, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = COL.white, BackgroundTransparency = 1, ZIndex = 1 })
+	local js = frame(g, { Size = UDim2.fromScale(1.1, 1.1), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		BackgroundColor3 = COL.red, BackgroundTransparency = 1, ZIndex = 2, Visible = false })
+	Flash.js = js
+	Flash.jsVig = addVignette(js, Color3.fromRGB(60, 0, 0), 0.35, 0, 3)
+	Flash.jsGrain = makeGrain(js, 90, 4)
+	Flash.jsScan = addScanlines(js, 90, 0.6, 5)
+	Flash.jsUntil = 0
+	Flash.jsLen = 1
+end
+
+function Flash.flash(color, t0, seconds)
+	local p = Flash.plate
+	if not p then return end
+	p.BackgroundColor3 = typeof(color) == "Color3" and color or COL.white
+	p.BackgroundTransparency = clamp01(t0 or 0.2)
+	tween(p, math.max(0.05, tonumber(seconds) or 0.4), { BackgroundTransparency = 1 })
+end
+
+function Flash.jumpscare(color, seconds)
+	local js = Flash.js
+	if not js then return end
+	local len = math.max(0.2, tonumber(seconds) or 1.2)
+	js.BackgroundColor3 = typeof(color) == "Color3" and color or COL.red
+	js.Visible = true
+	Flash.jsUntil = T + len
+	Flash.jsLen = len
+end
+
+function Flash.step(dt)
+	local js = Flash.js
+	if not js or not js.Visible then return end
+	local left = Flash.jsUntil - T
+	if left <= 0 then
+		js.Visible = false
+		return
+	end
+	local k = left / Flash.jsLen
+	-- красная пульсация, тряска и крупный «снег»
+	js.BackgroundTransparency = 0.25 + 0.5 * (1 - k) + 0.2 * rng:NextNumber()
+	js.Position = UDim2.new(0.5, rng:NextInteger(-14, 14), 0.5, rng:NextInteger(-10, 10))
+	stepGrain(Flash.jsGrain, 0.9 * k + 0.1, 6)
+end
+
+-- ===================== HUD дома =====================
+local PHASE_NAME = { loading = "ЗАГРУЗКА", day = "ДЕНЬ", alert = "ОПОВЕЩЕНИЕ", night = "НОЧЬ", dawn = "РАССВЕТ", ["end"] = "КОНЕЦ" }
+
+-- полоска с подписью: возвращает { fill, value, box }
+local function makeBar(parent, caption, color, order)
+	local box = frame(parent, { Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1, LayoutOrder = order or 0 })
+	local cap = label(box, caption, 11, F.mono, COL.dim, { Size = UDim2.new(0.6, 0, 0, 12), TextXAlignment = Enum.TextXAlignment.Left })
+	local val = label(box, "", 11, F.mono, COL.txt, { Size = UDim2.new(0.4, 0, 0, 12), Position = UDim2.fromScale(0.6, 0), TextXAlignment = Enum.TextXAlignment.Right })
+	local track = frame(box, { Size = UDim2.new(1, 0, 0, 9), Position = UDim2.fromOffset(0, 15), BackgroundColor3 = COL.black, BackgroundTransparency = 0.35 })
+	corner(track, 2)
+	stroke(track, COL.line, 1, 0.82)
+	local fill = frame(track, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = color })
+	corner(fill, 2)
+	grad(fill, COL.white, Color3.fromRGB(170, 170, 170), 90)
+	-- деления, как на старом приборе
+	for i = 1, 9 do
+		frame(track, { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.fromScale(i / 10, 0), BackgroundColor3 = COL.black, BackgroundTransparency = 0.5, ZIndex = 2 })
+	end
+	return { fill = fill, value = val, cap = cap, box = box, shown = 1 }
+end
+
+local function setBar(bar, frac, dt, color)
+	frac = clamp01(frac)
+	bar.shown = bar.shown + (frac - bar.shown) * math.min(1, (dt or 0.016) * 10)
+	bar.fill.Size = UDim2.fromScale(bar.shown, 1)
+	if color then bar.fill.BackgroundColor3 = color end
+end
+
+function Hud.build()
+	local g = guis.hud
+	Hud.root = frame(g, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 })
+
+	-- красная виньетка при низком здоровье (под всем остальным)
+	Hud.lowVig = addVignette(Hud.root, Color3.fromRGB(150, 0, 0), 0.3, 0, 0)
+	Hud.lowVig.Visible = false
+	-- помехи: зерно и полосы поверх экрана
+	Hud.staticFx = frame(Hud.root, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(120, 120, 120), BackgroundTransparency = 1, Visible = false })
+	Hud.staticGrain = makeGrain(Hud.staticFx, 70, 2)
+	addScanlines(Hud.staticFx, 70, 0.75, 3)
+	-- укрытие: тёмные края
+	Hud.hideVig = addVignette(Hud.root, COL.black, 0.32, 0, 0)
+	Hud.hideVig.Visible = false
+	Hud.hideTxt = label(Hud.root, "В УКРЫТИИ · НЕ ШУМИ", 14, F.mono, COL.dim, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 104),
+		Size = UDim2.fromOffset(400, 20), Visible = false })
+
+	-- часы: ЖК-табло
+	local clock = frame(Hud.root, { Name = "Clock", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 8),
+		Size = UDim2.fromOffset(236, 92), BackgroundTransparency = 1 })
+	hudScale(clock)
+	local lcd = frame(clock, { Size = UDim2.fromOffset(236, 58), BackgroundColor3 = Color3.fromRGB(14, 10, 4), BackgroundTransparency = 0.12 })
+	corner(lcd, 5)
+	stroke(lcd, COL.amber, 1.5, 0.45)
+	grad(lcd, Color3.fromRGB(255, 220, 160), COL.white, 90, 0, 0)
+	label(lcd, "88:88", 44, F.code, COL.amberDim, { Size = UDim2.fromScale(1, 1), TextTransparency = 0.55 })
+	Hud.time = label(lcd, "07:00", 44, F.code, COL.amber, { Size = UDim2.fromScale(1, 1) })
+	stroke(Hud.time, COL.amber2, 3, 0.7, true)
+	Hud.ampm = label(lcd, "", 10, F.mono, COL.amber, { Size = UDim2.fromOffset(30, 12), Position = UDim2.new(1, -34, 0, 6), TextXAlignment = Enum.TextXAlignment.Right })
+	addScanlines(lcd, 18, 0.7, 5)
+	local row = frame(clock, { Size = UDim2.new(1, 0, 0, 26), Position = UDim2.fromOffset(0, 62), BackgroundTransparency = 1 })
+	hlist(row, 6, Enum.VerticalAlignment.Center, Enum.HorizontalAlignment.Center)
+	local nightChip = frame(row, { Size = UDim2.fromOffset(112, 24), BackgroundColor3 = COL.black, BackgroundTransparency = 0.35, LayoutOrder = 1 })
+	corner(nightChip, 3)
+	Hud.nightStroke = stroke(nightChip, COL.line, 1, 0.75)
+	Hud.night = label(nightChip, "НОЧЬ 1/7", 15, F.title, COL.txt, { Size = UDim2.fromScale(1, 1) })
+	local phaseChip = frame(row, { Size = UDim2.fromOffset(112, 24), BackgroundColor3 = COL.black, BackgroundTransparency = 0.35, LayoutOrder = 2 })
+	corner(phaseChip, 3)
+	Hud.phaseChip = phaseChip
+	Hud.phase = label(phaseChip, "ДЕНЬ", 13, F.mono, COL.amber, { Size = UDim2.fromScale(1, 1) })
+	Hud.power = label(clock, "⚡ НЕТ СВЕТА", 13, F.title, COL.red, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.fromOffset(0, 92), Visible = false })
+
+	-- кошелёк (справа сверху, под системной панелью Roblox)
+	local wallet = frame(Hud.root, { Name = "Wallet", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 58),
+		Size = UDim2.fromOffset(300, 34), BackgroundTransparency = 1 })
+	hudScale(wallet)
+	hlist(wallet, 6, Enum.VerticalAlignment.Center, Enum.HorizontalAlignment.Right)
+	local function chip(order, color)
+		local c = frame(wallet, { Size = UDim2.fromOffset(104, 32), BackgroundColor3 = COL.black, BackgroundTransparency = 0.3, LayoutOrder = order })
+		corner(c, 4)
+		stroke(c, color, 1, 0.5)
+		local l = label(c, "", 17, F.title, color, { Size = UDim2.new(1, -12, 1, 0), Position = UDim2.fromOffset(6, 0) })
+		return l, c
+	end
+	Hud.money, Hud.moneyChip = chip(1, COL.amber)
+	Hud.apples, Hud.applesChip = chip(2, COL.txt)
+
+	-- сводка оповещения (ночью)
+	local ab = frame(Hud.root, { Name = "AlertBox", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 100),
+		Size = UDim2.fromOffset(300, 110), BackgroundColor3 = Color3.fromRGB(16, 0, 0), BackgroundTransparency = 0.25, Visible = false })
+	hudScale(ab)
+	corner(ab, 4)
+	stroke(ab, Color3.fromRGB(196, 18, 26), 1.5, 0.2)
+	pad(ab, 8, 10, 8, 10)
+	vlist(ab, 3)
+	mk("UISizeConstraint", ab, { MaxSize = Vector2.new(300, 220) })
+	ab.AutomaticSize = Enum.AutomaticSize.Y
+	ab.Size = UDim2.fromOffset(300, 0)
+	Hud.alertBox = ab
+	Hud.alertTitle = label(ab, "", 14, F.title, Color3.fromRGB(255, 90, 90), { Size = UDim2.new(1, 0, 0, 18), TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 1 })
+	Hud.alertTip = label(ab, "", 12, F.bold, COL.txt, { Size = UDim2.new(1, 0, 0, 14), TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true,
+		AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2 })
+	Hud.alertDir = label(ab, "", 12, F.bold, COL.amber, { Size = UDim2.new(1, 0, 0, 14), TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true,
+		AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 3 })
+
+	-- здоровье, выносливость, батарея (слева снизу)
+	local vit = frame(Hud.root, { Name = "Vitals", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 16, 1, -16),
+		Size = UDim2.fromOffset(260, 118), BackgroundColor3 = COL.black, BackgroundTransparency = 0.45 })
+	hudScale(vit)
+	corner(vit, 5)
+	stroke(vit, COL.line, 1, 0.85)
+	pad(vit, 8, 10, 8, 10)
+	vlist(vit, 4)
+	Hud.hp = makeBar(vit, "❤ ЗДОРОВЬЕ", COL.ok, 1)
+	Hud.st = makeBar(vit, "≫ ВЫНОСЛИВОСТЬ", COL.white, 2)
+	Hud.bt = makeBar(vit, "🔦 БАТАРЕЯ", Color3.fromRGB(255, 216, 96), 3)
+	Hud.vitals = vit
+
+	-- помехи (появляются только при Static > 0)
+	local sm = frame(Hud.root, { Name = "Static", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -96),
+		Size = UDim2.fromOffset(260, 30), BackgroundColor3 = COL.black, BackgroundTransparency = 0.35, Visible = false })
+	hudScale(sm)
+	corner(sm, 4)
+	Hud.staticStroke = stroke(sm, COL.line, 1, 0.6)
+	pad(sm, 2, 8, 2, 8)
+	Hud.staticBar = makeBar(sm, "📺 ПОМЕХИ", Color3.fromRGB(200, 200, 200), 1)
+	Hud.staticMeter = sm
+
+	-- хотбар
+	local hb = frame(Hud.root, { Name = "Hotbar", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14),
+		Size = UDim2.fromOffset(620, 66), BackgroundTransparency = 1 })
+	hudScale(hb)
+	hlist(hb, 6, Enum.VerticalAlignment.Bottom, Enum.HorizontalAlignment.Center)
+	Hud.hotbar = hb
+	Hud.slots = {}
+	Hud.sig = ""
+	Hud.itemName = label(Hud.root, "", 16, F.title, COL.amber, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -84),
+		Size = UDim2.fromOffset(400, 22), TextTransparency = 1 })
+	hudScale(Hud.itemName)
+	stroke(Hud.itemName, COL.black, 1.5, 0.3, true)
+
+	-- прицел
+	Hud.cross = frame(Hud.root, { Name = "Cross", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(6, 6), BackgroundColor3 = COL.white, BackgroundTransparency = 0.1 })
+	round(Hud.cross)
+	stroke(Hud.cross, COL.black, 1.5, 0.45)
+
+	Hud.textT = 0
+	Hud.alertInfo = nil
+end
+
+function Hud.onEnter(data)
+	Hud.alertInfo = nil
+	Hud.sig = ""
+	selectedKey = pattr("Equipped", "") or ""
+end
+
+-- ключи предметов для хотбара: по порядку магазина, патроны показываем на дробовике
+function Hud.slotKeys()
+	local inv = inventory()
+	local keys = {}
+	for _, k in ipairs(sortedKeys(Config.Items)) do
+		local it = Config.Items[k]
+		if k ~= "shells" and not it.farm and (inv[k] or 0) > 0 then table.insert(keys, k) end
+	end
+	-- предметы, которых нет в Config.Items, — в конец
+	for k, n in pairs(inv) do
+		if not Config.Items[k] and n > 0 then table.insert(keys, k) end
+	end
+	while #keys > 9 do table.remove(keys) end
+	return keys, inv
+end
+
+local function equipItem(key)
+	local target = key
+	if selectedKey == key then target = "" end
+	local C = ctx and ctx.Controls
+	if C and type(C.equip) == "function" then
+		safe("controls equip", C.equip, target)
+		return
+	end
+	pcall(function() Net.event("Action"):FireServer("equip", target) end)
+	UI.setSelected(target)
+end
+
+function Hud.rebuildHotbar(keys, inv)
+	for _, s in pairs(Hud.slots) do s.frame:Destroy() end
+	Hud.slots = {}
+	for i, k in ipairs(keys) do
+		local it = Config.Items[k] or {}
+		local f = mk("TextButton", Hud.hotbar, { Size = UDim2.fromOffset(62, 62), BackgroundColor3 = Color3.fromRGB(18, 20, 25),
+			BackgroundTransparency = 0.25, LayoutOrder = i, Text = "" })
+		corner(f, 5)
+		local st = stroke(f, COL.line, 1.5, 0.75)
+		grad(f, COL.white, Color3.fromRGB(150, 150, 160), 90)
+		label(f, it.icon or "❔", 30, F.body, COL.white, { Size = UDim2.fromScale(1, 1), Position = UDim2.fromOffset(0, -2) })
+		label(f, tostring(i), 11, F.mono, COL.dim, { Size = UDim2.fromOffset(14, 14), Position = UDim2.fromOffset(4, 2), TextXAlignment = Enum.TextXAlignment.Left })
+		local n = inv[k] or 0
+		local cnt = ""
+		if k == "shotgun" then cnt = tostring(inv.shells or 0) .. "🧨" elseif n > 1 then cnt = "×" .. tostring(n) end
+		local cl = label(f, cnt, 13, F.title, COL.txt, { Size = UDim2.fromOffset(52, 14), Position = UDim2.new(1, -56, 1, -17), TextXAlignment = Enum.TextXAlignment.Right })
+		stroke(cl, COL.black, 1, 0.3, true)
+		local sc = mk("UIScale", f)
+		f.Activated:Connect(function() equipItem(k) end)
+		Hud.slots[k] = { frame = f, stroke = st, scale = sc }
+	end
+	Hud.markSelected()
+end
+
+function Hud.markSelected()
+	for k, s in pairs(Hud.slots or {}) do
+		local on = (k == selectedKey)
+		s.stroke.Color = on and COL.amber or COL.line
+		s.stroke.Transparency = on and 0 or 0.75
+		s.stroke.Thickness = on and 2.5 or 1.5
+		s.frame.BackgroundColor3 = on and Color3.fromRGB(60, 44, 8) or Color3.fromRGB(18, 20, 25)
+		tween(s.scale, 0.12, { Scale = on and 1.08 or 1 })
+	end
+	if Hud.itemName then
+		local it = Config.Items and Config.Items[selectedKey]
+		if it then
+			Hud.itemName.Text = it.name
+			Hud.itemName.TextTransparency = 0
+			Hud.nameT = T
+		else
+			Hud.itemName.TextTransparency = 1
+		end
+	end
+end
+
+function Hud.setAlertInfo(info)
+	Hud.alertInfo = info
+end
+
+function Hud.step(dt)
+	local phase = mattr("Phase", "day")
+	local alive = pattr("Alive", true)
+	local hidden = pattr("Hidden", false) or hiddenIn ~= nil
+
+	-- здоровье с персонажа
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	local hpFrac, hp = 1, 100
+	if hum and hum.MaxHealth > 0 then
+		hp = math.max(0, hum.Health)
+		hpFrac = hp / hum.MaxHealth
+	end
+	local hpCol = COL.ok
+	if hpFrac < 0.35 then hpCol = COL.red elseif hpFrac < 0.65 then hpCol = COL.amber end
+	setBar(Hud.hp, hpFrac, dt, hpCol)
+	setBar(Hud.st, stamina, dt, stamina < 0.25 and COL.red or COL.white)
+	setBar(Hud.bt, battery, dt, flashlightOn and Color3.fromRGB(255, 216, 96) or Color3.fromRGB(140, 120, 60))
+	Hud.vitals.Visible = alive
+
+	-- низкое здоровье: пульсирующая красная виньетка
+	local low = alive and hpFrac < 0.35
+	Hud.lowVig.Visible = low
+	if low then
+		local pulse = 0.5 + 0.5 * math.sin(T * (4 + (1 - hpFrac) * 6))
+		for _, e in ipairs(Hud.lowVig:GetChildren()) do
+			local gr = e:FindFirstChildOfClass("UIGradient")
+			if gr then gr.Transparency = NumberSequence.new(0.1 + 0.35 * pulse + hpFrac, 1) end
+		end
+	end
+
+	-- помехи
+	local stat = tonumber(pattr("Static", 0)) or 0
+	Hud.staticMeter.Visible = alive and stat > 0
+	if stat > 0 then
+		local hot = stat >= 70
+		local flick = hot and (math.floor(T * 6) % 2 == 0)
+		setBar(Hud.staticBar, stat / 100, dt, hot and COL.red or Color3.fromRGB(200, 200, 200))
+		Hud.staticStroke.Color = flick and COL.red or COL.line
+	end
+	local sfx = math.max(0, (stat - 30) / 100)
+	Hud.staticFx.Visible = alive and sfx > 0
+	if sfx > 0 then
+		Hud.staticFx.BackgroundTransparency = 1 - sfx * 0.25 * rng:NextNumber()
+		stepGrain(Hud.staticGrain, math.min(0.9, sfx * 1.6), 5)
+	end
+
+	-- укрытие
+	Hud.hideVig.Visible = hidden
+	Hud.hideTxt.Visible = hidden
+
+	-- прицел
+	local promptOn = Prompts.current ~= nil
+	Hud.cross.Visible = crosshairOn and alive and not hidden and not UI.anyModal()
+	local cs = promptOn and 10 or 6
+	Hud.cross.Size = UDim2.fromOffset(cs, cs)
+	Hud.cross.BackgroundColor3 = promptOn and COL.amber or COL.white
+
+	-- подпись предмета гаснет через 1.5 с
+	if Hud.nameT and T - Hud.nameT > 1.5 and Hud.itemName.TextTransparency < 1 then
+		Hud.itemName.TextTransparency = math.min(1, Hud.itemName.TextTransparency + dt * 2)
+	end
+
+	-- тексты обновляем 8 раз в секунду
+	Hud.textT = Hud.textT + dt
+	if Hud.textT < 0.125 then return end
+	Hud.textT = 0
+
+	local clock = mattr("Clock", 7)
+	local s = fmtClock(clock)
+	if math.floor(T * 2) % 2 == 1 then s = string.gsub(s, ":", " ") end
+	setText(Hud.time, s)
+	local night = mattr("Night", 1)
+	local nights = mattr("Nights", 7)
+	local d = diffDef()
+	local nt = "НОЧЬ " .. tostring(night)
+	if not d.endless and nights and nights < 1000 then nt = nt .. "/" .. tostring(nights) end
+	setText(Hud.night, nt)
+	local isNight = (phase == "night" or phase == "alert")
+	Hud.night.TextColor3 = isNight and Color3.fromRGB(255, 74, 74) or COL.txt
+	Hud.nightStroke.Color = isNight and COL.red or COL.line
+	setText(Hud.phase, PHASE_NAME[phase] or string.upper(tostring(phase)))
+	Hud.phase.TextColor3 = isNight and Color3.fromRGB(255, 110, 110) or COL.amber
+	Hud.power.Visible = mattr("Power", true) == false
+
+	setText(Hud.money, "$ " .. tostring(pattr("Money", 0)))
+	setText(Hud.apples, "🍎 " .. tostring(pattr("Apples", 0)) .. "/" .. tostring(Config.MaxApplesCarried or 14))
+
+	-- сводка оповещения: в фазе ночи, пока не рассвело
+	local info = Hud.alertInfo
+	if info and (phase == "day" or phase == "dawn") then Hud.alertInfo = nil info = nil end
+	Hud.alertBox.Visible = info ~= nil and (phase == "night" or phase == "alert") and not Eas.visible
+	if info then
+		setText(Hud.alertTitle, info.title)
+		setText(Hud.alertTip, info.tip)
+		local dt2 = mattr("DirectiveText", "")
+		if info.directive and info.directive ~= "" then dt2 = info.directive end
+		setText(Hud.alertDir, (dt2 ~= "" and ("📺 ДИРЕКТИВА: " .. dt2)) or "")
+		Hud.alertDir.Visible = dt2 ~= ""
+	end
+
+	-- хотбар: пересобираем при изменении инвентаря
+	local keys, inv = Hud.slotKeys()
+	local sig = {}
+	for _, k in ipairs(keys) do table.insert(sig, k .. "=" .. tostring(inv[k])) end
+	local sigs = table.concat(sig, ",") .. "|" .. tostring(inv.shells or 0)
+	if sigs ~= Hud.sig then
+		Hud.sig = sigs
+		Hud.rebuildHotbar(keys, inv)
+	end
+	local eq = pattr("Equipped", nil)
+	if eq ~= nil and eq ~= Hud.lastEq then
+		Hud.lastEq = eq
+		if eq ~= selectedKey then
+			selectedKey = eq
+			Hud.markSelected()
+		end
+	end
+end
+
+-- @@LOBBYHUD@@
+function LobbyHud.build() end
+function LobbyHud.onEnter() end
+function LobbyHud.step(dt) end
+
+-- @@SIGNS@@
+function Signs.init() end
+function Signs.step(dt) end
+
+-- ===================== экстренное оповещение (EAS) =====================
+-- Вступление: настроечная таблица и тон. Затем мигающая шапка, эмблема, карточка заключённого,
+-- печатная машинка с текстом, совет, бегущая строка, полоса времени. Поверх — VHS: сканлайны,
+-- зерно, мерцание, разрывы строк и цветовой сдвиг.
+Eas.visible = false
+local GLITCH = chars("#%&@$?!░▒▓█<>/\\=+*")
+local SMPTE = { Color3.fromRGB(192, 192, 192), Color3.fromRGB(192, 192, 0), Color3.fromRGB(0, 192, 192), Color3.fromRGB(0, 192, 0),
+	Color3.fromRGB(192, 0, 192), Color3.fromRGB(192, 0, 0), Color3.fromRGB(0, 0, 192) }
+
+local function spaced(s)
+	return table.concat(chars(s), " ")
+end
+
+function Eas.build()
+	local g = guis.eas
+	g.Enabled = false
+	local root = frame(g, { Name = "EAS", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(3, 4, 8), Active = true })
+	Eas.root = root
+	grad(root, Color3.fromRGB(30, 34, 60), COL.black, 90)
+
+	-- сцена 1280×720, вписанная в экран
+	local st = frame(root, { Name = "Stage", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(1280, 720), BackgroundTransparency = 1 })
+	fitScale(st, 1280, 720, 2.2, 1)
+	Eas.stage = st
+
+	-- шапка
+	local hdr = frame(st, { Name = "Header", Size = UDim2.fromOffset(1280, 118), BackgroundColor3 = Color3.fromRGB(196, 18, 26) })
+	grad(hdr, COL.white, Color3.fromRGB(150, 150, 150), 90)
+	Eas.hdr = hdr
+	Eas.hdrTitle = chromaLabel(hdr, "⚠ ЭКСТРЕННОЕ ОПОВЕЩЕНИЕ ⚠", 54, F.title, COL.white,
+		{ Size = UDim2.fromOffset(1280, 70), Position = UDim2.fromOffset(0, 10) }, 3)
+	Eas.hdrSub = label(hdr, spaced("EMERGENCY ALERT SYSTEM"), 22, F.code, COL.white, { Size = UDim2.fromOffset(1280, 28), Position = UDim2.fromOffset(0, 80) })
+	frame(st, { Size = UDim2.fromOffset(1280, 4), Position = UDim2.fromOffset(0, 118), BackgroundColor3 = COL.amber })
+
+	-- эмблема
+	local em = frame(st, { Name = "Emblem", Size = UDim2.fromOffset(250, 250), Position = UDim2.fromOffset(60, 146), BackgroundTransparency = 1 })
+	Eas.emblem = em
+	local logo = Config.Images and Config.Images.EasLogo or ""
+	if logo ~= "" then
+		local url = tostring(logo)
+		if tonumber(logo) then url = "rbxassetid://" .. tostring(logo) end
+		mk("ImageLabel", em, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = url, ScaleType = Enum.ScaleType.Fit })
+	else
+		local disc = frame(em, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(10, 12, 24) })
+		round(disc)
+		stroke(disc, COL.amber, 6, 0)
+		grad(disc, Color3.fromRGB(60, 70, 120), COL.black, 90)
+		local inner = frame(em, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.7, 0.7), BackgroundColor3 = Color3.fromRGB(150, 10, 16) })
+		round(inner)
+		stroke(inner, COL.white, 3, 0.1)
+		grad(inner, Color3.fromRGB(255, 120, 120), COL.white, 90)
+		-- треугольник гражданской обороны из трёх «лучей»
+		for i = 0, 2 do
+			frame(inner, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 8, 0.42, 0),
+				BackgroundColor3 = COL.amber, Rotation = i * 120, BackgroundTransparency = 0.25 })
+		end
+		local eas = label(inner, "EAS", 58, F.title, COL.white, { Size = UDim2.fromScale(1, 1) })
+		stroke(eas, COL.black, 3, 0.2, true)
+		label(em, "CIVIL DEFENSE", 13, F.code, COL.amber, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 0, 22) })
+		label(em, "BLACK RIDGE", 13, F.code, COL.amber, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 1, -38) })
+	end
+	-- вращающиеся риски вокруг эмблемы
+	Eas.ticks = {}
+	for i = 1, 24 do
+		local t = frame(em, { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(4, 12), BackgroundColor3 = COL.amber, BackgroundTransparency = 0.3 })
+		Eas.ticks[i] = t
+	end
+
+	-- карточка заключённого
+	local card0 = frame(st, { Name = "Inmate", Size = UDim2.fromOffset(300, 236), Position = UDim2.fromOffset(36, 404), BackgroundColor3 = Color3.fromRGB(8, 8, 12), BackgroundTransparency = 0.1 })
+	corner(card0, 4)
+	Eas.cardStroke = stroke(card0, COL.red, 2, 0)
+	frame(card0, { Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = COL.red })
+	label(card0, "РАЗЫСКИВАЕТСЯ · WANTED", 16, F.title, COL.white, { Size = UDim2.new(1, 0, 0, 30) })
+	Eas.num = label(card0, "№ 102", 40, F.code, COL.amber, { Size = UDim2.new(1, -20, 0, 46), Position = UDim2.fromOffset(10, 34), TextXAlignment = Enum.TextXAlignment.Left })
+	stroke(Eas.num, COL.amber2, 2, 0.7, true)
+	Eas.name = chromaLabel(card0, "ГЛАДИС", 38, F.title, COL.white, { Size = UDim2.new(1, -20, 0, 46), Position = UDim2.fromOffset(10, 80) }, 2)
+	Eas.name.prop("TextXAlignment", Enum.TextXAlignment.Left)
+	Eas.name.prop("TextScaled", true)
+	for _, l in ipairs(Eas.name.layers) do textMax(l, 38, 14) end
+	Eas.en = label(card0, "GLADYS", 16, F.code, COL.dim, { Size = UDim2.new(1, -20, 0, 20), Position = UDim2.fromOffset(10, 128), TextXAlignment = Enum.TextXAlignment.Left })
+	Eas.cls = label(card0, "", 15, F.bold, Color3.fromRGB(255, 120, 120), { Size = UDim2.new(1, -20, 0, 76), Position = UDim2.fromOffset(10, 152),
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = true })
+
+	-- текст оповещения (печатная машинка)
+	local box = frame(st, { Name = "Crawl", Size = UDim2.fromOffset(880, 352), Position = UDim2.fromOffset(364, 146), BackgroundColor3 = Color3.fromRGB(4, 6, 14), BackgroundTransparency = 0.15 })
+	corner(box, 4)
+	stroke(box, COL.line, 1, 0.8)
+	pad(box, 16, 20, 16, 20)
+	Eas.crawl = label(box, "", 23, F.mono, COL.txt, { Size = UDim2.fromScale(1, 1), TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top, LineHeight = 1.15 })
+	textMax(Eas.crawl, 23, 10)
+	Eas.crawl.TextScaled = true
+	stroke(Eas.crawl, Color3.fromRGB(120, 160, 255), 2, 0.85, true)
+
+	-- что делать
+	local tip = frame(st, { Name = "Tip", Size = UDim2.fromOffset(880, 100), Position = UDim2.fromOffset(364, 510), BackgroundColor3 = Color3.fromRGB(30, 20, 0), BackgroundTransparency = 0.1 })
+	corner(tip, 4)
+	stroke(tip, COL.amber, 2, 0)
+	frame(tip, { Size = UDim2.new(0, 160, 1, 0), BackgroundColor3 = COL.amber })
+	label(tip, "ЧТО\nДЕЛАТЬ", 26, F.title, COL.black, { Size = UDim2.new(0, 160, 1, 0) })
+	Eas.tip = label(tip, "", 22, F.bold, COL.amber, { Size = UDim2.new(1, -190, 0, 54), Position = UDim2.fromOffset(176, 8), TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, TextScaled = true })
+	textMax(Eas.tip, 22, 10)
+	Eas.dir = label(tip, "", 17, F.bold, Color3.fromRGB(255, 96, 96), { Size = UDim2.new(1, -190, 0, 30), Position = UDim2.fromOffset(176, 64), TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left, TextScaled = true })
+	textMax(Eas.dir, 17, 9)
+
+	-- бегущая строка и полоса времени
+	local tick0 = frame(st, { Name = "Ticker", Size = UDim2.fromOffset(1280, 34), Position = UDim2.fromOffset(0, 646), BackgroundColor3 = Color3.fromRGB(150, 8, 14), ClipsDescendants = true })
+	Eas.ticker = label(tick0, "", 20, F.title, COL.white, { Size = UDim2.fromOffset(4000, 34), TextXAlignment = Enum.TextXAlignment.Left })
+	local bar = frame(st, { Name = "Bar", Size = UDim2.fromOffset(1280, 40), Position = UDim2.fromOffset(0, 680), BackgroundColor3 = Color3.fromRGB(70, 48, 0) })
+	Eas.fill = frame(bar, { Size = UDim2.fromScale(0, 1), BackgroundColor3 = COL.amber })
+	grad(Eas.fill, COL.white, Color3.fromRGB(200, 200, 200), 90)
+	label(bar, "AMBER ALERT · BLACK RIDGE ASYLUM", 17, F.title, COL.black, { Size = UDim2.new(0.6, -20, 1, 0), Position = UDim2.fromOffset(20, 0), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 2 })
+	Eas.left = label(bar, "", 17, F.title, COL.black, { Size = UDim2.new(0.4, -20, 1, 0), Position = UDim2.fromScale(0.6, 0), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 2 })
+
+	-- экранное меню видеомагнитофона
+	Eas.osdPlay = label(st, "▶ PLAY", 26, F.osd, COL.white, { Size = UDim2.fromOffset(200, 30), Position = UDim2.fromOffset(24, 128), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 20 })
+	stroke(Eas.osdPlay, COL.black, 2, 0.3, true)
+	Eas.osdTime = label(st, "", 22, F.osd, COL.white, { Size = UDim2.fromOffset(520, 26), Position = UDim2.fromOffset(736, 616), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 20 })
+	stroke(Eas.osdTime, COL.black, 2, 0.3, true)
+
+	-- настроечная таблица (первые секунды)
+	local bars = frame(root, { Name = "Bars", Size = UDim2.fromScale(1, 1), BackgroundColor3 = COL.black, ZIndex = 30 })
+	for i, c in ipairs(SMPTE) do
+		frame(bars, { Size = UDim2.fromScale(1 / 7, 0.72), Position = UDim2.fromScale((i - 1) / 7, 0), BackgroundColor3 = c, ZIndex = 30 })
+	end
+	for i = 1, 7 do
+		local c = SMPTE[8 - i]
+		if i % 2 == 0 then c = COL.black end
+		frame(bars, { Size = UDim2.fromScale(1 / 7, 0.08), Position = UDim2.fromScale((i - 1) / 7, 0.72), BackgroundColor3 = c, ZIndex = 30 })
+	end
+	frame(bars, { Size = UDim2.fromScale(1, 0.2), Position = UDim2.fromScale(0, 0.8), BackgroundColor3 = Color3.fromRGB(12, 12, 16), ZIndex = 30 })
+	local sb = label(bars, "ВНИМАНИЕ · ВНИМАНИЕ · ВНИМАНИЕ", 30, F.title, COL.white, { Size = UDim2.fromScale(1, 0.2), Position = UDim2.fromScale(0, 0.8), ZIndex = 31, TextScaled = true })
+	textMax(sb, 34, 10)
+	Eas.bars = bars
+
+	-- VHS поверх всего
+	Eas.scan = addScanlines(root, 200, 0.82, 40)
+	Eas.grain = makeGrain(root, 60, 41)
+	Eas.roll = frame(root, { Size = UDim2.fromScale(1, 0.12), BackgroundColor3 = COL.white, ZIndex = 42 })
+	mk("UIGradient", Eas.roll, { Rotation = 90, Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.9), NumberSequenceKeypoint.new(1, 1) }) })
+	Eas.tear = frame(root, { Size = UDim2.new(1, 0, 0, 10), BackgroundColor3 = COL.white, BackgroundTransparency = 0.7, ZIndex = 43, Visible = false })
+	Eas.flick = frame(root, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = COL.white, BackgroundTransparency = 1, ZIndex = 44 })
+	addVignette(root, COL.black, 0.16, 0.2, 39)
+
+	-- скрыть (освобождает мышь)
+	local hideBtn = button(root, "СКРЫТЬ ✕", "ghost", function() Eas.hide() end, { AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -16, 0, 60), Size = UDim2.fromOffset(120, 34), TextSize = 13, ZIndex = 50, Modal = true })
+	hudScale(hideBtn)
+	Eas.hideBtn = hideBtn
+end
+
+function Eas.show(data)
+	if not Eas.root then return end
+	-- то же оповещение второй раз (двойная подписка) — пропускаем
+	if Eas.visible and Eas.data == data then return end
+	Eas.data = data
+	local def = inmateDef(data.inmate)
+	local unknown = data.unknown and true or false
+	Eas.unknown = unknown
+
+	-- текст
+	local lines = {}
+	local src = data.lines
+	if (not src or #src == 0) and unknown then src = Config.AlertUnknown end
+	if (not src or #src == 0) and def and def.alert then src = def.alert end
+	local head = Config.AlertHead or ""
+	if head ~= "" and not (src and src[1] == head) then table.insert(lines, head) end
+	for _, l in ipairs(src or {}) do table.insert(lines, tostring(l)) end
+	Eas.full = table.concat(lines, "\n\n")
+	Eas.fullLen = ulen(Eas.full)
+	Eas.typed = 0
+	Eas.crawl.Text = ""
+
+	-- карточка
+	local num = data.num or (def and def.num) or "???"
+	local name = data.name or (def and def.name) or "???"
+	local en = (def and def.en) or ""
+	local cls = data.threat or (def and def.class) or ""
+	local tip = data.tip or (def and def.tip) or ""
+	if unknown then
+		num, name, en = "???", "НЕИЗВЕСТЕН", "UNKNOWN"
+		cls = "КЛАСС УГРОЗЫ: НЕИЗВЕСТЕН. СИЛЬНАЯ ПОТЕРЯ СИГНАЛА."
+		if tip == "" then tip = "Оставайтесь в помещении. Прячьтесь и не шумите." end
+	end
+	Eas.nameChars = chars(name)
+	Eas.nameStr = name
+	setText(Eas.num, "№ " .. tostring(num))
+	Eas.name.set(name)
+	Eas.name.prop("TextColor3", COL.white)
+	Eas.name.main.TextColor3 = unknown and Color3.fromRGB(255, 70, 70) or COL.white
+	setText(Eas.en, en ~= "" and (unknown and en or ("INMATE " .. tostring(num) .. " · " .. en)) or "")
+	setText(Eas.cls, cls)
+	setText(Eas.tip, tip ~= "" and tip or "Слушайте указания и не выходите на улицу.")
+	local dir = data.directive
+	local dirText = ""
+	if type(dir) == "table" and dir.text then
+		dirText = "📺 ДИРЕКТИВА: " .. tostring(dir.text)
+	end
+	setText(Eas.dir, dirText)
+	Eas.dir.Visible = dirText ~= ""
+	local ticker = string.gsub(table.concat(lines, "   •   "), "\n", " ")
+	Eas.ticker.Text = "   •   " .. ticker .. "   •   " .. ticker
+	Eas.tickW = textWidth("   •   " .. ticker, 20, F.title, 100000)
+	Eas.ticker.Size = UDim2.fromOffset(Eas.tickW * 2 + 40, 34)
+
+	Eas.duration = math.max(4, tonumber(data.duration) or (Config.Time and Config.Time.alertSeconds) or 34)
+	Eas.t0 = T
+	Eas.sawAlert = false
+	Eas.intro = 1.3
+	-- скорость печати: весь текст — за ~55% времени
+	Eas.cps = math.max(26, Eas.fullLen / math.max(1, (Eas.duration - Eas.intro) * 0.55))
+
+	-- сводка в HUD на ночь
+	local title = "⚠ " .. tostring(name) .. " · №" .. tostring(num)
+	if unknown then title = "⚠ НЕИЗВЕСТНЫЙ СУБЪЕКТ" end
+	Hud.setAlertInfo({ title = title, tip = unknown and "Сигнал потерян. Прячься и не шуми." or tip,
+		directive = (type(dir) == "table" and dir.text) or "" })
+
+	Eas.visible = true
+	guis.eas.Enabled = true
+	Eas.bars.Visible = true
+	Eas.root.Visible = true
+	for n in pairs(openModals) do UI.close(n) end
+	if Eas.tone then pcall(function() Eas.tone:Destroy() end) end
+	Eas.tone = nil
+	if Sound and Sound.play then
+		local ok, s = pcall(Sound.play, "EasTone", nil, { Volume = 0.5 })
+		if ok then Eas.tone = s end
+	end
+	updateMouse()
+end
+
+function Eas.hide(instant)
+	if not Eas.visible then return end
+	Eas.visible = false
+	if Eas.tone then pcall(function() Eas.tone:Stop() Eas.tone:Destroy() end) end
+	Eas.tone = nil
+	if instant or not Eas.flick then
+		guis.eas.Enabled = false
+	else
+		-- «выключение» телевизора: белая вспышка и гаснет
+		Eas.flick.BackgroundTransparency = 0.2
+		tween(Eas.flick, 0.25, { BackgroundTransparency = 1 })
+		task.delay(0.22, function()
+			if not Eas.visible then guis.eas.Enabled = false end
+		end)
+	end
+	updateMouse()
+end
+
+function Eas.step(dt)
+	local el = T - Eas.t0
+	local phase = mattr("Phase", "")
+	if phase == "alert" then Eas.sawAlert = true end
+	if el > Eas.duration + 0.6 or (Eas.sawAlert and phase ~= "alert" and phase ~= "") then
+		Eas.hide()
+		return
+	end
+	-- вступление: таблица
+	Eas.bars.Visible = el < Eas.intro
+	-- шапка мигает красным/чёрным
+	local on = math.floor(el * 2) % 2 == 0
+	Eas.hdr.BackgroundColor3 = on and Color3.fromRGB(196, 18, 26) or Color3.fromRGB(8, 8, 10)
+	Eas.hdrTitle.main.TextColor3 = on and COL.white or Color3.fromRGB(255, 40, 40)
+	Eas.hdrSub.TextColor3 = on and COL.white or COL.amber
+	Eas.cardStroke.Color = on and COL.red or COL.amber
+	Eas.hdrTitle.jitter(2 + (rng:NextNumber() < 0.1 and 5 or 0))
+	Eas.name.jitter(2)
+
+	-- риски вокруг эмблемы
+	for i, t in ipairs(Eas.ticks) do
+		local a = (i / #Eas.ticks) * math.pi * 2 + el * 0.6
+		t.Position = UDim2.new(0.5, math.cos(a) * 140, 0.5, math.sin(a) * 140)
+		t.Rotation = math.deg(a) + 90
+		t.BackgroundTransparency = (i % 2 == 0) and 0.2 or 0.6
+	end
+
+	-- печатная машинка
+	if el > Eas.intro and Eas.typed < Eas.fullLen then
+		Eas.typed = math.min(Eas.fullLen, Eas.typed + Eas.cps * dt)
+	end
+	local n = math.floor(Eas.typed)
+	local s = utf8sub(Eas.full, n)
+	if n < Eas.fullLen or math.floor(T * 2.5) % 2 == 0 then s = s .. "█" end
+	setText(Eas.crawl, s)
+
+	-- «НЕИЗВЕСТЕН» — глитч
+	if Eas.unknown and rng:NextNumber() < 0.5 then
+		local cs = {}
+		for i, ch in ipairs(Eas.nameChars) do
+			if rng:NextNumber() < 0.22 then cs[i] = GLITCH[rng:NextInteger(1, #GLITCH)] else cs[i] = ch end
+		end
+		Eas.name.set(table.concat(cs))
+		Eas.name.jitter(rng:NextInteger(2, 7))
+	end
+
+	-- бегущая строка
+	local w = Eas.tickW or 1000
+	Eas.ticker.Position = UDim2.fromOffset(-((el * 110) % w), 0)
+	-- полоса времени
+	local frac = clamp01(el / Eas.duration)
+	Eas.fill.Size = UDim2.fromScale(frac, 1)
+	setText(Eas.left, "НОЧЬ НАСТУПИТ ЧЕРЕЗ " .. tostring(math.max(0, math.ceil(Eas.duration - el))) .. " С")
+	-- экранное меню
+	local secs = math.floor(el)
+	setText(Eas.osdTime, string.format("SP  0:00:%02d   OCT.31.1994  %s", secs % 60, fmtClock(mattr("Clock", 21))))
+	Eas.osdPlay.TextTransparency = (math.floor(el * 1.5) % 2 == 0) and 0 or 0.4
+
+	-- VHS: зерно, бегущая полоса, мерцание, разрывы
+	stepGrain(Eas.grain, 0.35, 4)
+	Eas.roll.Position = UDim2.fromScale(0, (el / 3.5) % 1.3 - 0.15)
+	Eas.flick.BackgroundTransparency = math.max(Eas.flick.BackgroundTransparency, 0.96 + 0.04 * rng:NextNumber())
+	if rng:NextNumber() < 0.025 then
+		Eas.tear.Visible = true
+		Eas.tear.Position = UDim2.new(0, 0, rng:NextNumber(), 0)
+		Eas.stage.Position = UDim2.new(0.5, rng:NextInteger(-14, 14), 0.5, 0)
+	elseif Eas.tear.Visible and rng:NextNumber() < 0.5 then
+		Eas.tear.Visible = false
+		Eas.stage.Position = UDim2.fromScale(0.5, 0.5)
+	end
+end
+
+-- @@LOADING@@
+Loading.visible = false
+function Loading.build() end
+function Loading.show(data) end
+function Loading.hide() end
+function Loading.step(dt) end
+
+-- @@END@@
+EndScr.visible = false
+function EndScr.build() end
+function EndScr.show(data) end
+function EndScr.hide() end
+function EndScr.step(dt) end
+
+-- @@DEATH@@
+function Death.build() end
+function Death.show(text) end
+function Death.hide() end
+function Death.spectate(name) end
+function Death.step(dt) end
+
+-- @@QTE@@
+function Qte.build() end
+function Qte.start(onResult) return { stop = function() end } end
+function Qte.stopAll() end
+function Qte.step(dt) end
+
+-- @@PROMPTS@@
+function Prompts.init() end
+function Prompts.step(dt) end
+
+-- @@SCREENS@@
+
+-- ===================== модальные окна: общий каркас =====================
+local mouseIconBefore = nil
+
+updateMouse = function()
+	if UI.anyModal() then
+		if mouseIconBefore == nil then mouseIconBefore = UIS.MouseIconEnabled end
+		UIS.MouseIconEnabled = true
+		UIS.MouseBehavior = Enum.MouseBehavior.Default
+	elseif mouseIconBefore ~= nil then
+		UIS.MouseIconEnabled = mouseIconBefore
+		mouseIconBefore = nil
+	end
+end
+
+-- окно: затемнение (кнопка Modal освобождает мышь в 1-м лице), панель, шапка, тело
+local function modalShell(name, title, tag, w, h)
+	local root = mk("TextButton", guis.modal, { Name = name, Size = UDim2.fromScale(1, 1), BackgroundColor3 = COL.black,
+		BackgroundTransparency = 0.3, Text = "", Modal = true })
+	root.Activated:Connect(function() UI.close(name) end)
+	local panel = frame(root, { Name = "Panel", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 18),
+		Size = UDim2.fromOffset(w, h), BackgroundColor3 = COL.panel, BackgroundTransparency = 0.04, Active = true, ClipsDescendants = true })
+	fitScale(panel, w, h, 1.25, 0.95)
+	corner(panel, 6)
+	stroke(panel, COL.amber, 1.5, 0.55)
+	grad(panel, COL.white, Color3.fromRGB(150, 150, 160), 90)
+	-- шапка
+	local head = frame(panel, { Name = "Head", Size = UDim2.new(1, 0, 0, 58), BackgroundColor3 = COL.panel2, BackgroundTransparency = 0.1 })
+	frame(head, { Size = UDim2.new(0, 6, 1, -20), Position = UDim2.fromOffset(16, 10), BackgroundColor3 = COL.amber })
+	local tl = label(head, title, 24, F.title, COL.amber, { Size = UDim2.new(1, -150, 0, 30), Position = UDim2.fromOffset(32, 6),
+		TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd })
+	stroke(tl, COL.amber2, 2, 0.75, true)
+	label(head, tag or "BLACK RIDGE // ФАЙЛ", 12, F.mono, COL.dim, { Size = UDim2.new(1, -150, 0, 16), Position = UDim2.fromOffset(33, 36),
+		TextXAlignment = Enum.TextXAlignment.Left })
+	local line = frame(head, { Size = UDim2.new(1, 0, 0, 2), Position = UDim2.new(0, 0, 1, -2), BackgroundColor3 = COL.amber })
+	grad(line, COL.white, COL.white, 0, 0, 1)
+	local x = button(head, "✕", "ghost", function() UI.close(name) end, { Size = UDim2.fromOffset(42, 42), Position = UDim2.new(1, -54, 0, 8), TextSize = 18 })
+	x.Name = "Close"
+	local body = frame(panel, { Name = "Body", Size = UDim2.new(1, -32, 1, -78), Position = UDim2.fromOffset(16, 70), BackgroundTransparency = 1 })
+	addScanlines(panel, 110, 0.9, 40)
+	tween(panel, 0.2, { Position = UDim2.fromScale(0.5, 0.5) }, Enum.EasingStyle.Back)
+	return { root = root, panel = panel, body = body, head = head, title = tl, onClose = nil, refresh = nil }
+end
+
+-- прокручиваемая сетка карточек
+local function scrollGrid(parent, cellW, cellH, gap)
+	local sf = mk("ScrollingFrame", parent, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScrollBarThickness = 6,
+		ScrollBarImageColor3 = COL.amber, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y })
+	pad(sf, 2, 10, 8, 2)
+	mk("UIGridLayout", sf, { CellSize = UDim2.fromOffset(cellW, cellH), CellPadding = UDim2.fromOffset(gap or 10, gap or 10),
+		SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = Enum.HorizontalAlignment.Center })
+	return sf
+end
+
+local function card(parent, order, accent)
+	local c = frame(parent, { BackgroundColor3 = COL.panel2, BackgroundTransparency = 0.15, LayoutOrder = order or 0 })
+	corner(c, 5)
+	local s = stroke(c, accent or COL.line, 1, accent and 0.3 or 0.85)
+	grad(c, COL.white, Color3.fromRGB(170, 170, 180), 90)
+	return c, s
+end
+
+-- ===================== магазин в гараже =====================
+-- сетка предметов Config.Items + полоса продажи яблок по цене сложности матча
+local function resultToast(res, fallback)
+	if type(res) == "table" then
+		UI.toast(tostring(res.msg or (res.ok and "Готово" or "Не получилось")), res.ok and COL.ok or COL.red)
+	else
+		UI.toast(fallback or "Нет связи с сервером", COL.red)
+	end
+end
+
+Screens.Shop = function()
+	local sh = modalShell("Shop", "🍎 ЯБЛОЧНИК · МАГАЗИН", "ГАРАЖ // КАССА №0021 · ОПЛАТА НАЛИЧНЫМИ", 940, 620)
+	local body = sh.body
+	local busy = false
+
+	-- верхняя полоса: кошелёк и продажа яблок
+	local top = frame(body, { Size = UDim2.new(1, 0, 0, 56), BackgroundColor3 = COL.black, BackgroundTransparency = 0.45 })
+	corner(top, 5)
+	stroke(top, COL.line, 1, 0.85)
+	local money = label(top, "", 24, F.title, COL.amber, { Size = UDim2.fromOffset(170, 56), Position = UDim2.fromOffset(16, 0), TextXAlignment = Enum.TextXAlignment.Left })
+	stroke(money, COL.amber2, 2, 0.75, true)
+	local apples = label(top, "", 18, F.bold, COL.txt, { Size = UDim2.fromOffset(140, 56), Position = UDim2.fromOffset(180, 0), TextXAlignment = Enum.TextXAlignment.Left })
+	local sell = button(top, "", "green", nil, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(470, 42), TextSize = 16 })
+	local closed = label(body, "МАГАЗИН ЗАКРЫТ ДО УТРА", 20, F.title, COL.red, { Size = UDim2.new(1, 0, 0, 26), Position = UDim2.fromOffset(0, 62), Visible = false })
+
+	local gridHolder = frame(body, { Size = UDim2.new(1, 0, 1, -66), Position = UDim2.fromOffset(0, 66), BackgroundTransparency = 1 })
+	local grid = scrollGrid(gridHolder, 208, 212, 10)
+
+	local cards = {}
+	local function price()
+		local d = diffDef()
+		return d.applePrice or 20
+	end
+
+	local function refresh()
+		local m = pattr("Money", 0)
+		local a = pattr("Apples", 0)
+		local inv = inventory()
+		local open = mattr("Phase", "day") == "day"
+		setText(money, "$ " .. tostring(m))
+		setText(apples, "🍎 " .. tostring(a) .. " шт.")
+		local p = price()
+		setText(sell.Text and sell or sell, "")
+		sell.Text = "🍎 ПРОДАТЬ ЯБЛОКИ  " .. tostring(a) .. " × $" .. tostring(p) .. " = $" .. tostring(a * p)
+		setEnabled(sell, open and a > 0 and not busy)
+		closed.Visible = not open
+		gridHolder.Position = UDim2.fromOffset(0, open and 66 or 92)
+		gridHolder.Size = UDim2.new(1, 0, 1, open and -66 or -92)
+		for k, c in pairs(cards) do
+			local it = Config.Items[k]
+			local have = inv[k] or 0
+			if it.gives then have = inv[it.gives] or 0 end
+			c.owned.Text = have > 0 and ("У ТЕБЯ: " .. tostring(have)) or ""
+			local can = open and m >= (it.price or 0) and not busy
+			setEnabled(c.buy, can)
+			c.price.TextColor3 = m >= (it.price or 0) and COL.amber or Color3.fromRGB(150, 110, 60)
+		end
+	end
+
+	local function run(kind, key)
+		if busy then return end
+		busy = true
+		refresh()
+		local res = invoke("Shop", kind, key)
+		busy = false
+		resultToast(res)
+		if res and res.ok then
+			if kind == "sell" then playSound("Coin") end
+		end
+		if sh.root.Parent then refresh() end
+	end
+	sell.Activated:Connect(function() task.spawn(run, "sell") end)
+
+	for i, k in ipairs(sortedKeys(Config.Items)) do
+		local it = Config.Items[k]
+		local c = card(grid, i)
+		pad(c, 10, 12, 10, 12)
+		local icon = label(c, it.icon or "❔", 38, F.body, COL.white, { Size = UDim2.fromOffset(48, 48) })
+		local pr = label(c, "$" .. tostring(it.price or 0), 22, F.title, COL.amber, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 4),
+			Size = UDim2.fromOffset(110, 28), TextXAlignment = Enum.TextXAlignment.Right })
+		local owned = label(c, "", 11, F.mono, COL.ok, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 32), Size = UDim2.fromOffset(110, 14),
+			TextXAlignment = Enum.TextXAlignment.Right })
+		label(c, it.name or k, 16, F.title, COL.txt, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 54), TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd })
+		label(c, it.desc or "", 12, F.body, COL.dim, { Size = UDim2.new(1, 0, 0, 62), Position = UDim2.fromOffset(0, 78), TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top })
+		local buy = button(c, "КУПИТЬ", "amber", function() run("buy", k) end, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1),
+			Size = UDim2.new(1, 0, 0, 36), TextSize = 15 })
+		cards[k] = { buy = buy, owned = owned, price = pr, icon = icon }
+	end
+
+	local acc = 0
+	sh.tick = function(dt)
+		acc = acc + dt
+		if acc > 0.25 then
+			acc = 0
+			refresh()
+		end
+	end
+	refresh()
+	return sh
+end
+
+-- ===================== классы (киоск лобби) =====================
+local profile = nil
+
+local function profileFromAttrs()
+	local cls = pattr("Class", "novice")
+	local owned = { novice = true }
+	owned[cls] = true
+	local xp = pattr("XP", 0)
+	local lvl = pattr("Level", (Config.levelOf and Config.levelOf(xp)) or 1)
+	return { amber = pattr("Amber", 0), xp = xp, level = lvl, rank = pattr("Rank", (Config.rankOf and Config.rankOf(lvl)) or ""), class = cls, owned = owned, partial = true }
+end
+
+local function loadProfile()
+	local res = invoke("Profile")
+	if type(res) == "table" then
+		res.owned = res.owned or {}
+		profile = res
+	end
+	return profile
+end
+
+Screens.Classes = function()
+	local sh = modalShell("Classes", "КЛАССЫ", "ОТДЕЛ КАДРОВ // ДОПУСК К СМЕНЕ", 940, 600)
+	local body = sh.body
+	local busy = false
+	local prof = profile or profileFromAttrs()
+
+	local top = frame(body, { Size = UDim2.new(1, 0, 0, 50), BackgroundColor3 = COL.black, BackgroundTransparency = 0.45 })
+	corner(top, 5)
+	stroke(top, COL.line, 1, 0.85)
+	local amber = label(top, "", 22, F.title, COL.amber, { Size = UDim2.fromOffset(260, 50), Position = UDim2.fromOffset(16, 0), TextXAlignment = Enum.TextXAlignment.Left })
+	stroke(amber, COL.amber2, 2, 0.75, true)
+	local lvl = label(top, "", 15, F.bold, COL.txt, { Size = UDim2.new(1, -300, 1, 0), Position = UDim2.fromOffset(280, 0), TextXAlignment = Enum.TextXAlignment.Right })
+
+	local holder = frame(body, { Size = UDim2.new(1, 0, 1, -60), Position = UDim2.fromOffset(0, 60), BackgroundTransparency = 1 })
+	local grid = scrollGrid(holder, 280, 200, 12)
+
+	local function render()
+		clear(grid, { UIGridLayout = true, UIPadding = true })
+		setText(amber, "◆ " .. tostring(prof.amber or 0) .. " AMBER")
+		local cdef = Config.Classes[prof.class or ""]
+		setText(lvl, "УР. " .. tostring(prof.level or 1) .. " · " .. tostring(prof.rank or "") .. "   ·   КЛАСС: " .. ((cdef and cdef.name) or "—"))
+		for i, k in ipairs(sortedKeys(Config.Classes)) do
+			local C = Config.Classes[k]
+			local own = (prof.owned and prof.owned[k]) or (C.price or 0) == 0
+			local eq = prof.class == k
+			local c, st = card(grid, i, eq and COL.amber or nil)
+			if eq then c.BackgroundColor3 = Color3.fromRGB(50, 38, 8) end
+			pad(c, 10, 12, 10, 12)
+			label(c, C.icon or "🙂", 34, F.body, COL.white, { Size = UDim2.fromOffset(44, 44) })
+			label(c, C.name or k, 20, F.title, eq and COL.amber or COL.txt, { Size = UDim2.new(1, -54, 0, 24), Position = UDim2.fromOffset(52, 2), TextXAlignment = Enum.TextXAlignment.Left })
+			local stateText = own and "ЕСТЬ" or ("◆ " .. tostring(C.price or 0))
+			if eq then stateText = "● ВЫБРАН" end
+			label(c, stateText, 13, F.mono, own and COL.ok or COL.amber, { Size = UDim2.new(1, -54, 0, 16), Position = UDim2.fromOffset(52, 26), TextXAlignment = Enum.TextXAlignment.Left })
+			label(c, C.desc or "", 13, F.body, COL.dim, { Size = UDim2.new(1, 0, 0, 64), Position = UDim2.fromOffset(0, 54), TextWrapped = true,
+				TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top })
+			local txt, style, kind = "ВЫБРАТЬ", "dark", "setClass"
+			if eq then txt, style, kind = "ВЫБРАН", "green", nil
+			elseif not own then txt, style, kind = "КУПИТЬ · ◆" .. tostring(C.price or 0), "amber", "buyClass" end
+			local b = button(c, txt, style, nil, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 36), TextSize = 14 })
+			if not kind or busy or (kind == "buyClass" and (prof.amber or 0) < (C.price or 0)) then setEnabled(b, false) end
+			if kind then
+				b.Activated:Connect(function()
+					if busy or b:GetAttribute("Off") then return end
+					busy = true
+					local res = invoke("Lobby", kind, k)
+					busy = false
+					resultToast(res)
+					if type(res) == "table" and type(res.profile) == "table" then
+						res.profile.owned = res.profile.owned or {}
+						profile = res.profile
+						prof = profile
+					elseif type(res) == "table" and res.ok then
+						if kind == "buyClass" then prof.owned[k] = true end
+						if kind == "setClass" then prof.class = k end
+					end
+					if sh.root.Parent then render() end
+				end)
+			end
+		end
+	end
+	render()
+	task.spawn(function()
+		local p = loadProfile()
+		if p and sh.root.Parent then
+			prof = p
+			render()
+		end
+	end)
+	return sh
+end
+
+-- ===================== публичный API =====================
+function UI.toast(text, color)
+	if not started then return end
+	safe("toast", Toasts.push, tostring(text or ""), color)
+end
+
+function UI.flash(color, startTransparency, seconds)
+	if not started then return end
+	safe("flash", Flash.flash, color, startTransparency, seconds)
+end
+
+function UI.jumpscareOverlay(color, seconds)
+	if not started then return end
+	safe("jumpscare", Flash.jumpscare, color, seconds)
+end
+
+function UI.setScene(name, data)
+	if not started then return end
+	data = data or {}
+	if name == scene and data == sceneData then return end
+	local prev = scene
+	scene, sceneData = name, data
+	for n in pairs(openModals) do UI.close(n) end
+	safe("scene", function()
+		guis.hud.Enabled = (name == "house")
+		guis.lobby.Enabled = (name == "lobby")
+		if name ~= "house" then
+			Eas.hide(true)
+			Death.hide()
+			Qte.stopAll()
+		end
+		if name == "loading" then Loading.show(data) else Loading.hide() end
+		if name == "end" then EndScr.show(data) else EndScr.hide() end
+		if name == "house" and prev ~= "house" then Hud.onEnter(data) end
+		if name == "lobby" then LobbyHud.onEnter() end
+	end)
+end
+
+function UI.showAlert(data)
+	if not started then return end
+	safe("alert", Eas.show, data or {})
+end
+
+function UI.hideAlert()
+	if not started then return end
+	safe("alert hide", Eas.hide)
+end
+
+local MODAL_NAMES = { Shop = true, Classes = true, Dossier = true, Dossiers = true, Quests = true, Codes = true }
+
+function UI.open(name, arg)
+	if not started or not MODAL_NAMES[name] then return end
+	for n in pairs(openModals) do UI.close(n) end
+	local builder = Screens[name]
+	if not builder then return end
+	local ok, shell = pcall(builder, arg)
+	if not ok or not shell then
+		warnOnce("open " .. name, shell)
+		return
+	end
+	openModals[name] = shell
+	playSound("UiClick", { Volume = 0.4 })
+	updateMouse()
+end
+
+function UI.close(name)
+	local m = openModals[name]
+	if not m then return end
+	openModals[name] = nil
+	if m.onClose then safe("close " .. name, m.onClose) end
+	if m.root then m.root:Destroy() end
+	updateMouse()
+end
+
+function UI.isOpen(name)
+	return openModals[name] ~= nil
+end
+
+function UI.anyModal()
+	if next(openModals) ~= nil then return true end
+	if Eas.visible then return true end
+	return false
+end
+
+function UI.setStamina(frac) stamina = clamp01(frac) end
+function UI.setBattery(frac) battery = clamp01(frac) end
+function UI.setFlashlight(on) flashlightOn = on and true or false end
+function UI.setCrosshair(visible) crosshairOn = visible and true or false end
+
+function UI.setSelected(itemKey)
+	selectedKey = itemKey or ""
+	if started then safe("hotbar sel", Hud.markSelected) end
+end
+
+-- порядок предметов в хотбаре (клавиши 1–9) — Controls может брать его отсюда
+function UI.hotbarKeys()
+	local ok, keys = pcall(Hud.slotKeys)
+	if ok and keys then return keys end
+	return {}
+end
+
+function UI.qte(onResult)
+	if not started then return { stop = function() end } end
+	local ok, h = pcall(Qte.start, onResult)
+	if ok and h then return h end
+	warnOnce("qte", h)
+	return { stop = function() end }
+end
+
+function UI.showDeath(text)
+	if not started then return end
+	safe("death", Death.show, text)
+end
+
+function UI.hideDeath()
+	if not started then return end
+	safe("death hide", Death.hide)
+end
+
+function UI.setSpectating(nameOrNil)
+	if not started then return end
+	safe("spectate", Death.spectate, nameOrNil)
+end
+
+-- ===================== кадр =====================
+local slowT = 0
+local function onFrame(dt)
+	T = T + dt
+	slowT = slowT + dt
+	if slowT > 0.5 then
+		slowT = 0
+		safe("refit", refit)
+	end
+	safe("vhs", Vhs.step, dt)
+	if scene == "house" then safe("hud", Hud.step, dt) end
+	if scene == "lobby" then safe("lobbyhud", LobbyHud.step, dt) end
+	safe("signs", Signs.step, dt)
+	if Eas.visible then safe("eas", Eas.step, dt) end
+	if Loading.visible then safe("loading", Loading.step, dt) end
+	if EndScr.visible then safe("end", EndScr.step, dt) end
+	safe("death step", Death.step, dt)
+	safe("qte step", Qte.step, dt)
+	safe("flash step", Flash.step, dt)
+	safe("prompts step", Prompts.step, dt)
+	for name, m in pairs(openModals) do
+		if m.tick then safe("tick " .. name, m.tick, dt) end
+	end
+end
+
+-- ===================== инициализация =====================
+function UI.init(c)
+	ctx = c or {}
+	player = ctx.player or Players.LocalPlayer
+	Config = ctx.Config or require(RS:WaitForChild("Shared"):WaitForChild("Config"))
+	Net = ctx.Net or require(RS:WaitForChild("Shared"):WaitForChild("Net"))
+	Sound = ctx.Sound
+	pgui = player:WaitForChild("PlayerGui")
+	isTouch = UIS.TouchEnabled and not UIS.KeyboardEnabled
+	viewport()
+
+	guis.vhs = screen("AA_VHS", 2)
+	guis.lobby = screen("AA_Lobby", 5)
+	guis.hud = screen("AA_HUD", 6)
+	guis.toast = screen("AA_Toast", 40)
+	guis.modal = screen("AA_Modal", 30)
+	guis.eas = screen("AA_EAS", 35)
+	guis.death = screen("AA_Death", 25)
+	guis.qte = screen("AA_QTE", 28)
+	guis.full = screen("AA_Screens", 45)
+	guis.fx = screen("AA_Flash", 60)
+	started = true
+
+	local parts = {
+		{ "vhs", Vhs }, { "hud", Hud }, { "lobbyhud", LobbyHud }, { "toasts", Toasts }, { "eas", Eas },
+		{ "loading", Loading }, { "end", EndScr }, { "death", Death }, { "qte", Qte }, { "flash", Flash },
+	}
+	for _, p in ipairs(parts) do
+		if p[2].build then safe("build " .. p[1], p[2].build) end
+	end
+	guis.hud.Enabled = false
+	guis.lobby.Enabled = true
+
+	safe("prompts init", Prompts.init)
+	safe("signs init", Signs.init)
+
+	RunService.RenderStepped:Connect(onFrame)
+	-- пока открыто окно — мышь свободна даже в режиме первого лица
+	pcall(function()
+		RunService:BindToRenderStep("AA_UIMouse", Enum.RenderPriority.Camera.Value + 2, function()
+			if UI.anyModal() then UIS.MouseBehavior = Enum.MouseBehavior.Default end
+		end)
+	end)
+
+	-- удалённые события (ждём их в отдельном потоке, чтобы не задерживать запуск)
+	task.spawn(function()
+		local ok, err = pcall(function()
+			Net.event("Toast").OnClientEvent:Connect(function(text, color) UI.toast(text, color) end)
+			Net.event("Alert").OnClientEvent:Connect(function(data) UI.showAlert(data) end)
+			Net.event("Scene").OnClientEvent:Connect(function(name, data) UI.setScene(name, data) end)
+			Net.event("Hidden").OnClientEvent:Connect(function(model)
+				hiddenIn = model
+				if not model then Qte.stopAll() end
+			end)
+		end)
+		if not ok then warnOnce("remotes", err) end
+	end)
+
+	-- стартовая сцена: по MatchId
+	local mid = player:GetAttribute("MatchId") or 0
+	scene = ""
+	if mid == 0 then UI.setScene("lobby", {}) else UI.setScene("house", { matchId = mid }) end
+end
+
+return UI

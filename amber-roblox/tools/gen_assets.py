@@ -381,7 +381,9 @@ def modes(n, freqs, decays, amps=None, rng=None, phase_rand=True):
             continue
         ph = rng.uniform(0, TAU) if (rng is not None and phase_rand) else 0.0
         m = int(min(n, d * 9 * SR))
-        y[:m] += a * np.exp(-t[:m] / d) * np.sin(TAU * f * t[:m] + ph)
+        e = np.exp(-t[:m] / d)
+        e = np.clip(e - e[-1], 0, None) / max(1e-9, 1 - e[-1])   # дотянуть до нуля — без щелчка в конце
+        y[:m] += a * e * np.sin(TAU * f * t[:m] + ph)
     return y
 
 
@@ -998,7 +1000,7 @@ def s_tv_news(rng):
     y = reverb(y, 'plate', 0.18, loop=True)
     y = circ(y, lambda v: tv_speaker(v, 1.3), ns(0.2))
     y = compress(y, -14, 3.0, 0.02)
-    return y
+    return np.roll(y, ns(beat))   # файл начинается с затакта (дробь литавр) — стык петли не на ударе
 
 
 # ---------- двери ----------
@@ -1177,14 +1179,14 @@ def s_apple(rng):
 
 @snd('Coin', 'Монеты: звон двух монет с отскоком и короткий колокольчик кассы — продажа/награда.', 0.6, roll=(6, 40))
 def s_coin(rng):
-    n = ns(1.1)
+    n = ns(1.9)
     y = np.zeros(n)
     ratios = [1, 1.594, 2.136, 2.296, 2.653, 2.918, 3.501, 4.1]
     for t0, f0, a in ((0.0, 2050, 1.0), (0.06, 2480, 0.7), (0.17, 2050, 0.35), (0.25, 2480, 0.2)):
         fr = [f0 * r * rng.uniform(0.995, 1.005) for r in ratios]
         dc = [rng.uniform(0.15, 0.45) / (1 + 0.25 * i) for i in range(len(ratios))]
         am = [rng.uniform(0.4, 1.0) / (1 + 0.2 * i) for i in range(len(ratios))]
-        mix_into(y, unit(strike(ns(0.9), fr, dc, am, rng, width=0.0001, noise=0.4, noise_tau=0.001)) * a, t0)
+        mix_into(y, unit(strike(ns(1.6), fr, dc, am, rng, width=0.0001, noise=0.4, noise_tau=0.001)) * a, t0)
     mix_into(y, unit(fm_bell(1568, ns(0.8), 3.0, 1.5, 0.35, 0.1)) * 0.25, 0.02)
     mix_into(y, unit(fm_bell(2349, ns(0.8), 3.0, 1.2, 0.3, 0.1)) * 0.2, 0.09)
     return reverb(y, 'room', 0.18, tail=0.3)
@@ -1432,7 +1434,7 @@ def s_heartbeat(rng):
 
     per = 0.75
     for k in range(8):
-        t0 = k * per + rng.uniform(-0.004, 0.004)
+        t0 = 0.08 + k * per + rng.uniform(-0.004, 0.004)   # стык петли — в тишине перед ударом
         a = rng.uniform(0.92, 1.05)
         mix_into(y, beat(78, 46, 0.075, a), t0, wrap=True)
         mix_into(y, beat(92, 58, 0.06, a * 0.72), t0 + 0.29, wrap=True)
@@ -1459,7 +1461,7 @@ def s_breath(rng):
         t += di + do + gap + 0.03
     scale = L / t   # растянуть план ровно на длину петли
     for (t0, d, inhale, shaky) in plan:
-        t0 *= scale
+        t0 = t0 * scale + 0.12
         d *= scale
         m = ns(d)
         nz = white(m, rng)
@@ -1629,12 +1631,12 @@ def s_amb_lobby(rng):
      'шелестом листвы, далёкий гул улицы и одна проезжающая машина. Стерео, петля 45 с.', 0.35, loop=True, stereo=True)
 def s_amb_day(rng):
     n = ns(45.0)
-    y = 0.25 * unit(stereo_wind(rng, n, whistle=0.0, gust_rate=0.15))
+    y = 0.16 * unit(stereo_wind(rng, n, whistle=0.0, gust_rate=0.15))
     leaves = np.stack([hp(white(n, rng), 2500) * (0.2 + dust(n, rng, 120, 0.4) ** 2) for _ in range(2)])
     leaves = circ(leaves, lambda v: lp(v, 9000), ns(0.1)) * slow_curve(n, rng, 0.15, 0.2, 1.0)
     y += 0.06 * unit(leaves)
     traffic = np.stack([brown(n, rng, hi=300), brown(n, rng, hi=300)])
-    y += 0.05 * unit(traffic)
+    y += 0.03 * unit(traffic)
     birds = np.zeros((2, n))
     t = 0.3
     while t < 44.0:
@@ -1881,7 +1883,7 @@ def finish_sound(spec, y):
     return normalize(y, PEAK)
 
 
-def write_ogg(path, y, q=5):
+def _encode(path, y, q):
     y = np.asarray(y, dtype=np.float32)
     ch = 1 if y.ndim == 1 else y.shape[0]
     data = y if y.ndim == 1 else np.ascontiguousarray(y.T)
@@ -1889,6 +1891,17 @@ def write_ogg(path, y, q=5):
            '-map_metadata', '-1', '-fflags', '+bitexact', '-flags:a', '+bitexact',
            '-c:a', 'libvorbis', '-q:a', str(q), '-ar', str(SR), path]
     subprocess.run(cmd, input=data.tobytes(), check=True)
+
+
+def write_ogg(path, y, q=5):
+    # Vorbis может «выстрелить» выше исходного пика (особенно на искажённых звуках) — подправляем уровень
+    for _ in range(3):
+        _encode(path, y, q)
+        x, _, _ = read_audio(path)
+        pk = np.max(np.abs(x))
+        if pk <= 10 ** (-0.7 / 20):
+            break
+        y = y * (PEAK / pk)
 
 
 def read_audio(path):
@@ -1903,22 +1916,22 @@ def read_audio(path):
 
 
 def seam_metrics(x):
-    # «щелчок» на стыке петли: ВЧ-пик у стыка относительно типичных ВЧ-пиков по файлу
+    # стык петли: склеиваем конец с началом и смотрим, выделяется ли блок на стыке по ВЧ (щелчок)
     m = x.mean(axis=0)
     n = len(m)
-    w = ns(0.1)
-    joint = np.concatenate([m[-w:], m[:w]])
-    hj = hp(joint, 3000, 4)
-    seam = np.max(np.abs(hj[w - 128:w + 128]))
-    hall = hp(np.concatenate([m[-w:], m]), 3000, 4)[w:]
-    blocks = np.abs(hall[:n // 256 * 256]).reshape(-1, 256).max(axis=1)
-    ref = np.median(blocks) + 1e-12
+    blk = 256
+    xx = np.concatenate([m[-n // 2:], m[:n - n // 2]])       # стык ровно посередине
+    hf = hp(xx, 3000, 4)
+    k = len(hf) // blk
+    bm = np.abs(hf[:k * blk]).reshape(k, blk).max(axis=1)
+    sb = bm[(n // 2) // blk - 1:(n // 2) // blk + 1].max()
+    rank = float(np.mean(bm < sb) * 100)
     jump = abs(m[0] - m[-1])
     dif = np.abs(np.diff(m))
-    rms_a = np.sqrt(np.mean(m[-ns(0.5):] ** 2)) + 1e-12
-    rms_b = np.sqrt(np.mean(m[:ns(0.5)] ** 2)) + 1e-12
-    return dict(seam_hf_ratio=seam / ref, jump_pct=float(np.mean(dif < jump) * 100),
-                level_step_db=20 * np.log10(rms_b / rms_a))
+    rms_a = np.sqrt(np.mean(m[-ns(0.25):] ** 2)) + 1e-12
+    rms_b = np.sqrt(np.mean(m[:ns(0.25)] ** 2)) + 1e-12
+    return dict(seam_rank=rank, seam_hf_ratio=sb / (np.percentile(bm, 99) + 1e-12),
+                jump_pct=float(np.mean(dif < jump) * 100), level_step_db=20 * np.log10(rms_b / rms_a))
 
 
 def analyze_sound(path, loop):
@@ -2239,3 +2252,1287 @@ def img(key, size, desc, studs=None, kind='tile', alpha=False, note=''):
         IMAGES.append(dict(key=key, size=size, fn=fn, desc=desc, studs=studs, kind=kind, alpha=alpha, note=note))
         return fn
     return deco
+
+
+# =====================================================================================
+# КАРТИНКИ: бесшовные тайлы
+# =====================================================================================
+
+def damask_motif(wd, cx, cy, sx, sy, fill):
+    # зеркально-симметричный цветочный мотив дамаска; координаты u,v в [-1,1]
+    def P(u, v):
+        return (cx + u * sx, cy + v * sy)
+
+    def mirror(fn):
+        fn(1)
+        fn(-1)
+
+    wd.polygon(taper([P(0, 0.95), P(0, 0.4), P(0, -0.1), P(0, -0.25)], 0.06 * sx, 0.035 * sx), fill)
+    # центральный цветок: три лепестка + чашечка
+    def petal(cu, cv, ru, rv, ang, f=fill):
+        t = np.linspace(0, TAU, 40)
+        x, y = ru * np.cos(t), rv * np.sin(t) * (1 + 0.25 * np.sin(t))
+        a = np.radians(ang)
+        xs, ys = x * np.cos(a) - y * np.sin(a), x * np.sin(a) + y * np.cos(a)
+        wd.polygon([P(cu + xx, cv + yy) for xx, yy in zip(xs, ys)], f)
+
+    petal(0, -0.66, 0.15, 0.33, 0)
+    mirror(lambda s: petal(0.2 * s, -0.5, 0.12, 0.3, 32 * s))
+    mirror(lambda s: petal(0.36 * s, -0.36, 0.08, 0.2, 62 * s))
+    petal(0, -0.3, 0.3, 0.12, 0)
+    # прожилки (вырезы цветом фона)
+    wd.line([P(0, -0.92), P(0, -0.42)], 0, width=max(1, int(0.022 * sx)))
+    mirror(lambda s: wd.line([P(0.12 * s, -0.68), P(0.22 * s, -0.42)], 0, width=max(1, int(0.016 * sx))))
+    wd.ellipse((cx - 0.2 * sx, cy - 0.36 * sy, cx + 0.2 * sx, cy - 0.27 * sy), fill=0)
+    # большие листья-аканты
+    def leaf(s):
+        c = bezier(P(0.02 * s, 0.22), P(0.35 * s, 0.35), P(0.75 * s, 0.1), P(0.9 * s, -0.22), 60)
+        wd.polygon(taper(c, 0, 0, shape=lambda t: 0.25 * sx * np.sin(np.pi * t) ** 0.8 + 0.012 * sx), fill)
+        wd.line([tuple(p) for p in c[5:50]], 0, width=max(1, int(0.02 * sx)))
+        for k in (14, 26, 38):
+            p = c[k]
+            q = c[k + 1] - c[k - 1]
+            q = q / (np.linalg.norm(q) + 1e-9)
+            nrm = np.array([-q[1], q[0]]) * s
+            lobe = bezier(p, p + nrm * 0.06 * sx + q * 0.05 * sx, p + nrm * 0.16 * sx + q * 0.02 * sx,
+                          p + nrm * 0.2 * sx - q * 0.06 * sx, 30)
+            wd.polygon(taper(lobe, 0, 0, shape=lambda t: 0.07 * sx * np.sin(np.pi * t) + 0.004 * sx), fill)
+        c2 = bezier(P(0.04 * s, 0.32), P(0.25 * s, 0.62), P(0.55 * s, 0.62), P(0.62 * s, 0.42), 40)
+        wd.polygon(taper(c2, 0, 0, shape=lambda t: 0.1 * sx * np.sin(np.pi * t) + 0.006 * sx), fill)
+        # завиток-спираль снизу
+        th = np.linspace(0, 2.6 * np.pi, 70)
+        r = 0.17 * np.exp(-0.32 * th)
+        cxs, cys = 0.42 * s, 0.82
+        sp = [P(cxs + s * r[i] * np.cos(th[i] + np.pi), cys + r[i] * np.sin(th[i] + np.pi) * 0.9) for i in range(70)]
+        wd.polygon(taper(sp, 0.05 * sx, 0.012 * sx), fill)
+        wd.polygon(taper([P(0.02 * s, 0.7), P(0.15 * s, 0.86), P(0.3 * s, 0.85), P(0.42 * s - 0.17 * s, 0.82)],
+                         0.04 * sx, 0.05 * sx), fill)
+        for (u, v, rr) in ((0.33, -0.86, 0.035), (0.5, -0.7, 0.03), (0.6, -0.52, 0.025), (0.72, 0.42, 0.03),
+                           (0.82, 0.3, 0.022)):
+            x, y = P(u * s, v)
+            wd.ellipse((x - rr * sx, y - rr * sx, x + rr * sx, y + rr * sx), fill=fill)
+
+    mirror(leaf)
+    x, y = P(0, -1.04)
+    wd.ellipse((x - 0.04 * sx, y - 0.04 * sx, x + 0.04 * sx, y + 0.04 * sx), fill=fill)
+    mirror(lambda s: wd.polygon(taper(bezier(P(0, 0.9), P(0.1 * s, 1.0), P(0.2 * s, 1.02), P(0.28 * s, 0.98), 20),
+                                      0, 0, shape=lambda t: 0.07 * sx * np.sin(np.pi * t)), fill))
+
+
+def rosette(wd, cx, cy, r, fill):
+    for k in range(4):
+        a = k * np.pi / 2
+        t = np.linspace(0, TAU, 30)
+        x, y = 0.38 * r * np.cos(t), 0.2 * r * np.sin(t)
+        xs = x * np.cos(a) - y * np.sin(a) + np.cos(a) * 0.45 * r
+        ys = x * np.sin(a) + y * np.cos(a) + np.sin(a) * 0.45 * r
+        wd.polygon(list(zip(cx + xs, cy + ys)), fill)
+    for k in range(4):
+        a = k * np.pi / 2 + np.pi / 4
+        wd.ellipse((cx + np.cos(a) * 0.75 * r - 0.07 * r, cy + np.sin(a) * 0.75 * r - 0.07 * r,
+                    cx + np.cos(a) * 0.75 * r + 0.07 * r, cy + np.sin(a) * 0.75 * r + 0.07 * r), fill=fill)
+    wd.ellipse((cx - 0.12 * r, cy - 0.12 * r, cx + 0.12 * r, cy + 0.12 * r), fill=0)
+
+
+@img('WallpaperLiving', 1024, 'Обои гостиной: приглушённый пыльно-розовый дамаск 90-х, тон-в-тон, с «атласным» мотивом, '
+     'вертикальной фактурой бумаги и лёгким пожелтением.', studs=(6, 6))
+def i_wallpaper_living(rng, n):
+    S = n * 2
+    m = Image.new('L', (S, S), 0)
+    wd = WrapDraw(m)
+    for (cx, cy) in ((0.25, 0.25), (0.75, 0.75)):
+        damask_motif(wd, cx * S, cy * S, 0.215 * S, 0.235 * S, 255)
+    for (cx, cy) in ((0.75, 0.25), (0.25, 0.75)):
+        rosette(wd, cx * S, cy * S, 0.075 * S, 255)
+    mask = down2(np.asarray(m, float) / 255.0)
+    ground, motif = hexc('#8a6464'), hexc('#a98480')
+    emb = wblur(mask, 1.5)
+    gy, gx = np.gradient(emb)
+    shade = 1 + 0.6 * (-gx - gy)
+    stripes = 1 + 0.025 * per_noise(n, n, rng, 1.0, 60.0)
+    rgb = ground[None, None] * (1 - mask[..., None]) + motif[None, None] * mask[..., None]
+    rgb *= (shade * stripes)[..., None]
+    rgb *= paper_grain(n, n, rng, 0.025)[..., None]
+    age = per_noise(n, n, rng, 90.0)
+    rgb = rgb * (1 - 0.025 * age[..., None]) + 0.05 * (age[..., None] > 0.8) * (hexc('#b09a6a') - rgb)
+    rgb *= (1 + 0.012 * per_fbm(n, n, rng, 2.5, 3))[..., None]
+    return to_img(rgb)
+
+
+@img('WallpaperBedroom', 512, 'Обои спальни: кремовая полоска тон-в-тон с тёмно-синими и бордовыми «пинстрайпами», '
+     'неровности печати, фактура бумаги.', studs=(4, 4))
+def i_wallpaper_bed(rng, n):
+    x = np.arange(n)[None, :].repeat(n, 0).astype(float)
+    jit = 0.35 * per_noise(n, n, rng, 2.0, 80.0)
+    p = 64.0
+    u = np.mod(x + jit, p)
+    base = hexc('#d6ccb2')
+    rgb = np.ones((n, n, 3)) * base
+    band = smoothstep(0, 1.5, u - 20) * (1 - smoothstep(0, 1.5, u - 44))
+    rgb *= (1 - 0.05 * band)[..., None]
+
+    def line(c, w, col, a):
+        k = np.clip(1 - np.abs(u - c) / (w / 2 + 0.5) + 0.5, 0, 1) * a * (0.85 + 0.15 * per_noise(n, n, rng, 3, 30))
+        return k[..., None], hexc(col)
+
+    for c, w, col, a in ((4, 2.6, '#2a3555', 0.9), (9, 1.0, '#7a2e35', 0.8), (59, 1.0, '#7a2e35', 0.8),
+                         (32, 0.9, '#2a3555', 0.45)):
+        k, cc = line(c, w, col, a)
+        rgb = rgb * (1 - k) + cc * k
+    rgb *= paper_grain(n, n, rng, 0.03)[..., None]
+    age = per_noise(n, n, rng, 60.0)
+    rgb = rgb * (1 - 0.02 * age[..., None]) + np.clip(age, 0, None)[..., None] * 0.03 * (hexc('#c2a86a') - rgb)
+    return to_img(rgb)
+
+
+@img('WallpaperKids', 512, 'Обои детской: выцветший голубой фон, звёзды, месяцы, кубики с буквами и мячики; '
+     'лёгкий сдвиг печати, фактура бумаги.', studs=(5, 5))
+def i_wallpaper_kids(rng, n):
+    S = n * 2
+    bg = hexc('#9fbfd4')
+    out = Image.new('RGB', (S, S), tuple(int(v * 255) for v in bg))
+    ink = Image.new('L', (S, S), 0)
+    wo, wi = WrapDraw(out), WrapDraw(ink)
+    pts = poisson_torus(rng, S, S, S * 0.15, 26)
+    cols = ['#f2d16b', '#e8806e', '#f7f1e1', '#8fc79a', '#f2d16b', '#c79ad6']
+    lf = font('sans-bold', int(S * 0.05))
+    for i, (cx, cy) in enumerate(pts):
+        kind = ['star', 'star', 'moon', 'block', 'ball', 'star'][i % 6]
+        r = S * rng.uniform(0.035, 0.055)
+        col = cols[rng.integers(len(cols))]
+        off = S * 0.004
+        if kind == 'star':
+            p = star_pts(cx, cy, r, r * 0.45, rot=-90 + rng.uniform(-20, 20))
+            wo.polygon([(a + off, b + off) for a, b in p], col)
+            wi.line(p + [p[0]], 255, width=int(S * 0.004))
+        elif kind == 'moon':
+            wo.ellipse((cx - r + off, cy - r + off, cx + r + off, cy + r + off), fill='#f7e7a6')
+            wo.ellipse((cx - r * 0.5 + off, cy - r * 1.05 + off, cx + r * 1.3 + off, cy + r * 0.75 + off), fill=tuple(int(v * 255) for v in bg))
+            wi.ellipse((cx - r, cy - r, cx + r, cy + r), outline=255, width=int(S * 0.004))
+            wi.ellipse((cx - r * 0.5, cy - r * 1.05, cx + r * 1.3, cy + r * 0.75), fill=0)
+        elif kind == 'block':
+            a = r * 0.85
+            wo.rect((cx - a + off, cy - a + off, cx + a + off, cy + a + off), fill=col)
+            wi.rect((cx - a, cy - a, cx + a, cy + a), outline=255, width=int(S * 0.004))
+            ch = 'ABCАБВ'[rng.integers(6)]
+            t = text_img(ch, lf, (255, 255, 255, 255))
+            wi.paste(t.split()[3], cx - t.width / 2, cy - t.height / 2)
+        else:
+            wo.ellipse((cx - r + off, cy - r + off, cx + r + off, cy + r + off), fill=col)
+            wo.rect((cx - r + off, cy - r * 0.18 + off, cx + r + off, cy + r * 0.18 + off), fill='#f7f1e1')
+            wi.ellipse((cx - r, cy - r, cx + r, cy + r), outline=255, width=int(S * 0.004))
+        for _ in range(2):
+            dx, dy = rng.uniform(-1, 1, 2) * S * 0.07
+            rr = S * 0.008
+            wo.polygon(star_pts(cx + dx * 1.6, cy + dy * 1.6, rr * 1.6, rr * 0.7, 4), '#f7f1e1')
+    rgb = down2(np.asarray(out, float) / 255.0)
+    k = down2(np.asarray(ink, float) / 255.0)[..., None]
+    rgb = rgb * (1 - k * 0.8) + hexc('#2d3b5c') * k * 0.8
+    rgb = rgb * 0.85 + bg * 0.15
+    rgb *= paper_grain(n, n, rng, 0.03)[..., None]
+    rgb *= (1 + 0.04 * per_noise(n, n, rng, 70))[..., None]
+    return to_img(rgb)
+
+
+@img('KitchenTiles', 512, 'Линолеум кухни «шахматка» 4×4: кремовые и почти чёрные плитки с крошкой, грязь в швах, '
+     'потёртости и чёрные следы каблуков.', studs=(4, 4))
+def i_kitchen(rng, n):
+    c = n // 4
+    yy, xx = np.mgrid[0:n, 0:n]
+    chk = ((xx // c + yy // c) % 2).astype(float)
+    light, dark = hexc('#d9cfb4'), hexc('#2a2b2e')
+    tv = rng.uniform(-0.03, 0.03, (4, 4))
+    var = tv[yy // c, xx // c]
+    rgb = np.where(chk[..., None] > 0, dark, light) * (1 + var)[..., None]
+    fl = rng.random((n, n))
+    flk = wblur((fl > 0.985).astype(float), 0.7) * 2.2
+    flk2 = wblur((fl < 0.012).astype(float), 0.9) * 2.0
+    rgb = rgb + (chk[..., None] * np.clip(flk, 0, 1)[..., None] * 0.35) - ((1 - chk)[..., None] * np.clip(flk2, 0, 1)[..., None] * 0.18)
+    rgb *= (1 + 0.035 * per_noise(n, n, rng, 2.0))[..., None]
+    u, v = xx % c, yy % c
+    edge = np.minimum(np.minimum(u, c - 1 - u), np.minimum(v, c - 1 - v))
+    seam = (edge < 1.2).astype(float)
+    dirt = wblur(seam, 2.0) * (0.6 + 0.4 * per_noise(n, n, rng, 20))
+    rgb *= (1 - 0.35 * seam - 0.25 * np.clip(dirt, 0, 1))[..., None]
+    sc = Image.new('L', (n * 2, n * 2), 0)
+    ws = WrapDraw(sc)
+    for _ in range(14):
+        cx, cy = rng.uniform(0, n * 2, 2)
+        r = rng.uniform(15, 60)
+        a0 = rng.uniform(0, 360)
+        pts = [(cx + r * np.cos(np.radians(a)), cy + r * 0.5 * np.sin(np.radians(a))) for a in np.linspace(a0, a0 + rng.uniform(40, 120), 20)]
+        ws.line(pts, int(rng.uniform(60, 160)), width=int(rng.uniform(2, 6)))
+    scuff = down2(np.asarray(sc, float) / 255.0)
+    rgb *= (1 - 0.5 * scuff)[..., None]
+    wax = per_noise(n, n, rng, 40)
+    rgb *= (1 + 0.04 * wax)[..., None]
+    rgb = rgb + (1 - chk[..., None]) * 0.04 * np.clip(per_noise(n, n, rng, 90), 0, None)[..., None] * (hexc('#b89a55') - rgb)
+    return to_img(rgb)
+
+
+@img('BathTiles', 512, 'Мелкая квадратная керамическая плитка 8×8 (мятно-голубая глазурь) с затёртыми серыми швами, '
+     'фасками, бликами и грязью в углах.', studs=(2, 2))
+def i_bath(rng, n):
+    k = 8
+    c = n // k
+    yy, xx = np.mgrid[0:n, 0:n]
+    u, v = xx % c + 0.5, yy % c + 0.5
+    g = 3.0
+    e = np.minimum(np.minimum(u, c - u), np.minimum(v, c - v))
+    hgt = smoothstep(g, g + 5, e)
+    tile = (e > g).astype(float)
+    gy, gx = np.gradient(wblur(hgt, 0.8))
+    light = 1 + 1.0 * (-gx - gy)
+    tv = rng.uniform(-0.04, 0.04, (k, k))
+    tvar = tv[yy // c, xx // c]
+    glaze = hexc('#a9d3c9') * (1 + tvar)[..., None] * (1 + 0.025 * per_noise(n, n, rng, 5))[..., None]
+    spec = np.exp(-((u - v * 0.6 - c * 0.15) / (c * 0.18)) ** 2) * 0.06
+    glaze = glaze * light[..., None] + spec[..., None]
+    pits = (rng.random((n, n)) > 0.996).astype(float)
+    glaze *= (1 - 0.25 * wblur(pits, 0.6) * 3)[..., None]
+    grout = hexc('#a7a39a') * (1 + 0.08 * rng.standard_normal((n, n)))[..., None]
+    grime = np.clip(per_noise(n, n, rng, 25), 0, 1)
+    grout *= (1 - 0.35 * grime)[..., None]
+    rgb = glaze * tile[..., None] + grout * (1 - tile)[..., None]
+    corner = np.exp(-((np.minimum(u, c - u)) ** 2 + (np.minimum(v, c - v)) ** 2) / 40.0)
+    rgb *= (1 - 0.1 * corner * (0.5 + grime))[..., None]
+    return to_img(rgb)
+
+
+@img('Carpet', 512, 'Ковролин бежевый «builder beige»: плотный ворс, оттенки волокон, лёгкие пятна и примятости.',
+     studs=(6, 6))
+def i_carpet(rng, n):
+    base = hexc('#a8957a')
+    fib = wblur(rng.standard_normal((n, n)), 0.8)
+    fib /= fib.std()
+    tuft = wblur(rng.standard_normal((n, n)), 1.6)
+    tuft /= tuft.std()
+    nap = per_noise(n, n, rng, 30, 9)
+    low = per_noise(n, n, rng, 80)
+    lum = 1 + 0.09 * fib + 0.13 * tuft + 0.04 * nap + 0.035 * low
+    hue = np.stack([per_noise(n, n, rng, 1.5) for _ in range(3)], -1) * 0.025
+    rgb = base * lum[..., None] * (1 + hue)
+    sp = rng.random((n, n))
+    rgb[sp > 0.9975] *= 1.35
+    rgb[sp < 0.0015] *= 0.55
+    stain = np.clip(per_noise(n, n, rng, 18) - 2.2, 0, None)
+    rgb *= (1 - 0.25 * stain)[..., None]
+    return to_img(rgb)
+
+
+def wood_board(rng, h, l, tone):
+    # одна доска: годичные кольца с искажением, волокна вдоль, поры
+    vv, uu = np.mgrid[0:h, 0:l].astype(float)
+    warp = ndimage.gaussian_filter(rng.standard_normal((h, l)), (6, 40)) * 60
+    bend = 18 * np.sin(uu / l * TAU * rng.uniform(0.3, 1.2) + rng.uniform(0, TAU))
+    ring = np.mod((vv + warp + bend) * rng.uniform(0.07, 0.12) + rng.uniform(0, 1), 1.0)
+    late = smoothstep(0.6, 0.9, ring) * (1 - smoothstep(0.92, 1.0, ring))
+    fiber = ndimage.gaussian_filter(rng.standard_normal((h, l)), (0.6, 18))
+    fiber /= fiber.std() + 1e-9
+    pores = ndimage.gaussian_filter((rng.random((h, l)) > 0.992).astype(float), (0.5, 3)) * 6
+    lum = 1 - 0.22 * late + 0.06 * fiber - 0.25 * np.clip(pores, 0, 1)
+    lum *= 1 + 0.06 * ndimage.gaussian_filter(rng.standard_normal((h, l)), (20, 120)) * 8
+    return tone[None, None] * lum[..., None]
+
+
+@img('WoodFloor', 1024, 'Паркетная доска «золотой дуб»: 8 рядов досок со случайными стыками, кольца и волокна, щели, '
+     'лак с потёртостями и царапинами.', studs=(8, 8))
+def i_wood(rng, n):
+    rows = 8
+    h = n // rows
+    rgb = np.zeros((n, n, 3))
+    tones = [hexc('#a8743f'), hexc('#9a6535'), hexc('#b5814a'), hexc('#8f5c31'), hexc('#a06d3c')]
+    for r in range(rows):
+        cuts = []
+        x = rng.uniform(0, n)
+        cuts.append(x)
+        total = rng.uniform(300, 700)
+        while total < n - 250:
+            cuts.append(x + total)
+            total += rng.uniform(300, 700)
+        segs = [(cuts[i], (cuts[(i + 1) % len(cuts)] - cuts[i]) % n or n) for i in range(len(cuts))]
+        for x0, ln in segs:
+            ln = int(round(ln))
+            tone = tones[rng.integers(len(tones))] * rng.uniform(0.92, 1.08)
+            b = wood_board(rng, h, ln, tone)
+            uu = np.arange(ln)
+            b *= (1 - 0.18 * np.exp(-uu / 3.0) - 0.18 * np.exp(-(ln - 1 - uu) / 3.0))[None, :, None]
+            b[:, :2] *= 0.45
+            vv = np.arange(h)
+            b *= (1 - 0.22 * np.exp(-vv / 2.5) - 0.12 * np.exp(-(h - 1 - vv) / 3.0))[:, None, None]
+            b[:2] *= 0.45
+            cols = (int(round(x0)) + uu) % n
+            rgb[r * h:(r + 1) * h, cols] = b
+    sc = Image.new('L', (n, n), 0)
+    ws = WrapDraw(sc)
+    for _ in range(60):
+        x0, y0 = rng.uniform(0, n, 2)
+        a = rng.normal(0, 0.25)
+        ln = rng.uniform(20, 140)
+        ws.line([(x0, y0), (x0 + ln * np.cos(a), y0 + ln * np.sin(a))], int(rng.uniform(40, 120)), width=1)
+    scr = wblur(np.asarray(sc, float) / 255.0, 0.5)
+    rgb = rgb + scr[..., None] * 0.18
+    wear = np.clip(per_noise(n, n, rng, 120), 0, None)
+    rgb = rgb * (1 + 0.05 * wear)[..., None] + 0.03 * wear[..., None] * (hexc('#c9a77a') - rgb)
+    rgb *= (1 + 0.03 * per_noise(n, n, rng, 3))[..., None]
+    return to_img(rgb)
+
+
+@img('Ceiling', 512, 'Потолок «попкорн»: бугристая белёсая штукатурка с тенями и лёгким пожелтением.', studs=(8, 8))
+def i_ceiling(rng, n):
+    h = np.zeros((n, n))
+    for rate, s, a in ((0.02, 1.0, 1.0), (0.006, 2.2, 1.6), (0.0015, 4.0, 2.2)):
+        d = (rng.random((n, n)) < rate).astype(float) * rng.uniform(0.5, 1.0, (n, n))
+        h += a * wblur(d, s) / (wblur(d, s).std() + 1e-9)
+    h += 0.4 * per_noise(n, n, rng, 1.0)
+    gy, gx = np.gradient(wblur(h, 0.7))
+    nz = 1.0 / np.sqrt(1 + (gx * 0.9) ** 2 + (gy * 0.9) ** 2)
+    L = np.array([-0.45, -0.55, 0.7])
+    L /= np.linalg.norm(L)
+    sh = (-gx * 0.9 * L[0] - gy * 0.9 * L[1] + L[2]) * nz
+    ao = 1 - 0.08 * np.clip(wblur(h, 4) - h, 0, None)
+    lum = 0.55 + 0.45 * sh
+    rgb = hexc('#e2ddd2') * (lum * ao)[..., None]
+    yel = np.clip(per_noise(n, n, rng, 100), 0, None)
+    rgb = rgb + 0.05 * yel[..., None] * (hexc('#c9b98a') - rgb)
+    return to_img(rgb)
+
+
+@img('Siding', 512, 'Виниловый сайдинг «миндаль»: 8 горизонтальных досок с тенью под нахлёстом, тиснение под дерево, '
+     'грязевые подтёки. Светлый — можно тонировать Texture.Color3.', studs=(6, 6))
+def i_siding(rng, n):
+    rows = 8
+    h = n // rows
+    yy, xx = np.mgrid[0:n, 0:n]
+    v = (yy % h) / h
+    prof = 0.72 + 0.28 * smoothstep(0.0, 0.25, v) - 0.06 * v
+    prof -= 0.35 * np.exp(-((v - 0.0) / 0.035) ** 2)
+    prof += 0.10 * np.exp(-((v - 0.97) / 0.02) ** 2)
+    grain = per_noise(n, n, rng, 30, 0.8) * 0.035 + per_noise(n, n, rng, 120, 2) * 0.02
+    rgb = hexc('#d9d2bf') * (prof + grain)[..., None]
+    for r in range(rows):
+        for _ in range(rng.integers(0, 2) + 1):
+            x0 = rng.integers(0, n)
+            d = np.minimum((xx - x0) % n, (x0 - xx) % n)
+            m = (yy // h == r) & (d < 3)
+            rgb[m] *= 0.82
+    drip = np.clip(per_noise(n, n, rng, 4, 40), 0, None) * np.exp(-v / 0.4)
+    rgb = rgb + 0.07 * np.clip(drip, 0, 1.5)[..., None] * (hexc('#6e6a52') - rgb)
+    rgb *= (1 + 0.025 * per_noise(n, n, rng, 90))[..., None]
+    rgb *= paper_grain(n, n, rng, 0.015)[..., None]
+    return to_img(rgb)
+
+
+@img('RoofShingles', 512, 'Битумная черепица «3 лепестка»: 8 рядов со смещением, гранулы разных цветов, тени под кромкой, '
+     'прорези, выгоревшие и тёмные лепестки, подтёки.', studs=(8, 8))
+def i_shingles(rng, n):
+    rows = 8
+    h = n // rows
+    tw = n // 4
+    yy, xx = np.mgrid[0:n, 0:n]
+    r = yy // h
+    xs = (xx + (r % 2) * (tw // 2)) % n
+    tab = xs // tw
+    v = (yy % h) / h
+    gran = np.array([hexc('#3b3a39'), hexc('#2b2a2b'), hexc('#4a4640'), hexc('#58534b'), hexc('#24282a'), hexc('#5d4a3b')])
+    gi = rng.choice(len(gran), (n, n), p=[0.3, 0.3, 0.15, 0.1, 0.1, 0.05])
+    rgb = gran[gi]
+    rgb = wblur(rgb, 0.45)
+    tv = rng.uniform(-0.12, 0.12, (rows, 4))
+    rgb *= (1 + tv[r, tab])[..., None]
+    slot = (np.abs(xs % tw - tw / 2) > tw / 2 - 3) & (v > 0.45)
+    rgb[slot] *= 0.35
+    edge = np.exp(-((1 - v) / 0.04)) * 0.25
+    shadow = 1 - 0.55 * np.exp(-v / 0.08)
+    rgb *= (shadow + edge)[..., None]
+    streak = np.clip(per_noise(n, n, rng, 3, 60), 0, None)
+    rgb = rgb + 0.08 * streak[..., None] * (hexc('#4f5a45') - rgb)
+    rgb *= (1 + 0.06 * per_noise(n, n, rng, 100))[..., None]
+    return to_img(rgb)
+
+
+@img('TvStatic', 512, 'ТВ-«снег» (бесшовно): зерно, горизонтальный смаз, строки развёртки, светлые/тёмные полосы. '
+     'Для анимации сдвигайте OffsetStudsV/U или меняйте Rotation.', studs=(4, 4))
+def i_tvstatic(rng, n):
+    a = rng.standard_normal((n, n))
+    a = wblur(a, (0.4, 1.1))
+    a = (a - a.mean()) / a.std()
+    lines = np.repeat(rng.standard_normal(n)[:, None], n, 1) * 0.25
+    roll = 0.15 * np.sin(np.arange(n) / n * TAU * 2)[:, None]
+    scan = np.where(np.arange(n) % 2 == 0, 1.0, 0.82)[:, None]
+    lum = (0.5 + 0.2 * (a + lines + roll)) * scan
+    rgb = np.stack([lum * 0.97, lum, lum * 1.03], -1)
+    return to_img(rgb)
+
+
+@img('Vignette', 512, 'Виньетка: чёрный, прозрачный центр, тёмные края (альфа). Растянуть ImageLabel на весь экран.',
+     kind='overlay', alpha=True)
+def i_vignette(rng, n):
+    yy, xx = np.mgrid[0:n, 0:n].astype(float)
+    u, v = (xx + 0.5) / n * 2 - 1, (yy + 0.5) / n * 2 - 1
+    r = np.sqrt(u ** 2 * 0.9 + v ** 2 * 1.1)
+    a = smoothstep(0.42, 1.25, r) ** 1.4 * 0.95
+    a = np.clip(a + rng.uniform(-0.5, 0.5, (n, n)) / 255.0, 0, 1)
+    return to_img(np.zeros((n, n, 3)), a)
+
+
+@img('Grain', 512, 'Плёночное зерно (бесшовно, альфа): светлые и тёмные крупинки ~8% непрозрачности. '
+     'ImageLabel с ScaleType = Tile, TileSize ~ 256 px, двигать каждый кадр.', kind='overlay', alpha=True)
+def i_grain(rng, n):
+    g = wblur(rng.standard_normal((n, n)), 0.55)
+    g /= g.std()
+    col = np.where(g > 0, 1.0, 0.0)
+    a = np.clip(np.abs(g) * 0.075, 0, 0.4)
+    return to_img(np.stack([col] * 3, -1), a)
+
+
+def img_size(spec):
+    s = spec['size']
+    return (s, s) if np.isscalar(s) else tuple(s)
+
+
+def gen_images(keys=None):
+    os.makedirs(IMG_DIR, exist_ok=True)
+    for spec in IMAGES:
+        if keys and spec['key'] not in keys:
+            continue
+        t0 = time.time()
+        rng = np.random.default_rng(seed_of(spec['key']))
+        w, h = img_size(spec)
+        im = spec['fn'](rng, w) if w == h else spec['fn'](rng, w, h)
+        assert im.size == (w, h), (spec['key'], im.size)
+        im = im.convert('RGBA' if spec['alpha'] else 'RGB')
+        path = os.path.join(IMG_DIR, spec['key'] + '.png')
+        im.save(path, optimize=True)
+        print('  картинка %-16s %dx%d  %4d КБ  (%.1f c)' % (spec['key'], w, h, os.path.getsize(path) // 1024,
+                                                           time.time() - t0))
+
+
+# =====================================================================================
+# КАРТИНКИ: эмблемы, плакаты, фото
+# =====================================================================================
+
+def arc_text(canvas, txt, fnt, cx, cy, r, center_deg, fill, bottom=False, track=1.0, stroke=0, stroke_fill=None):
+    # текст по дуге: сверху — буквы «наружу», снизу — читается слева направо
+    ws = [fnt.getlength(c) * track for c in txt]
+    tot = sum(ws) / r
+    a0 = np.radians(center_deg) + (tot / 2 if bottom else -tot / 2)
+    cum = 0.0
+    for c, w in zip(txt, ws):
+        a = a0 + ((-1 if bottom else 1) * (cum + w / 2) / r)
+        cum += w
+        if not c.strip():
+            continue
+        g = text_img(c, fnt, fill, stroke=stroke, stroke_fill=stroke_fill)
+        rot = -(np.degrees(a) - 90) if bottom else -(np.degrees(a) + 90)
+        put(canvas, g, cx + r * np.cos(a), cy + r * np.sin(a), 'mm', rot=rot)
+
+
+def disc_mask(S, cx, cy, r):
+    yy, xx = np.mgrid[0:S, 0:S]
+    return ((xx - cx) ** 2 + (yy - cy) ** 2 <= r * r)
+
+
+def rgba_from(rgb, a):
+    return to_img(rgb, a)
+
+
+@img('EasLogo', 1024, 'Оригинальная эмблема «EAS»: круглый знак, синее кольцо с надписью EMERGENCY ALERT SYSTEM, янтарный '
+     'диск с вышкой и радиоволнами, плашка EAS. Прозрачный фон.', kind='decal', alpha=True)
+def i_eas_logo(rng, n):
+    S = n * 2
+    c = S / 2
+    im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    navy, amber, white = (19, 37, 79, 255), (227, 162, 26, 255), (246, 244, 236, 255)
+    d.ellipse((c - 0.485 * S, c - 0.485 * S, c + 0.485 * S, c + 0.485 * S), fill=amber)
+    d.ellipse((c - 0.468 * S, c - 0.468 * S, c + 0.468 * S, c + 0.468 * S), fill=navy)
+    d.ellipse((c - 0.357 * S, c - 0.357 * S, c + 0.357 * S, c + 0.357 * S), fill=white)
+    # янтарный диск с радиальным градиентом
+    yy, xx = np.mgrid[0:S, 0:S].astype(float)
+    rr = np.hypot(xx - c, yy - c - 0.06 * S) / (0.34 * S)
+    grad = hexc('#f7bd45') * (1 - rr[..., None] * 0.55) + hexc('#d2651a') * (rr[..., None] * 0.55)
+    m = disc_mask(S, c, c, 0.342 * S)
+    arr_ = np.asarray(im).copy()
+    arr_[m, :3] = (np.clip(grad[m], 0, 1) * 255).astype(np.uint8)
+    im = Image.fromarray(arr_, 'RGBA')
+    d = ImageDraw.Draw(im)
+    # вышка
+    top = (c, c - 0.235 * S)
+    lw = int(0.016 * S)
+    L, R = (c - 0.1 * S, c + 0.07 * S), (c + 0.1 * S, c + 0.07 * S)
+    d.line([L, top, R], fill=navy, width=lw, joint='curve')
+    for k in range(1, 5):
+        t = k / 5
+        y = top[1] + (L[1] - top[1]) * t
+        hw = 0.1 * S * t
+        d.line([(c - hw, y), (c + hw, y)], fill=navy, width=int(lw * 0.6))
+        if k < 4:
+            t2 = (k + 1) / 5
+            y2 = top[1] + (L[1] - top[1]) * t2
+            hw2 = 0.1 * S * t2
+            d.line([(c - hw, y), (c + hw2, y2)], fill=navy, width=int(lw * 0.45))
+            d.line([(c + hw, y), (c - hw2, y2)], fill=navy, width=int(lw * 0.45))
+    d.ellipse((top[0] - 0.022 * S, top[1] - 0.022 * S, top[0] + 0.022 * S, top[1] + 0.022 * S), fill=navy)
+    for k, rad in enumerate((0.065, 0.11, 0.155)):
+        rp = rad * S
+        bb = (top[0] - rp, top[1] - rp, top[0] + rp, top[1] + rp)
+        d.arc(bb, -40, 40, fill=navy, width=int(0.017 * S))
+        d.arc(bb, 140, 220, fill=navy, width=int(0.017 * S))
+    # плашка EAS
+    by0, by1 = c + 0.075 * S, c + 0.245 * S
+    d.rounded_rectangle((c - 0.29 * S, by0, c + 0.29 * S, by1), radius=int(0.03 * S), fill=navy,
+                        outline=white, width=int(0.008 * S))
+    t = text_img('EAS', font('sans-bold', int(0.16 * S)), white, sx=1.15, spacing=int(0.02 * S))
+    put(im, t, c, (by0 + by1) / 2 + 0.004 * S, 'mm', max_w=0.5 * S)
+    # подпись по кольцу
+    arc_text(im, 'EMERGENCY ALERT SYSTEM', font('sans-bold', int(0.05 * S)), c, c, 0.413 * S, -90, white, track=1.02)
+    arc_text(im, 'CIVIL BROADCAST NETWORK', font('sans-bold', int(0.04 * S)), c, c, 0.413 * S, 90, (227, 162, 26, 255),
+             bottom=True, track=1.12)
+    d = ImageDraw.Draw(im)
+    for ang in (180, 0):
+        a = np.radians(ang)
+        d.polygon(star_pts(c + 0.413 * S * np.cos(a), c + 0.413 * S * np.sin(a), 0.028 * S, 0.012 * S), fill=white)
+    im = im.resize((n, n), Image.LANCZOS)
+    return im
+
+
+def shield_poly(cx, top, w, h, k=60):
+    l, r = cx - w / 2, cx + w / 2
+    side = top + h * 0.5
+    left = bezier((l, side), (l, top + h * 0.82), (cx - w * 0.25, top + h * 0.95), (cx, top + h), k)
+    right = bezier((cx, top + h), (cx + w * 0.25, top + h * 0.95), (r, top + h * 0.82), (r, side), k)
+    pts = [(l, top + h * 0.04), (cx - w * 0.25, top), (cx, top + h * 0.035), (cx + w * 0.25, top), (r, top + h * 0.04)]
+    return pts + [(r, side)] + [tuple(p) for p in right[::-1]] + [tuple(p) for p in left[::-1]]
+
+
+def key_layer(S, col):
+    kl = Image.new('RGBA', (int(0.12 * S), int(0.42 * S)), (0, 0, 0, 0))
+    d = ImageDraw.Draw(kl)
+    w, h = kl.size
+    d.ellipse((w * 0.12, 0, w * 0.88, w * 0.76), outline=col, width=int(w * 0.13))
+    d.ellipse((w * 0.36, w * 0.24, w * 0.64, w * 0.52), outline=col, width=int(w * 0.08))
+    d.rectangle((w * 0.42, w * 0.7, w * 0.58, h * 0.97), fill=col)
+    for y0 in (0.78, 0.88):
+        d.rectangle((w * 0.58, h * y0, w * 0.86, h * (y0 + 0.06)), fill=col)
+    d.rectangle((w * 0.3, w * 0.86, w * 0.7, w * 0.94), fill=col)
+    return kl
+
+
+@img('BlackRidgeLogo', 1024, 'Оригинальный герб лечебницы Black Ridge: щит (костяная глава с чёрным хребтом и месяцем, '
+     'тёмное поле со скрещёнными ключами), лавры, лента CUSTODIA ET CURA, надписи. Потёртость, прозрачный фон.',
+     kind='decal', alpha=True)
+def i_blackridge(rng, n):
+    S = n * 2
+    c = S / 2
+    im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    gold, gold_d, bone, dark, ink = (176, 145, 82, 255), (120, 96, 52, 255), (220, 210, 186, 255), (29, 38, 34, 255), (18, 18, 18, 255)
+    # лавры
+    for s in (-1, 1):
+        stem = bezier((c + s * 0.03 * S, 0.84 * S), (c + s * 0.36 * S, 0.8 * S), (c + s * 0.4 * S, 0.45 * S),
+                      (c + s * 0.27 * S, 0.24 * S), 40)
+        d.line([tuple(p) for p in stem], fill=gold_d, width=int(0.008 * S))
+        for i in range(3, 38, 3):
+            p = stem[i]
+            q = stem[i + 1] - stem[i - 1]
+            ang = np.degrees(np.arctan2(q[1], q[0]))
+            for side in (-1, 1):
+                lf = Image.new('RGBA', (int(0.07 * S), int(0.026 * S)), (0, 0, 0, 0))
+                ImageDraw.Draw(lf).ellipse((0, 0, lf.width - 1, lf.height - 1), fill=gold if side > 0 else gold_d)
+                put(im, lf, p[0] + side * 0.018 * S * np.cos(np.radians(ang + 90)),
+                    p[1] + side * 0.018 * S * np.sin(np.radians(ang + 90)), 'mm', rot=-(ang + side * 35 * s))
+    d = ImageDraw.Draw(im)
+    # щит
+    top, w, h = 0.25 * S, 0.44 * S, 0.56 * S
+    outer = shield_poly(c, top - 0.018 * S, w + 0.036 * S, h + 0.04 * S)
+    inner = shield_poly(c, top, w, h)
+    d.polygon(outer, fill=gold)
+    d.polygon(inner, fill=dark)
+    chief = Image.new('L', (S, S), 0)
+    ImageDraw.Draw(chief).polygon(inner, fill=255)
+    ch_arr = np.asarray(chief).copy()
+    ch_arr[int(top + 0.36 * h):] = 0
+    im.paste(Image.new('RGBA', (S, S), bone), (0, 0), Image.fromarray(ch_arr))
+    d = ImageDraw.Draw(im)
+    yb = top + 0.36 * h
+    xs = np.linspace(c - w / 2, c + w / 2, 9)
+    ridge = [(c - w / 2, yb)]
+    for i, x in enumerate(xs):
+        ridge.append((x, yb - (0.05 + 0.13 * ((i * 7 + 3) % 5) / 4) * h * (1.4 if i == 4 else 1.0)))
+    ridge.append((c + w / 2, yb))
+    rmask = Image.new('L', (S, S), 0)
+    ImageDraw.Draw(rmask).polygon(ridge, fill=255)
+    rm = np.minimum(np.asarray(rmask), ch_arr)
+    im.paste(Image.new('RGBA', (S, S), ink), (0, 0), Image.fromarray(rm))
+    d = ImageDraw.Draw(im)
+    mx, my, mr = c - 0.12 * S, top + 0.085 * h, 0.03 * S
+    d.ellipse((mx - mr, my - mr, mx + mr, my + mr), fill=ink)
+    d.ellipse((mx - mr * 0.55, my - mr * 1.05, mx + mr * 1.4, my + mr * 0.8), fill=bone)
+    d.line([(c - w / 2, yb), (c + w / 2, yb)], fill=gold, width=int(0.01 * S))
+    for s in (-1, 1):
+        put(im, key_layer(S, gold), c, top + 0.65 * h, 'mm', rot=38 * s)
+    # надписи
+    arc_text(im, 'BLACK RIDGE', font('serif-bold', int(0.078 * S)), c, 0.62 * S, 0.47 * S, -90, bone, track=1.04,
+             stroke=int(0.006 * S), stroke_fill=ink)
+    d = ImageDraw.Draw(im)
+    rb = 0.82 * S
+    for s in (-1, 1):
+        d.polygon([(c + s * 0.2 * S, rb - 0.01 * S), (c + s * 0.36 * S, rb + 0.0 * S), (c + s * 0.32 * S, rb + 0.04 * S),
+                   (c + s * 0.36 * S, rb + 0.08 * S), (c + s * 0.2 * S, rb + 0.07 * S)], fill=gold_d)
+    ribbon = bezier((c - 0.3 * S, rb + 0.005 * S), (c - 0.1 * S, rb + 0.04 * S), (c + 0.1 * S, rb + 0.04 * S),
+                    (c + 0.3 * S, rb + 0.005 * S), 50)
+    d.polygon(taper(ribbon, 0.075 * S, 0.075 * S), fill=bone)
+    d.line([tuple(p) for p in ribbon + [0, -0.034 * S]], fill=gold_d, width=int(0.005 * S))
+    d.line([tuple(p) for p in ribbon + [0, 0.034 * S]], fill=gold_d, width=int(0.005 * S))
+    put(im, text_img('CUSTODIA · ET · CURA', font('serif-bold', int(0.036 * S)), ink, spacing=int(0.004 * S)),
+        c, rb + 0.033 * S, 'mm')
+    put(im, text_img('STATE ASYLUM  ·  EST. 1911', font('serif-bold', int(0.032 * S)), bone, stroke=int(0.004 * S),
+                     stroke_fill=ink, spacing=int(0.003 * S)), c, 0.935 * S, 'mm')
+    im = im.resize((n, n), Image.LANCZOS)
+    a = np.asarray(im).astype(float)
+    wear = per_noise(n, n, rng, 2.0)
+    specks = smoothstep(1.6, 2.4, wear) * 0.55 + smoothstep(2.8, 3.2, per_noise(n, n, rng, 0.8)) * 0.4
+    a[..., 3] *= 1 - specks
+    a[..., :3] *= (1 + 0.06 * per_noise(n, n, rng, 1.0))[..., None]
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), 'RGBA')
+
+
+def halftone(g, cell=7.0, ang=45.0):
+    # g: 0 — бело, 1 — черно; возвращает «чернила» 0..1
+    h, w = g.shape
+    yy, xx = np.mgrid[0:h, 0:w].astype(float)
+    a = np.radians(ang)
+    u = (xx * np.cos(a) - yy * np.sin(a)) / cell
+    v = (xx * np.sin(a) + yy * np.cos(a)) / cell
+    du, dv = np.mod(u, 1) - 0.5, np.mod(v, 1) - 0.5
+    dist = np.hypot(du, dv)
+    rad = np.sqrt(np.clip(g, 0, 1) / np.pi) * 1.05
+    return smoothstep(rad + 0.06, rad - 0.06, dist)
+
+
+def xerox(rgb, rng, amt=1.0):
+    h, w = rgb.shape[:2]
+    sp = (rng.random((h, w)) > 1 - 0.0025 * amt).astype(float)
+    sp = ndimage.gaussian_filter(sp, 0.7) * 3
+    streak = np.repeat((rng.random((1, w)) > 0.985) * rng.uniform(0.04, 0.12, (1, w)), h, 0)
+    edge = np.exp(-np.minimum.reduce([np.arange(w)[None, :].repeat(h, 0), w - 1 - np.arange(w)[None, :].repeat(h, 0),
+                                      np.arange(h)[:, None].repeat(w, 1), h - 1 - np.arange(h)[:, None].repeat(w, 1)]) / (w * 0.02))
+    dark = np.clip(sp + streak + 0.25 * edge * amt, 0, 1)[..., None]
+    return rgb * (1 - dark) + 0.08 * dark
+
+
+def moth_gray(h, w, rng):
+    yy, xx = np.mgrid[0:h, 0:w].astype(float)
+    u, v = (xx - w / 2) / (w / 2), (yy - h / 2) / (h / 2)
+    g = np.zeros((h, w))
+    for s in (-1, 1):
+        for (cu, cv, ru, rv, ang, val) in ((0.45, -0.18, 0.55, 0.38, -20, 0.75), (0.32, 0.32, 0.36, 0.3, 25, 0.6)):
+            a = np.radians(ang * s)
+            du, dv = u - cu * s, v - cv
+            x = du * np.cos(a) + dv * np.sin(a)
+            y = -du * np.sin(a) + dv * np.cos(a)
+            r = (x / ru) ** 2 + (y / rv) ** 2
+            g = np.maximum(g, (r < 1) * (val * (0.6 + 0.4 * r)))
+        er = np.hypot(u - 0.48 * s, v + 0.15)
+        g = np.where(er < 0.16, 0.95, g)
+        g = np.where(er < 0.1, 0.15, g)
+        g = np.where(er < 0.05, 1.0, g)
+        for k in range(4):
+            vein = np.abs((u * s) * np.sin(0.35 + 0.25 * k) - (v + 0.05) * np.cos(0.35 + 0.25 * k))
+            g = np.where((vein < 0.012) & (g > 0.2) & (u * s > 0.08), 0.95, g)
+    body = ((u / 0.09) ** 2 + ((v - 0.05) / 0.5) ** 2) < 1
+    g = np.where(body, 0.95, g)
+    head = np.hypot(u, v + 0.48) < 0.08
+    g = np.where(head, 1.0, g)
+    for s in (-1, 1):
+        ant = np.abs((u - s * 0.0) - s * (-(v + 0.5) * 0.9)) < 0.012
+        g = np.where(ant & (v < -0.5) & (v > -0.85), 1.0, g)
+    g = ndimage.gaussian_filter(g, 1.2)
+    return g
+
+
+def poster_paper(h, w, rng, col, amt=0.04):
+    rgb = np.ones((h, w, 3)) * hexc(col)
+    rgb *= (1 + amt * (0.5 * rng.standard_normal((h, w)) + per_noise(h, w, rng, 40)))[..., None]
+    return rgb
+
+
+def finish_poster(im, rng, fold=True, yellow=0.08, alpha_torn=None):
+    a = np.asarray(im).astype(float) / 255.0
+    rgb, al = a[..., :3], a[..., 3]
+    h, w = al.shape
+    rgb = rgb + yellow * (hexc('#c9b07a') - rgb) * (0.6 + 0.4 * per_noise(h, w, rng, 120)[..., None])
+    if fold:
+        for x in (w // 2,):
+            prof = np.exp(-((np.arange(w) - x) / 1.6) ** 2)
+            rgb *= (1 - 0.12 * prof)[None, :, None]
+            rgb += 0.06 * np.exp(-((np.arange(w) - x - 3) / 2.0) ** 2)[None, :, None]
+        for y in (h // 2, h // 4):
+            prof = np.exp(-((np.arange(h) - y) / 1.6) ** 2)
+            rgb *= (1 - 0.1 * prof)[:, None, None]
+            rgb += 0.05 * np.exp(-((np.arange(h) - y - 3) / 2.0) ** 2)[:, None, None]
+    scuff = np.clip(per_noise(h, w, rng, 2.5) - 2.3, 0, 1)
+    rgb = rgb + 0.4 * scuff[..., None] * (1 - rgb)
+    rgb *= (1 + 0.025 * rng.standard_normal((h, w)))[..., None]
+    if alpha_torn is not None:
+        al = al * alpha_torn
+    return to_img(rgb, al)
+
+
+def torn_edge_mask(h, w, rng, corner='br', size=0.18):
+    yy, xx = np.mgrid[0:h, 0:w].astype(float)
+    jag = per_noise(h, w, rng, 3) * 4 + per_noise(h, w, rng, 12) * 6
+    if corner == 'br':
+        dd = (w - xx) + (h - yy) * 0.6 - size * w
+    else:
+        dd = xx + (h - yy) * 0.6 - size * w
+    return smoothstep(-1, 1, dd + jag)
+
+
+def tape(w, h, rng, ang):
+    t = Image.new('RGBA', (w, h), (232, 226, 200, 150))
+    a = np.asarray(t).astype(float)
+    a[..., 3] *= 0.85 + 0.15 * rng.random((h, w))
+    a[:, :3, 3] *= rng.random((h, 3)) > 0.4
+    a[:, -3:, 3] *= rng.random((h, 3)) > 0.4
+    return Image.fromarray(a.astype(np.uint8), 'RGBA').rotate(ang, Image.BICUBIC, expand=True)
+
+
+@img('Poster1', (512, 1024), 'Плакат группы (ксерокс на кислотно-жёлтой бумаге): MOTH CIRCUS, растровая бабочка-моль, '
+     'машинописные строки, «вырезанные» буквы, скотч и оторванный угол. Пропорция 1:2.', kind='poster', alpha=True)
+def i_poster1(rng, w, h):
+    W, H = w * 2, h * 2
+    rgb = poster_paper(H, W, rng, '#e6d544', 0.05)
+    g = moth_gray(int(H * 0.33), int(W * 0.9), rng)
+    ink = halftone(g, cell=11, ang=45)
+    y0, x0 = int(H * 0.29), int(W * 0.05)
+    reg = rgb[y0:y0 + ink.shape[0], x0:x0 + ink.shape[1]]
+    reg *= (1 - 0.92 * ink[..., None])
+    im = to_img(rgb, np.ones((H, W)))
+    put(im, text_img('MOTH', font('sans-bold', int(W * 0.3)), (14, 14, 14, 255), sx=0.95, sy=1.35), W / 2, H * 0.025,
+        'mt', rot=-2, max_w=W * 0.94)
+    put(im, text_img('CIRCUS', font('sans-bold', int(W * 0.22)), (14, 14, 14, 255), sx=0.9, sy=1.2), W / 2, H * 0.178,
+        'mt', rot=1.5, max_w=W * 0.95)
+    tw = font('typewriter-bold', int(W * 0.052))
+    lines = ['LIVE @ THE RUST ROOM', 'FRI 13 OCT 1995 / DOORS 9PM', 'w/ VELVET ANTENNA', '+ DOGWATCH']
+    for i, ln in enumerate(lines):
+        put(im, text_img(ln, tw, (16, 16, 16, 255)), W / 2, H * (0.64 + 0.045 * i), 'mt', rot=rng.uniform(-1, 1),
+            max_w=W * 0.92)
+    x = W * 0.12
+    cols = [(240, 240, 235, 255), (20, 20, 20, 255), (220, 60, 60, 255), (250, 250, 250, 255)]
+    for ch in '$5 ALL AGES':
+        if ch == ' ':
+            x += W * 0.04
+            continue
+        f = font(['sans-bold', 'serif-bold', 'mono-bold'][rng.integers(3)], int(W * rng.uniform(0.07, 0.09)))
+        bgc = cols[rng.integers(len(cols))]
+        fg = (20, 20, 20, 255) if bgc[0] > 200 else (245, 245, 240, 255)
+        t = text_img(ch, f, fg)
+        card = Image.new('RGBA', (t.width + 14, t.height + 14), bgc)
+        card.alpha_composite(t, (7, 7))
+        sz = put(im, card, x, H * 0.84, 'lm', rot=rng.uniform(-12, 12))
+        x += sz[0] * 0.92
+    put(im, text_img('NO COPS · NO CREEPS · BRING EARPLUGS', font('sans-bold', int(W * 0.032)), (20, 20, 20, 255)),
+        W / 2, H * 0.92, 'mt', max_w=W * 0.9)
+    a = np.asarray(im).astype(float) / 255.0
+    rgb = xerox(a[..., :3], rng, 1.0)
+    im = to_img(rgb, a[..., 3])
+    put(im, tape(int(W * 0.22), int(W * 0.07), rng, 0), W * 0.1, H * 0.01, 'mt', rot=30)
+    put(im, tape(int(W * 0.22), int(W * 0.07), rng, 0), W * 0.9, H * 0.01, 'mt', rot=-25)
+    im = im.resize((w, h), Image.LANCZOS)
+    return finish_poster(im, rng, fold=False, yellow=0.06, alpha_torn=torn_edge_mask(h, w, rng, 'br', 0.16))
+
+
+@img('Poster2', (512, 1024), 'Постер фильма ужасов 1996 г. «THE QUIET CUL-DE-SAC»: луна, силуэты домов с одним горящим окном, '
+     'фигура под фонарём, слоган, титры. Сгибы, выцветание. Пропорция 1:2.', kind='poster', alpha=False)
+def i_poster2(rng, w, h):
+    W, H = w * 2, h * 2
+    yy, xx = np.mgrid[0:H, 0:W].astype(float)
+    t = yy / H
+    sky = np.stack([np.interp(t, [0, 0.35, 0.58, 0.66], c) for c in
+                    ([0.03, 0.12, 0.55, 0.75], [0.04, 0.05, 0.13, 0.25], [0.12, 0.16, 0.14, 0.1])], -1)
+    rgb = sky.copy()
+    stars = (rng.random((H, W)) > 0.9993) * (t < 0.4)
+    rgb += ndimage.gaussian_filter(stars.astype(float), 0.8)[..., None] * 3
+    mx, my, mr = W * 0.64, H * 0.3, W * 0.21
+    dist = np.hypot(xx - mx, yy - my)
+    glow = np.exp(-np.maximum(dist - mr, 0) / (W * 0.12)) * 0.35
+    rgb += glow[..., None] * hexc('#f2c9a0')
+    moon = smoothstep(mr + 1.5, mr - 1.5, dist)
+    crat = 1 - 0.1 * np.clip(per_noise(H, W, rng, 30), 0, None) - 0.05 * per_noise(H, W, rng, 70)
+    rgb = rgb * (1 - moon[..., None]) + (hexc('#efe4c8') * crat[..., None]) * moon[..., None]
+    im = to_img(rgb)
+    d = ImageDraw.Draw(im)
+    base = H * 0.66
+    x = -W * 0.05
+    sil = (8, 8, 12)
+    windows = []
+    while x < W * 1.05:
+        bw = W * rng.uniform(0.22, 0.34)
+        bh = H * rng.uniform(0.05, 0.08)
+        rh = bw * rng.uniform(0.3, 0.45)
+        d.rectangle((x, base - bh, x + bw, base + 2), fill=sil)
+        d.polygon([(x - bw * 0.05, base - bh), (x + bw / 2, base - bh - rh), (x + bw * 1.05, base - bh)], fill=sil)
+        if rng.random() < 0.5:
+            d.rectangle((x + bw * 0.7, base - bh - rh * 0.9, x + bw * 0.78, base - bh - rh * 0.3), fill=sil)
+        windows.append((x + bw * 0.3, base - bh * 0.7, bw))
+        x += bw + W * rng.uniform(0.02, 0.06)
+    wx, wy, bw = windows[min(2, len(windows) - 1)]
+    d.rectangle((wx, wy, wx + bw * 0.16, wy + bw * 0.18), fill=(255, 206, 110))
+    d.line([(wx + bw * 0.08, wy), (wx + bw * 0.08, wy + bw * 0.18)], fill=sil, width=3)
+    d.rectangle((0, base, W, H), fill=(14, 12, 16))
+    lx = W * 0.2
+    d.rectangle((lx - 4, base - H * 0.16, lx + 4, base + H * 0.06), fill=(6, 6, 8))
+    d.line([(lx, base - H * 0.16), (lx + W * 0.06, base - H * 0.165)], fill=(6, 6, 8), width=7)
+    a = np.asarray(im).astype(float) / 255.0
+    cone = np.clip(1 - np.abs(xx - (lx + W * 0.06)) / (W * 0.04 + (yy - (base - H * 0.16)) * 0.35), 0, 1)
+    cone *= (yy > base - H * 0.16) * (yy < base + H * 0.07) * 0.35
+    win_glow = np.exp(-np.hypot(xx - wx - bw * 0.08, yy - wy - bw * 0.09) / (W * 0.03)) * 0.5
+    a[..., :3] += cone[..., None] * hexc('#ffd28a') + win_glow[..., None] * hexc('#ffb347')
+    im = to_img(a[..., :3])
+    d = ImageDraw.Draw(im)
+    fx, fy = lx + W * 0.13, base + H * 0.07
+    fh = H * 0.12
+    d.ellipse((fx - fh * 0.06, fy - fh, fx + fh * 0.06, fy - fh * 0.86), fill=(2, 2, 3))
+    d.polygon([(fx - fh * 0.09, fy - fh * 0.85), (fx + fh * 0.09, fy - fh * 0.85), (fx + fh * 0.07, fy - fh * 0.35),
+               (fx - fh * 0.07, fy - fh * 0.35)], fill=(2, 2, 3))
+    d.line([(fx - fh * 0.08, fy - fh * 0.82), (fx - fh * 0.16, fy - fh * 0.3)], fill=(2, 2, 3), width=int(fh * 0.04))
+    d.line([(fx + fh * 0.08, fy - fh * 0.82), (fx + fh * 0.15, fy - fh * 0.32)], fill=(2, 2, 3), width=int(fh * 0.04))
+    for s in (-1, 1):
+        d.line([(fx + s * fh * 0.04, fy - fh * 0.36), (fx + s * fh * 0.06, fy)], fill=(2, 2, 3), width=int(fh * 0.05))
+    im = im.convert('RGBA')
+    put(im, text_img('LOCK THE DOOR.  THEN LOCK IT AGAIN.', font('sans', int(W * 0.036)), (230, 225, 215, 255),
+                     spacing=int(W * 0.006)), W / 2, H * 0.035, 'mt', max_w=W * 0.92)
+    put(im, text_img('THE QUIET', font('serif-bold', int(W * 0.075)), (236, 228, 210, 255), spacing=int(W * 0.02)),
+        W / 2, H * 0.735, 'mt')
+    title = text_img('CUL-DE-SAC', font('serif-bold', int(W * 0.17)), (240, 232, 214, 255), sx=0.92, sy=1.25)
+    glow = Image.new('RGBA', (title.width + 60, title.height + 60), (0, 0, 0, 0))
+    gl = title.copy()
+    gl = Image.fromarray(np.dstack([np.full(gl.size[::-1] + (3,), (200, 30, 20), np.uint8), np.asarray(gl)[..., 3]]), 'RGBA')
+    glow.alpha_composite(gl, (30, 30))
+    glow = glow.filter(ImageFilter.GaussianBlur(14))
+    put(im, glow, W / 2, H * 0.775 - 30, 'mt', max_w=W * 0.98 + 60)
+    put(im, title, W / 2, H * 0.775, 'mt', max_w=W * 0.94)
+    bf = font('sans-bold', int(W * 0.03))
+    billing = ['MAPLE GROVE PICTURES PRESENTS A HOLLIS WEBB FILM  "THE QUIET CUL-DE-SAC"',
+               'DANA ORLOV  MARCUS TEAGUE  JUNE ABERNATHY  AND OTIS GRAY AS "THE NEIGHBOR"',
+               'MUSIC BY LEN KOVACS  EDITED BY RUTH SALAZAR  WRITTEN AND DIRECTED BY HOLLIS WEBB']
+    for i, ln in enumerate(billing):
+        put(im, text_img(ln, bf, (170, 160, 160, 255), sx=0.5, sy=1.3), W / 2, H * (0.875 + 0.022 * i), 'mt',
+            max_w=W * 0.9)
+    put(im, text_img('THIS OCTOBER', font('sans-bold', int(W * 0.05)), (220, 60, 45, 255), spacing=int(W * 0.012)),
+        W / 2, H * 0.95, 'mt')
+    rb = Image.new('RGBA', (int(W * 0.07), int(W * 0.08)), (0, 0, 0, 0))
+    ImageDraw.Draw(rb).rectangle((0, 0, rb.width - 1, rb.height - 1), outline=(170, 160, 160, 255), width=3)
+    put(rb, text_img('R', font('sans-bold', int(W * 0.06)), (170, 160, 160, 255)), rb.width / 2, rb.height / 2, 'mm')
+    put(im, rb, W * 0.92, H * 0.955, 'mm')
+    im = im.resize((w, h), Image.LANCZOS)
+    a = np.asarray(im).astype(float) / 255.0
+    a[..., :3] = a[..., :3] * 0.92 + 0.04
+    return finish_poster(to_img(a[..., :3], np.ones((h, w))), rng, fold=True, yellow=0.07).convert('RGB')
+
+
+def dog_photo(h, w, rng):
+    S = Image.new('RGB', (w, h), (120, 130, 110))
+    d = ImageDraw.Draw(S)
+    d.rectangle((0, 0, w, h * 0.45), fill=(170, 175, 170))
+    d.rectangle((0, h * 0.3, w, h * 0.45), fill=(110, 105, 95))
+    for i in range(0, w, w // 10):
+        d.rectangle((i, h * 0.18, i + w * 0.03, h * 0.45), fill=(200, 196, 185))
+    d.rectangle((0, h * 0.22, w, h * 0.25), fill=(200, 196, 185))
+    gold, dk = (205, 160, 95), (150, 105, 55)
+    cx, cy = w * 0.5, h * 0.62
+    d.ellipse((cx - w * 0.3, cy - h * 0.16, cx + w * 0.22, cy + h * 0.12), fill=gold)
+    for lx in (-0.24, -0.12, 0.08, 0.16):
+        d.rectangle((cx + lx * w, cy, cx + (lx + 0.06) * w, cy + h * 0.3), fill=gold)
+        d.ellipse((cx + lx * w - 4, cy + h * 0.27, cx + (lx + 0.07) * w, cy + h * 0.32), fill=dk)
+    d.polygon([(cx - w * 0.28, cy - h * 0.08), (cx - w * 0.45, cy - h * 0.3), (cx - w * 0.4, cy - h * 0.32),
+               (cx - w * 0.25, cy - h * 0.12)], fill=gold)
+    hx, hy = cx + w * 0.22, cy - h * 0.2
+    d.ellipse((hx - w * 0.13, hy - h * 0.13, hx + w * 0.13, hy + h * 0.12), fill=gold)
+    d.ellipse((hx + w * 0.03, hy - h * 0.01, hx + w * 0.24, hy + h * 0.1), fill=(215, 175, 115))
+    d.ellipse((hx + w * 0.19, hy + h * 0.0, hx + w * 0.25, hy + h * 0.05), fill=(30, 25, 20))
+    d.polygon([(hx - w * 0.1, hy - h * 0.08), (hx - w * 0.17, hy + h * 0.12), (hx - w * 0.06, hy + h * 0.1)], fill=dk)
+    d.ellipse((hx + w * 0.02, hy - h * 0.06, hx + w * 0.06, hy - h * 0.02), fill=(20, 18, 15))
+    d.rectangle((hx - w * 0.12, hy + h * 0.08, hx + w * 0.02, hy + h * 0.12), fill=(170, 30, 30))
+    d.polygon([(hx + w * 0.12, hy + h * 0.09), (hx + w * 0.17, hy + h * 0.16), (hx + w * 0.2, hy + h * 0.09)], fill=(200, 90, 100))
+    a = np.asarray(S).astype(float) / 255.0
+    a = ndimage.gaussian_filter(a, (1.5, 1.5, 0))
+    g = 1 - (0.3 * a[..., 0] + 0.59 * a[..., 1] + 0.11 * a[..., 2])
+    g += 0.08 * per_noise(h, w, rng, 3)
+    return np.clip((g - 0.15) * 1.5, 0, 1)
+
+
+@img('Poster3', (512, 1024), 'Листовка «LOST DOG»: ксерокопия с фото пса Бисквита, приметы, телефон 555-0143, награда, '
+     'красная надпись маркером STILL MISSING, отрывные язычки (двух нет), скотч. Пропорция 1:2.', kind='poster', alpha=True)
+def i_poster3(rng, w, h):
+    W, H = w * 2, h * 2
+    rgb = poster_paper(H, W, rng, '#f1efe6', 0.025)
+    ph_h, ph_w = int(H * 0.28), int(W * 0.84)
+    g = dog_photo(ph_h, ph_w, rng)
+    ink = halftone(g, cell=6, ang=45) * 0.7 + 0.3 * smoothstep(0.55, 0.7, g)
+    y0, x0 = int(H * 0.17), int(W * 0.08)
+    rgb[y0:y0 + ph_h, x0:x0 + ph_w] *= (1 - 0.9 * np.clip(ink, 0, 1))[..., None]
+    rgb[y0 - 4:y0 + ph_h + 4, x0 - 4:x0] *= 0.15
+    rgb[y0 - 4:y0 + ph_h + 4, x0 + ph_w:x0 + ph_w + 4] *= 0.15
+    rgb[y0 - 4:y0, x0 - 4:x0 + ph_w + 4] *= 0.15
+    rgb[y0 + ph_h:y0 + ph_h + 4, x0 - 4:x0 + ph_w + 4] *= 0.15
+    im = to_img(rgb, np.ones((H, W)))
+    put(im, text_img('LOST DOG', font('sans-bold', int(W * 0.2)), (12, 12, 12, 255), sx=0.9, sy=1.5), W / 2, H * 0.03,
+        'mt', max_w=W * 0.92)
+    tw = font('sans-bold', int(W * 0.05))
+    tr = font('sans', int(W * 0.04))
+    rows = [('ANSWERS TO "BISCUIT"', tw), ('Golden retriever mix, 6 yrs old', tr), ('Red collar. Very friendly.', tr),
+            ('Last seen Oct 2 near Maple Ct.', tr), ('He is afraid of the dark.', tr), ('PLEASE CALL 555-0143', tw),
+            ('$100 REWARD', font('sans-bold', int(W * 0.08)))]
+    y = H * 0.47
+    for txt, f in rows:
+        sz = put(im, text_img(txt, f, (16, 16, 16, 255)), W / 2, y, 'mt', max_w=W * 0.9)
+        y += sz[1] + H * 0.008
+    tab_y = H * 0.84
+    d = ImageDraw.Draw(im)
+    for x in range(0, W, 14):
+        d.line([(x, tab_y), (x + 7, tab_y)], fill=(60, 60, 60, 255), width=2)
+    k = 8
+    tw2 = W / k
+    tf = font('sans-bold', int(W * 0.03))
+    for i in range(k):
+        x = i * tw2
+        if i:
+            for yy in range(int(tab_y), H, 14):
+                d.line([(x, yy), (x, yy + 7)], fill=(60, 60, 60, 255), width=2)
+        put(im, text_img('BISCUIT  555-0143', tf, (16, 16, 16, 255)), x + tw2 / 2, tab_y + (H - tab_y) / 2, 'mm', rot=90)
+    a = np.asarray(im).astype(float) / 255.0
+    rgb = xerox(a[..., :3], rng, 0.8)
+    im = to_img(rgb, a[..., 3])
+    mk = text_img('STILL MISSING', font('sans-bold', int(W * 0.12)), (200, 25, 30, 235), sx=0.8, sy=1.1)
+    m = np.asarray(mk).astype(float)
+    m[..., 3] *= 0.75 + 0.25 * rng.random(m.shape[:2])
+    mk = Image.fromarray(m.astype(np.uint8), 'RGBA')
+    put(im, mk, W * 0.5, H * 0.31, 'mm', rot=17, max_w=W * 0.95)
+    put(im, tape(int(W * 0.3), int(W * 0.08), rng, 0), W / 2, -H * 0.005, 'mt', rot=-3)
+    im = im.resize((w, h), Image.LANCZOS)
+    yy, xx = np.mgrid[0:h, 0:w].astype(float)
+    alpha = np.ones((h, w))
+    ty = int(h * 0.84) + 1
+    jag = per_noise(h, w, rng, 2) * 2
+    for i in (2, 5):
+        x0, x1 = i * w / k, (i + 1) * w / k
+        torn = (xx > x0 + 0.5) & (xx < x1 - 0.5) & (yy > ty + 6 + jag)
+        alpha[torn] = 0
+    return finish_poster(im, rng, fold=False, yellow=0.05, alpha_torn=alpha)
+
+
+@img('FamilyPhoto', 512, 'Семейное фото (живописное, размытое, без реальных людей): папа, мама и двое детей на заднем '
+     'дворе у сайдинга, цвета плёнки 90-х, виньетка, засветка и оранжевая дата «96 7 14».', kind='decal')
+def i_family(rng, n):
+    S = n * 2
+    im = Image.new('RGB', (S, S), (150, 185, 210))
+    d = ImageDraw.Draw(im)
+    for i in range(0, int(S * 0.62), int(S * 0.035)):
+        d.rectangle((0, i, S, i + S * 0.03), fill=(214, 206, 186))
+        d.line([(0, i + S * 0.03), (S, i + S * 0.03)], fill=(150, 140, 120), width=4)
+    d.rectangle((S * 0.62, S * 0.12, S * 0.9, S * 0.4), fill=(70, 80, 90))
+    d.rectangle((S * 0.6, S * 0.1, S * 0.92, S * 0.42), outline=(240, 238, 230), width=14)
+    d.rectangle((S * 0.05, S * 0.08, S * 0.18, S * 0.62), fill=(120, 60, 50))
+    d.rectangle((0, S * 0.62, S, S), fill=(88, 128, 64))
+    d.ellipse((-S * 0.2, S * 0.5, S * 0.35, S * 0.72), fill=(60, 100, 45))
+    skin = [(232, 190, 160), (214, 168, 132), (238, 200, 170), (198, 150, 115)]
+    people = [  # x, высота, ширина, рубашка, низ, волосы
+        (0.3, 0.62, 0.15, (40, 90, 160), (190, 170, 130), (90, 60, 40)),
+        (0.5, 0.56, 0.14, (30, 140, 140), (60, 70, 120), (130, 80, 40)),
+        (0.67, 0.4, 0.11, (200, 50, 50), (70, 90, 150), (180, 130, 70)),
+        (0.82, 0.32, 0.1, (240, 200, 60), (240, 200, 60), (200, 160, 90)),
+    ]
+    ground = S * 0.93
+    for i, (px, ph, pwd, shirt, low, hair) in enumerate(people):
+        x = px * S
+        hgt = ph * S
+        wd = pwd * S
+        top = ground - hgt
+        head = hgt * 0.15
+        sk = skin[i]
+        d.rounded_rectangle((x - wd * 0.28, top + head * 1.8 + hgt * 0.36, x + wd * 0.28, ground), radius=int(wd * 0.1), fill=low)
+        if i == 3:
+            d.polygon([(x - wd * 0.5, top + hgt * 0.75), (x + wd * 0.5, top + hgt * 0.75), (x + wd * 0.28, top + head * 1.6),
+                       (x - wd * 0.28, top + head * 1.6)], fill=shirt)
+            d.rectangle((x - wd * 0.2, top + hgt * 0.75, x + wd * 0.2, ground), fill=sk)
+        d.rounded_rectangle((x - wd * 0.5, top + head * 1.6, x + wd * 0.5, top + head * 1.8 + hgt * 0.38), radius=int(wd * 0.25), fill=shirt)
+        for s in (-1, 1):
+            d.line([(x + s * wd * 0.45, top + head * 2.0), (x + s * wd * 0.62, top + hgt * 0.55)], fill=shirt, width=int(wd * 0.2))
+            d.ellipse((x + s * wd * 0.62 - wd * 0.08, top + hgt * 0.55 - wd * 0.06, x + s * wd * 0.62 + wd * 0.08, top + hgt * 0.55 + wd * 0.1), fill=sk)
+        d.rectangle((x - wd * 0.1, top + head * 1.3, x + wd * 0.1, top + head * 1.8), fill=sk)
+        hr = (1.25 if i == 1 else 1.0)
+        d.ellipse((x - head * 0.62 * hr, top - head * 0.15, x + head * 0.62 * hr, top + head * (1.25 if i == 1 else 0.9)), fill=hair)
+        d.ellipse((x - head * 0.48, top + head * 0.05, x + head * 0.48, top + head * 1.42), fill=sk)
+        d.ellipse((x - head * 0.5, top - head * 0.05, x + head * 0.5, top + head * 0.45), fill=hair)
+        for s in (-1, 1):
+            d.ellipse((x + s * head * 0.2 - head * 0.06, top + head * 0.7, x + s * head * 0.2 + head * 0.06, top + head * 0.8), fill=(90, 60, 50))
+        d.arc((x - head * 0.2, top + head * 0.85, x + head * 0.2, top + head * 1.15), 20, 160, fill=(150, 80, 70), width=6)
+        if i == 2:
+            d.chord((x - head * 0.55, top - head * 0.2, x + head * 0.55, top + head * 0.5), 180, 360, fill=(30, 60, 140))
+            d.rectangle((x, top + head * 0.1, x + head * 0.8, top + head * 0.25), fill=(30, 60, 140))
+    a = np.asarray(im).astype(float) / 255.0
+    a = ndimage.gaussian_filter(a, (3, 3, 0))
+    # «живописные» мазки: цвет берётся из картинки
+    out = Image.fromarray((a * 255).astype(np.uint8))
+    dd = ImageDraw.Draw(out)
+    for _ in range(9000):
+        x, y = rng.uniform(0, S, 2)
+        c = tuple(int(v * 255) for v in a[int(y), int(x)])
+        L = rng.uniform(6, 18)
+        ang = rng.normal(0.4, 0.5)
+        dx, dy = np.cos(ang) * L, np.sin(ang) * L
+        dd.line([(x - dx, y - dy), (x + dx, y + dy)], fill=c, width=int(rng.uniform(4, 8)))
+    a = np.asarray(out).astype(float) / 255.0
+    a = ndimage.gaussian_filter(a, (2.2, 2.2, 0))
+    a = down2(a)
+    yy, xx = np.mgrid[0:n, 0:n].astype(float)
+    r = np.hypot(xx / n - 0.5, yy / n - 0.48)
+    a *= (1.12 - 0.9 * r ** 2)[..., None]
+    a = a ** 0.95 * 0.86 + 0.08
+    a[..., 0] *= 1.06
+    a[..., 2] *= 0.88
+    leak = np.exp(-((xx - n * 1.02) ** 2 + (yy - n * 0.2) ** 2) / (2 * (n * 0.18) ** 2))
+    a += leak[..., None] * np.array([0.45, 0.18, 0.02])
+    a += 0.035 * rng.standard_normal((n, n, 1))
+    lum = a.mean(-1, keepdims=True)
+    a = lum + (a - lum) * 0.85
+    im = to_img(a).convert('RGBA')
+    ds = text_img("'96  7 14", font('mono-bold', int(n * 0.05)), (255, 150, 40, 255))
+    glow = ds.filter(ImageFilter.GaussianBlur(3))
+    put(im, glow, n * 0.93, n * 0.95, 'rb')
+    put(im, ds, n * 0.93, n * 0.95, 'rb')
+    return im.convert('RGB')
+
+
+# =====================================================================================
+# Превью, MANIFEST.md, запуск
+# =====================================================================================
+
+def image_preview(path_out):
+    cols, cw, chh, lh = 5, 256, 256, 34
+    items = [s for s in IMAGES if os.path.exists(os.path.join(IMG_DIR, s['key'] + '.png'))]
+    rows = (len(items) + cols - 1) // cols
+    W, H = cols * (cw + 16) + 16, rows * (chh + lh + 16) + 56
+    sheet = Image.new('RGB', (W, H), (26, 26, 30))
+    d = ImageDraw.Draw(sheet)
+    d.text((16, 14), 'Amber Alert — текстуры (тайлы показаны 2×2 для проверки швов; прозрачные — на шахматке)',
+           fill=(235, 235, 235), font=font('sans', 20))
+    lf = font('mono', 13)
+    chk = Image.new('RGB', (cw, chh))
+    cd = ImageDraw.Draw(chk)
+    for y in range(0, chh, 16):
+        for x in range(0, cw, 16):
+            cd.rectangle((x, y, x + 15, y + 15), fill=(200, 200, 200) if (x + y) // 16 % 2 else (150, 150, 150))
+    for i, s in enumerate(items):
+        x0 = 16 + (i % cols) * (cw + 16)
+        y0 = 56 + (i // cols) * (chh + lh + 16)
+        im = Image.open(os.path.join(IMG_DIR, s['key'] + '.png'))
+        w, h = im.size
+        cell = chk.copy() if im.mode == 'RGBA' else Image.new('RGB', (cw, chh), (26, 26, 30))
+        if s['kind'] == 'tile':
+            t = im.convert('RGB').resize((cw // 2, chh // 2), Image.LANCZOS)
+            for dx in (0, cw // 2):
+                for dy in (0, chh // 2):
+                    cell.paste(t, (dx, dy))
+        else:
+            sc = min(cw / w, chh / h)
+            t = im.convert('RGBA').resize((max(1, int(w * sc)), max(1, int(h * sc))), Image.LANCZOS)
+            cell.paste(t, ((cw - t.width) // 2, (chh - t.height) // 2), t)
+        sheet.paste(cell, (x0, y0))
+        d.text((x0, y0 + chh + 4), s['key'], fill=(240, 240, 240), font=lf)
+        d.text((x0, y0 + chh + 19), '%dx%d %s %dKB' % (w, h, im.mode, os.path.getsize(os.path.join(IMG_DIR, s['key'] + '.png')) // 1024),
+               fill=(160, 160, 170), font=lf)
+    sheet.save(path_out, optimize=True)
+
+
+def config_keys(section):
+    try:
+        txt = open(CONFIG_LUA, encoding='utf-8').read()
+    except OSError:
+        return []
+    m = re.search(r'Config\.%s\s*=\s*\{(.*?)\n\}' % section, txt, re.S)
+    if not m:
+        return []
+    body = re.sub(r'--[^\n]*', '', m.group(1))
+    return re.findall(r'([A-Za-z_][A-Za-z0-9_]*)\s*=', body)
+
+
+def fmt_kb(b):
+    return '%.0f КБ' % (b / 1024) if b < 1024 * 1024 else '%.1f МБ' % (b / 1048576)
+
+
+PRIORITY = ['EasTone', 'Jumpscare', 'AmbientNight', 'DoorBash', 'GlassBreak', 'Heartbeat', 'Stinger', 'Static',
+            'WallpaperLiving', 'WallpaperBedroom', 'WallpaperKids']
+
+
+def write_manifest(sinfo):
+    L = []
+    L.append('# Ассеты Amber Alert — звуки и текстуры\n')
+    L.append('Все файлы сгенерированы процедурно скриптом `tools/gen_assets.py` (синтез, шум, свёртка с синтетическими '
+             'импульсными откликами комнат; рисование узоров с периодическим шумом). Никаких чужих записей, шрифтовых '
+             'логотипов и реальных эмблем: эмблемы EAS и Black Ridge нарисованы с нуля.\n')
+    L.append('Перегенерировать: `python3 tools/gen_assets.py` (нужны numpy, scipy, Pillow и ffmpeg с libvorbis). '
+             'Только часть: `--only sounds|images`, `--keys EasTone,Carpet`. Результат детерминирован.\n')
+    L.append('Превью: `preview.png` (картинки, тайлы 2×2) и `preview_audio.png` (спектрограммы всех звуков).\n')
+    L.append('## Как загрузить в Roblox\n')
+    L.append('1. Studio → **View → Asset Manager → Bulk Import** (кнопка импорта), выбрать файлы из `assets/sounds` и '
+             '`assets/images`. Либо Creator Hub → **Development Items → Audio / Decals → Upload**.')
+    L.append('2. После модерации: в Asset Manager ПКМ по ассету → **Copy Asset ID** (для картинок копируйте ID '
+             '*изображения*; если грузили как Decal через сайт — вставьте Decal в Studio и возьмите число из его '
+             'свойства `Texture`, оно отличается от ID декали).')
+    L.append('3. Вставить ID в `ReplicatedStorage → Shared → Config`: `Config.Sounds.EasTone = "1234567890"`, '
+             '`Config.Images.Carpet = "1234567890"` (только цифры). Пустая строка = звук/текстура не используется.\n')
+    L.append('**Ограничения аудио** (на момент генерации, проверяйте в Creator Hub): `.ogg/.mp3/.wav/.flac`, до 7 минут и '
+             'до 20 МБ на файл; квота — около 10 аудио в месяц без подтверждения личности и около 100 в месяц с '
+             'подтверждённым ID (ID Verification). Каждый звук проходит модерацию. Аудио по умолчанию приватно: '
+             'загружайте от того же аккаунта/группы, которой принадлежит место, иначе звук не заиграет. '
+             'Картинки: до 1024×1024, PNG с альфой поддерживается.\n')
+    L.append('**Что грузить в первую очередь** (максимум эффекта при маленькой квоте): ' +
+             ', '.join('`%s`' % k for k in PRIORITY) + '. Потом — `DoorBreak`, `DoorOpen`, `AmbientHouse`, `TvNews`, '
+             '`EasNoise`, `Whisper`, `Breath`, `Footstep`, а дальше всё остальное.\n')
+    L.append('Петли (`Looped = true`) собраны бесшовно «по кругу» (шум, фильтры и реверберация замкнуты), формат Ogg '
+             'Vorbis не добавляет паузы на стыке (в отличие от MP3). Все файлы нормализованы до −1 dBFS по пику, '
+             'поэтому громкость в игре задаётся свойством `Volume` (рекомендации ниже).\n')
+    L.append('## Звуки (`assets/sounds`, Ogg Vorbis 44.1 кГц)\n')
+    L.append('| Ключ Config | Файл | Длительность / размер | Описание | Рекомендуемые свойства |')
+    L.append('|---|---|---|---|---|')
+    for s in SOUNDS:
+        p = os.path.join(SND_DIR, s['key'] + '.ogg')
+        info = sinfo.get(s['key'])
+        if not info:
+            continue
+        props = 'Volume %.2f' % s['vol']
+        props += ', Looped = true' if s['loop'] else ''
+        if s['roll']:
+            props += ', RollOffMinDistance %d, RollOffMaxDistance %d' % s['roll']
+        if s['key'] == 'Heartbeat':
+            props += ', PlaybackSpeed 1.0–1.6 по опасности'
+        if s['key'].startswith('Footstep'):
+            props += ', PlaybackSpeed 0.9–1.1 случайно'
+        dur = '%.2f с · %s · %s' % (info['dur'], 'стерео' if info['ch'] == 2 else 'моно', fmt_kb(info['size']))
+        L.append('| `%s` | `sounds/%s.ogg` | %s | %s | %s |' % (s['key'], s['key'], dur, s['desc'], props))
+    L.append('\nВарианты `Footstep2…4` в `Config` нет — их можно добавить ключами `Footstep2`, `Footstep3`, `Footstep4` '
+             'и выбирать случайно.\n')
+    L.append('Готовая таблица громкостей (можно вставить в `Config.lua` и применять в `Sound.play`, если `props.Volume` '
+             'не задан):\n')
+    L.append('```lua')
+    L.append('Config.SoundVolume = {')
+    row = []
+    for s in SOUNDS:
+        row.append('%s = %.2f' % (s['key'], s['vol']))
+        if len(row) == 6:
+            L.append('\t' + ', '.join(row) + ',')
+            row = []
+    if row:
+        L.append('\t' + ', '.join(row) + ',')
+    L.append('}')
+    L.append('```\n')
+    L.append('## Картинки (`assets/images`, PNG)\n')
+    L.append('| Ключ Config | Файл | Размер | Описание | Рекомендуемые свойства |')
+    L.append('|---|---|---|---|---|')
+    for s in IMAGES:
+        p = os.path.join(IMG_DIR, s['key'] + '.png')
+        if not os.path.exists(p):
+            continue
+        w, h = img_size(s)
+        size = '%d×%d %s · %s' % (w, h, 'RGBA' if s['alpha'] else 'RGB', fmt_kb(os.path.getsize(p)))
+        if s['kind'] == 'tile':
+            props = 'Texture, бесшовный: StudsPerTileU = %d, StudsPerTileV = %d' % s['studs']
+            if s['key'] in ('Siding',):
+                props += '; Color3 для оттенка'
+            if s['key'] == 'TvStatic':
+                props += '; анимировать OffsetStudsU/V каждый кадр'
+        elif s['kind'] == 'poster':
+            props = 'Decal на грань 2×4 (ширина×высота) студа, пропорция 1:2'
+        elif s['kind'] == 'overlay':
+            props = 'ImageLabel на весь экран, BackgroundTransparency = 1' + (
+                ', ScaleType = Tile, TileSize = UDim2.fromOffset(256, 256)' if s['key'] == 'Grain' else
+                ', ScaleType = Stretch, ImageTransparency 0–0.3')
+        else:
+            props = 'Decal (или ImageLabel в SurfaceGui), квадратная грань'
+            if s['key'] == 'FamilyPhoto':
+                props = 'Decal на квадратную грань в рамке (например 2×2 студа)'
+        L.append('| `%s` | `images/%s.png` | %s | %s | %s |' % (s['key'], s['key'], size, s['desc'], props))
+    tot_s = sum(os.path.getsize(os.path.join(SND_DIR, f)) for f in os.listdir(SND_DIR)) if os.path.isdir(SND_DIR) else 0
+    tot_i = sum(os.path.getsize(os.path.join(IMG_DIR, f)) for f in os.listdir(IMG_DIR)) if os.path.isdir(IMG_DIR) else 0
+    L.append('\nИтого: звуки %s, картинки %s.\n' % (fmt_kb(tot_s), fmt_kb(tot_i)))
+    L.append('## Заметки\n')
+    L.append('- `EasTone`: настоящая структура сигнала EAS (заголовок AFSK 520.83 бод, 853+960 Гц ~8 с, три EOM), '
+             'но байты заголовка случайные — реальные приёмники EAS его не распознают. Не транслируйте в эфир.')
+    L.append('- `TvNews` ровно 16 тактов при 128 BPM (30 с): фанфара на «раз», дробь литавр в конце ведёт обратно в '
+             'начало — можно зацикливать весь день. Тембр «из динамика ТВ», лучше вешать на корпус телевизора (3D).')
+    L.append('- Амбиенты стерео: проигрывайте их в 2D (`Sound.loop(key, nil, ...)`, родитель — SoundService). '
+             'Остальные звуки моно для 3D-позиционирования.')
+    L.append('- Постеры 512×1024 (1:2): если грань другой пропорции, картинка растянется.')
+    open(os.path.join(ASSETS, 'MANIFEST.md'), 'w', encoding='utf-8').write('\n'.join(L) + '\n')
+
+
+def analyze_sounds(verbose=True):
+    res = {}
+    for s in SOUNDS:
+        p = os.path.join(SND_DIR, s['key'] + '.ogg')
+        if os.path.exists(p):
+            res[s['key']] = analyze_sound(p, s['loop'])
+    if verbose and res:
+        print('\n  %-16s %7s %3s %7s %7s %8s  %s' % ('звук', 'сек', 'кан', 'пик дБ', 'RMS дБ', 'размер', 'стык петли'))
+        for k, v in res.items():
+            seam = ''
+            if 'seam_hf_ratio' in v:
+                seam = 'ВЧ на стыке: %3.0f-й процентиль (x%.2f к P99), скачок %2.0f%%-иль, уровень %+.1f дБ' % (
+                    v['seam_rank'], v['seam_hf_ratio'], v['jump_pct'], v['level_step_db'])
+            print('  %-16s %7.2f %3d %7.2f %7.1f %8s  %s' % (k, v['dur'], v['ch'], v['peak_db'], v['rms_db'],
+                                                            fmt_kb(v['size']), seam))
+    return res
+
+
+def check_coverage():
+    ok = True
+    have_s = {s['key'] for s in SOUNDS}
+    have_i = {s['key'] for s in IMAGES}
+    for k in config_keys('Sounds'):
+        if k not in have_s:
+            print('  ВНИМАНИЕ: нет генератора для Config.Sounds.%s' % k)
+            ok = False
+    for k in config_keys('Images'):
+        if k not in have_i:
+            print('  ВНИМАНИЕ: нет генератора для Config.Images.%s' % k)
+            ok = False
+    return ok
+
+
+def main():
+    ap = argparse.ArgumentParser(description='Генератор звуков и текстур Amber Alert')
+    ap.add_argument('--only', choices=['sounds', 'images'])
+    ap.add_argument('--keys', help='через запятую')
+    ap.add_argument('--check', action='store_true', help='только анализ, превью и MANIFEST')
+    ap.add_argument('--no-preview', action='store_true')
+    a = ap.parse_args()
+    keys = set(a.keys.split(',')) if a.keys else None
+    need_ffmpeg()
+    os.makedirs(ASSETS, exist_ok=True)
+    check_coverage()
+    t0 = time.time()
+    if not a.check:
+        if a.only != 'images':
+            print('Звуки:')
+            gen_sounds(keys)
+        if a.only != 'sounds':
+            print('Картинки:')
+            gen_images(keys)
+    sinfo = analyze_sounds()
+    write_manifest(sinfo)
+    if not a.no_preview:
+        image_preview(os.path.join(ASSETS, 'preview.png'))
+        items = [(s['key'], os.path.join(SND_DIR, s['key'] + '.ogg'), sinfo[s['key']]) for s in SOUNDS if s['key'] in sinfo]
+        audio_preview(os.path.join(ASSETS, 'preview_audio.png'), items)
+    tot = 0
+    for r, _, fs in os.walk(ASSETS):
+        tot += sum(os.path.getsize(os.path.join(r, f)) for f in fs)
+    print('\nГотово за %.0f с. Папка assets: %s' % (time.time() - t0, fmt_kb(tot)))
+
+
+if __name__ == '__main__':
+    main()

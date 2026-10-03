@@ -18,6 +18,7 @@
 local Build = require(script.Parent:WaitForChild("Build"))
 
 local Rig = {}
+Rig.mat = Build.mat     -- материал по имени с запасным (Rubber, Leather … есть не везде)
 local EMPTY = {}
 local ID = CFrame.new()
 
@@ -83,6 +84,21 @@ function Rig.add(R, limb, name, size, offset, color, material, props, class)
 	setProps(p, props)
 	weld(base, p)
 	return p
+end
+
+-- то же, но cf задан в мире позы постройки (ноги на y = 0)
+function Rig.addAt(R, limb, name, size, cf, color, material, props, class)
+	local base = limbOf(R, limb)
+	return Rig.add(R, base, name, size, base.CFrame:Inverse() * cf, color, material, props, class)
+end
+
+-- брусок от точки a до точки b (мир позы постройки), толщина th
+function Rig.bar(R, limb, name, a, b, th, color, material, props)
+	local len = (b - a).Magnitude
+	if len < 0.01 then len = 0.01 end
+	local up = math.abs((b - a).Unit.Y) > 0.95 and Vector3.new(0, 0, 1) or Vector3.new(0, 1, 0)
+	local cf = CFrame.lookAt((a + b) / 2, b, up)
+	return Rig.addAt(R, limb, name, Vector3.new(th, th, len), cf, color, material, props)
 end
 
 function Rig.ball(R, limb, name, d, offset, color, material, props)
@@ -363,7 +379,9 @@ function Rig.track(model, dt)
 	A.vy = A.vel.Y
 	A.phase = A.phase + dt * A.speed / A.stride * math.pi * 2
 	local anim = model:GetAttribute("Anim") or ""
-	if anim ~= A.anim then
+	local n = model:GetAttribute("AnimN") or 0
+	if anim ~= A.anim or n ~= A.animN then
+		A.animN = n
 		A.prevAnim = A.anim
 		A.anim = anim
 		A.animT = 0
