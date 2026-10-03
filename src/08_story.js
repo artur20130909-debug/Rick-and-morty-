@@ -403,35 +403,21 @@ async function garageSummons() {
   G.flags.shipGone = 1;
   await spaceFlight(false);
 }
-function drawCitadel(cx, cy, s, o = {}) {
-  x.save(); x.translate(cx, cy); x.scale(s, s);
-  if (o.gold) { x.save(); x.globalCompositeOperation = 'lighter'; E(0, 0, 140 + sin(T / 5) * 6, 100, rgrad(0, 0, 10, 140, [[0, 'rgba(255,220,100,.9)'], [1, 'rgba(255,200,60,0)']]), null); x.restore(); }
-  const br = o.broken || 0;
-  for (let i = -6; i <= 6; i++) { const h = 30 + ((i * 37) % 23 + 23) % 23 * 2, w = 8 + (i % 2 ? 4 : 0), dx = i * 13 + (br ? sin(i * 3 + T / 10) * br * 20 : 0), dy = br ? -br * 30 * abs(sin(i)) : 0; R(dx - w / 2, -h - 6 + dy, w, h, '#8a96a8', OL, .7); R(dx - w / 2, 6 - dy, w, h * .7, '#6a7688', OL, .7); for (let j = 0; j < h / 8; j++) R(dx - w / 2 + 2, -h + j * 8 + dy, w - 4, 2, '#ffe9a0', null); }
-  E(0, 0, 100, 16, '#9aa6b8'); E(0, -3, 92, 10, '#b8c4d4', null); R(-6, -70, 12, 64, '#c8d4e4', OL); PG([-6, -70, 6, -70, 0, -96], '#e8f0ff');
-  x.restore();
-}
 async function spaceFlight(back) {
   S = 'scene'; music('space');
-  SCENE = { t: 0, back, draw() {
-    const k = this.t;
-    x.fillStyle = grad(0, 0, 0, H, [[0, '#02030c'], [1, back ? '#2a1a08' : '#0c0a2a']]); x.fillRect(0, 0, W, H);
-    for (let i = 0; i < 120; i++) { const sx = ((i * 137.7) - k * (2 + (i % 5))) % (W + 40); const xx = sx < 0 ? sx + W + 40 : sx; LN(xx, (i * 71.3) % H, xx + 6 + (i % 5) * 2, (i * 71.3) % H, 'rgba(255,255,255,' + (.3 + (i % 4) * .15) + ')', 1); }
-    if (!back) drawCitadel(560 - Math.min(k, 600) * .25, 170, .4 + Math.min(k, 600) / 600 * 1.4);
-    else { drawCitadel(140 + k * .05, 170, 1.4 - Math.min(k, 500) / 500 * .9, { gold: 1, broken: Math.min(1, k / 300) }); }
-    ship(back ? 400 + sin(k / 40) * 10 : 220 + sin(k / 40) * 10, 210 + sin(k / 25) * 8, { fly: 1, sc: .8, crew: () => { drawChar('rick', -16, -40, { sc: .4, noShadow: 1, dir: 'd', talk: SPK === 'rick' }); drawChar('morty', 16, -40, { sc: .42, noShadow: 1, dir: 'd', talk: SPK === 'morty' }); } });
-  } };
+  const crew = () => { drawChar('rick', -16, -40, { sc: .4, noShadow: 1, dir: 'd', talk: SPK === 'rick' }); drawChar('morty', 16, -40, { sc: .42, noShadow: 1, dir: 'd', talk: SPK === 'morty' }); };
+  SCENE = { t: 0, back, draw() { drawSpaceScene(this.t, back, crew); } };   // вся картинка полёта — в 08b_space.js
   await fadeIn(30);
   if (!back) {
     await say([['Морти', 'Рик... а что если это ловушка?'], ['Рик', 'Это стопроцентно ловушка, Морти. Но иногда в ловушку надо зайти, чтобы понять, кто её поставил.'], ['Морти', 'Это... это ужасная философия.'], ['Рик', 'Это вся моя жизнь, Морти. *ррыг* Пристегнись. Подлетаем.']]);
-    await until(() => SCENE.t > 420); await fadeOut(30);
+    await until(() => SCENE.t > SPACE_LEN.in); await fadeOut(30);
     S = 'world'; SCENE = null; G.flags.shipDocked = 1; G.flags.shipGone = 0; G.flags.garageOpen = 0; G.flags.shipFly = 0; G.flags.shipLift = 0;
     PL.hidden = 0; enterArea('cit_dock', 330, 300, 'r'); joinParty('rick'); await fadeIn(30);
     await say([['Морти-охранник', 'Рик C-137 и Морти C-137! Добро пожаловать в Цитадель. Президент ждёт вас.'], ['Рик', 'Морти-охранник. С бластером. Цитадель окончательно сошла с ума.'], ['Морти-охранник', 'Мы все — Морти, сэр. Он дал нам выбор. Проходите на площадь.']]);
     objective('Иди на главную площадь');
   } else {
     await say([['Морти', 'Рик... Цитадель... она...'], ['Рик', 'Падает за Кривую. Вместе с ним. Ну, без него. Он ушёл раньше.'], ['Морти', 'А что там, за Кривой?'], ['Рик', '...Не знаю, Морти. Впервые за очень долгое время — не знаю.', 'sad']]);
-    await until(() => SCENE.t > 360);
+    await until(() => SCENE.t > SPACE_LEN.out);
     await say([['Морти', 'Рик... ты рад, что мы целы?'], ['Рик', 'Морти... спасибо, что не дал ему меня... ну... ты понял.'], ['Морти', 'Ты сказал «спасибо»?!', 'shock'], ['Рик', 'Я сказал «*ррыг*». Тебе послышалось. Летим домой.', 'smug']]);
     await fadeOut(30);
     S = 'world'; SCENE = null; G.flags = Object.assign(G.flags, { escape: 0, shipDocked: 0, shipGone: 0, goldPortal: 0, garageOpen: 0, shipFly: 0, shipLift: 0, shipCrew: null });

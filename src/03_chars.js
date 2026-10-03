@@ -15,6 +15,10 @@ defChar('morty', { name: 'Морти', voice: 'morty', skin: '#f8d3b0', leg: 22,
 defChar('evil', { name: 'Злой Морти', voice: 'evil', skin: '#f8d3b0', leg: 22, legW: 7.4, hipW: 13, pants: '#25365e', shoe: '#f4f4f2', shoeK: 'sneaker',
   torso: 22, shW: 20, waist: 18, shirt: '#e2e86c', arm: 20, armW: 4.8, neck: 1.5, neckW: 6, hw: 26, hh: 24.5, jaw: .78, chin: .5, cheek: -.05,
   eyeR: 4.7, eyeGap: 4.5, eyeY: -.5, pup: 1.05, hair: '#674326', hk: 'morty', brow: 'thin', nose: 'morty', mouth: 'flat', mouthY: 8.2, mouthW: 4, pose: 'hips', emo: 'angry', patch: 1 });
+// Президент Морти: тот же Морти в строгом костюме, без повязки (повязку надевает только в финале — presevil)
+defChar('president', Object.assign({}, CH.evil, { name: 'Президент Морти', shirt: '#2c2f3e', top: 'suit', tie: '#c8323c', sleeve: 'long', sleeveC: '#2c2f3e',
+  pants: '#2c2f3e', shoe: '#1e1e22', shoeK: 'shoe', brow: 'thin', mouth: 'flat', pose: 'behind', emo: 'n', patch: 0 }));
+defChar('presevil', Object.assign({}, CH.president, { name: 'Злой Морти', patch: 1, emo: 'angry', pose: 'hips' }));
 defChar('rick', { name: 'Рик', voice: 'rick', skin: '#f2e2c8', leg: 34, legW: 7, hipW: 13, pants: '#7b5d3b', shoe: '#3a3534', shoeK: 'shoe',
   torso: 30, shW: 22, waist: 17, shirt: '#8fd3e6', top: 'coat', sleeve: 'long', sleeveC: '#f5f7f8', arm: 29, armW: 5, neck: 4, neckW: 5.5,
   hw: 22, hh: 26, jaw: .6, chin: .3, cheek: .05, eyeR: 4.1, eyeGap: 4.2, eyeY: -1.5, pup: .8, hair: '#a9dcea', hk: 'rick', brow: 'uni', nose: 'rick', mouth: 'rick', mouthY: 9.5, mouthW: 6, pose: 'gun', emo: 'tired' });
