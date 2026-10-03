@@ -1,0 +1,1344 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+<External>null</External>
+<External>nil</External>
+<Item class="Workspace" referent="RBX00000001"><Properties><string name="Name">Workspace</string></Properties></Item>
+<Item class="ReplicatedStorage" referent="RBX00000003"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="ModuleScript" referent="RBX00000002"><Properties><string name="Name">Abilities</string><ProtectedString name="Source"><![CDATA[-- Способности: редкость, шанс «1 к N», цвет, перезарядка, описание.
+-- Общий модуль: его читают и сервер (ролл, бой), и клиент (интерфейс).
+local Abilities = {}
+
+Abilities.Rarities = {
+	common    = { name = "Обычная",     color = Color3.fromRGB(200, 205, 215), order = 1 },
+	uncommon  = { name = "Необычная",   color = Color3.fromRGB(90, 225, 110),  order = 2 },
+	rare      = { name = "Редкая",      color = Color3.fromRGB(70, 155, 255),  order = 3 },
+	epic      = { name = "Эпическая",   color = Color3.fromRGB(185, 95, 255),  order = 4 },
+	legendary = { name = "Легендарная", color = Color3.fromRGB(255, 200, 40),  order = 5 },
+	mythic    = { name = "Мифическая",  color = Color3.fromRGB(255, 60, 95),   order = 6 },
+}
+
+Abilities.List = {
+	{ id = "Fire",      name = "Огонь",      rarity = "common",    chance = 2,    cooldown = 2.5, color = Color3.fromRGB(255, 120, 30),
+	  desc = "Огненный шар летит вперёд и взрывается, отбрасывая всех рядом." },
+	{ id = "Water",     name = "Вода",       rarity = "common",    chance = 3,    cooldown = 3,   color = Color3.fromRGB(40, 150, 255),
+	  desc = "Волна сносит всех, кто стоит перед тобой." },
+	{ id = "Earth",     name = "Земля",      rarity = "uncommon",  chance = 6,    cooldown = 4,   color = Color3.fromRGB(165, 110, 60),
+	  desc = "Удар о землю: камни подбрасывают врагов вокруг тебя." },
+	{ id = "Wind",      name = "Ветер",      rarity = "uncommon",  chance = 10,   cooldown = 3.5, color = Color3.fromRGB(190, 255, 230),
+	  desc = "Рывок-ураган: летишь вперёд и сдуваешь всех на пути." },
+	{ id = "Lightning", name = "Молния",     rarity = "rare",      chance = 25,   cooldown = 5,   color = Color3.fromRGB(255, 240, 90),
+	  desc = "Молния бьёт ближайшего врага и оглушает его." },
+	{ id = "Ice",       name = "Лёд",        rarity = "rare",      chance = 50,   cooldown = 5,   color = Color3.fromRGB(150, 230, 255),
+	  desc = "Ледяной осколок замораживает врага на 2 секунды." },
+	{ id = "Shadow",    name = "Тень",       rarity = "epic",      chance = 120,  cooldown = 6,   color = Color3.fromRGB(120, 70, 175),
+	  desc = "Телепорт за спину врага и мощный удар." },
+	{ id = "Gravity",   name = "Гравитация", rarity = "legendary", chance = 400,  cooldown = 8,   color = Color3.fromRGB(160, 80, 255),
+	  desc = "Чёрная дыра затягивает врагов и взрывается." },
+	{ id = "Meteor",    name = "Метеор",     rarity = "mythic",    chance = 1000, cooldown = 10,  color = Color3.fromRGB(255, 70, 40),
+	  desc = "С неба падает метеор. Огромный взрыв сносит всех вокруг." },
+}
+
+-- Удар ладонью есть у всех всегда (отдельная кнопка), его не роллят
+Abilities.Slap = { id = "Slap", name = "Удар", cooldown = 0.8, color = Color3.fromRGB(255, 214, 170) }
+
+Abilities.ById = {}
+for i, a in ipairs(Abilities.List) do
+	a.index = i
+	Abilities.ById[a.id] = a
+end
+
+function Abilities.rarity(a)
+	return Abilities.Rarities[a.rarity]
+end
+
+function Abilities.chanceText(a)
+	return "1 к " .. tostring(a.chance)
+end
+
+-- от самой редкой к самой частой: так удобно роллить
+function Abilities.sortedByRarity()
+	local t = {}
+	for _, a in ipairs(Abilities.List) do table.insert(t, a) end
+	table.sort(t, function(x, y) return x.chance > y.chance end)
+	return t
+end
+
+return Abilities
+]]></ProtectedString></Properties></Item></Item>
+<Item class="ServerScriptService" referent="RBX00000006"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="ModuleScript" referent="RBX00000004"><Properties><string name="Name">MapBuilder</string><ProtectedString name="Source"><![CDATA[-- Строит карту при запуске: лобби на летающем острове (с порталом на арену) и арену.
+-- Если в Workspace уже есть папка "Map" (например, ты сохранил карту и что-то поменял руками) — ничего не строится заново.
+local Lighting = game:GetService("Lighting")
+
+local Map = {}
+Map.LOBBY = Vector3.new(0, 140, 320)   -- центр лобби (верх травы)
+Map.ARENA = Vector3.new(0, 0, 0)       -- центр арены (верх травы)
+Map.VOID_Y = -70                       -- ниже этой высоты игрок «падает в пустоту»
+Map.ArenaSpawns = {}
+
+local rng = Random.new(1337)
+
+local function make(class, props)
+	local p = Instance.new(class)
+	if p:IsA("BasePart") then
+		p.Anchored = true
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+	end
+	local parent = props.Parent
+	props.Parent = nil
+	for k, v in pairs(props) do p[k] = v end
+	p.Parent = parent
+	return p
+end
+Map.make = make
+
+local GRASS = Color3.fromRGB(96, 170, 70)
+local GRASS2 = Color3.fromRGB(78, 150, 58)
+local DIRT = Color3.fromRGB(120, 84, 52)
+local ROCK = Color3.fromRGB(110, 105, 112)
+local ROCK2 = Color3.fromRGB(88, 84, 92)
+
+-- вертикальный цилиндр: center — центр, диаметр d, высота h
+local function cyl(parent, center, d, h, color, material, name)
+	return make("Part", {
+		Name = name or "Cyl", Shape = Enum.PartType.Cylinder, Size = Vector3.new(h, d, d),
+		CFrame = CFrame.new(center) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = color, Material = material or Enum.Material.SmoothPlastic, Parent = parent,
+	})
+end
+local function ball(parent, center, d, color, material, name)
+	return make("Part", { Name = name or "Ball", Shape = Enum.PartType.Ball, Size = Vector3.new(d, d, d), CFrame = CFrame.new(center),
+		Color = color, Material = material or Enum.Material.SmoothPlastic, Parent = parent })
+end
+local function block(parent, cf, size, color, material, name)
+	return make("Part", { Name = name or "Block", Size = size, CFrame = cf, Color = color, Material = material or Enum.Material.SmoothPlastic, Parent = parent })
+end
+
+-- летающий остров: трава сверху, земля, каменные слои книзу, «сосульки» камней
+local function island(parent, top, radius)
+	cyl(parent, top - Vector3.new(0, 2, 0), radius * 2, 4, GRASS, Enum.Material.Grass, "Grass")
+	cyl(parent, top - Vector3.new(0, 6, 0), radius * 2 - 2, 4, DIRT, Enum.Material.Ground, "Dirt")
+	local y = top.Y - 8
+	for i = 1, 6 do
+		local r = radius * (1 - i * 0.14)
+		if r < 4 then break end
+		cyl(parent, Vector3.new(top.X, y - 5, top.Z), r * 2, 10, (i % 2 == 0) and ROCK or ROCK2, Enum.Material.Slate, "Rock")
+		y = y - 10
+	end
+	for i = 1, math.floor(radius / 3) do
+		local a = rng:NextNumber() * math.pi * 2
+		local d = rng:NextNumber() * radius * 0.85
+		local depth = 10 + (1 - d / radius) * 45 * rng:NextNumber()
+		ball(parent, Vector3.new(top.X + math.cos(a) * d, top.Y - 8 - depth * 0.6, top.Z + math.sin(a) * d), 6 + rng:NextNumber() * 10, ROCK2, Enum.Material.Slate, "RockChunk")
+	end
+	-- кочки и кустики травы на краях
+	for i = 1, math.floor(radius / 2) do
+		local a = rng:NextNumber() * math.pi * 2
+		local d = radius * (0.75 + rng:NextNumber() * 0.2)
+		ball(parent, Vector3.new(top.X + math.cos(a) * d, top.Y - 0.6, top.Z + math.sin(a) * d), 3 + rng:NextNumber() * 3, GRASS2, Enum.Material.Grass, "Bush")
+	end
+end
+
+local function tree(parent, base, s)
+	s = s or 1
+	cyl(parent, base + Vector3.new(0, 6 * s, 0), 2.2 * s, 12 * s, Color3.fromRGB(105, 70, 42), Enum.Material.Wood, "Trunk")
+	local leaf = { Color3.fromRGB(62, 150, 62), Color3.fromRGB(80, 172, 70), Color3.fromRGB(52, 128, 56) }
+	ball(parent, base + Vector3.new(0, 14 * s, 0), 11 * s, leaf[1], Enum.Material.Grass, "Leaves")
+	ball(parent, base + Vector3.new(3.5 * s, 12.5 * s, 1 * s), 8 * s, leaf[2], Enum.Material.Grass, "Leaves")
+	ball(parent, base + Vector3.new(-3 * s, 13 * s, -2 * s), 8 * s, leaf[3], Enum.Material.Grass, "Leaves")
+	ball(parent, base + Vector3.new(0.5 * s, 17.5 * s, 0), 7 * s, leaf[2], Enum.Material.Grass, "Leaves")
+end
+
+local function rock(parent, base, s)
+	local p = block(parent, CFrame.new(base + Vector3.new(0, 1.5 * s, 0)) * CFrame.Angles(rng:NextNumber() * 0.6, rng:NextNumber() * 6, rng:NextNumber() * 0.6),
+		Vector3.new(4, 3, 3.5) * s, ROCK, Enum.Material.Slate, "Stone")
+	return p
+end
+
+local function crystal(parent, base, h, color)
+	local p = block(parent, CFrame.new(base + Vector3.new(0, h / 2, 0)) * CFrame.Angles(rng:NextNumber() * 0.4 - 0.2, rng:NextNumber() * 6, rng:NextNumber() * 0.4 - 0.2),
+		Vector3.new(h * 0.28, h, h * 0.28), color, Enum.Material.Neon, "Crystal")
+	make("PointLight", { Color = color, Range = 14, Brightness = 1.5, Parent = p })
+	return p
+end
+
+local function lamp(parent, base, color)
+	cyl(parent, base + Vector3.new(0, 4, 0), 0.8, 8, Color3.fromRGB(60, 60, 70), Enum.Material.Metal, "LampPost")
+	local b = ball(parent, base + Vector3.new(0, 8.6, 0), 1.8, color, Enum.Material.Neon, "LampLight")
+	make("PointLight", { Color = color, Range = 18, Brightness = 2, Parent = b })
+end
+
+local function sign(parent, pos, text, color, size)
+	local anchor = make("Part", { Name = "SignAnchor", Size = Vector3.new(1, 1, 1), Transparency = 1, CanCollide = false, CanQuery = false, CFrame = CFrame.new(pos), Parent = parent })
+	local bb = make("BillboardGui", { Size = UDim2.new(0, size or 400, 0, (size or 400) / 4), AlwaysOnTop = false, LightInfluence = 0, MaxDistance = 250, Parent = anchor })
+	make("TextLabel", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = text, TextColor3 = color, TextScaled = true,
+		Font = Enum.Font.FredokaOne, TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(20, 15, 35), Parent = bb })
+	return anchor
+end
+
+local function buildLighting()
+	Lighting.ClockTime = 15.2
+	Lighting.Brightness = 2.2
+	Lighting.Ambient = Color3.fromRGB(70, 70, 90)
+	Lighting.OutdoorAmbient = Color3.fromRGB(130, 130, 150)
+	Lighting.GlobalShadows = true
+	make("Atmosphere", { Density = 0.28, Offset = 0.15, Color = Color3.fromRGB(200, 210, 255), Decay = Color3.fromRGB(110, 120, 170), Glare = 0.4, Haze = 1.4, Parent = Lighting })
+	make("BloomEffect", { Intensity = 0.6, Size = 26, Threshold = 1.6, Parent = Lighting })
+	make("ColorCorrectionEffect", { Saturation = 0.15, Contrast = 0.06, Parent = Lighting })
+	make("SunRaysEffect", { Intensity = 0.07, Spread = 0.6, Parent = Lighting })
+end
+
+local function buildLobby(root)
+	local lobby = make("Model", { Name = "Lobby", Parent = root })
+	local L = Map.LOBBY
+	island(lobby, L, 52)
+	-- площадь из плитки и дорожка к порталу
+	cyl(lobby, L + Vector3.new(0, 0.15, 0), 40, 0.3, Color3.fromRGB(205, 205, 215), Enum.Material.Slate, "Plaza")
+	cyl(lobby, L + Vector3.new(0, 0.2, 0), 30, 0.3, Color3.fromRGB(170, 170, 185), Enum.Material.Slate, "PlazaInner")
+	block(lobby, CFrame.new(L + Vector3.new(0, 0.15, -32)), Vector3.new(10, 0.3, 26), Color3.fromRGB(190, 190, 200), Enum.Material.Slate, "Path")
+	-- точка появления
+	make("SpawnLocation", { Name = "LobbySpawn", Size = Vector3.new(12, 1, 12), CFrame = CFrame.new(L + Vector3.new(0, 0.6, 10)), Neutral = true, Duration = 0,
+		AllowTeamChangeOnTouch = false, Color = Color3.fromRGB(120, 90, 255), Material = Enum.Material.Neon, Transparency = 0.35, Parent = lobby })
+	-- кристалл удачи в центре
+	cyl(lobby, L + Vector3.new(0, 1.5, 0), 9, 3, Color3.fromRGB(70, 65, 90), Enum.Material.Marble, "Pedestal")
+	local cr = block(lobby, CFrame.new(L + Vector3.new(0, 9, 0)) * CFrame.Angles(0, 0, math.rad(45)) * CFrame.Angles(math.rad(45), 0, 0),
+		Vector3.new(5, 5, 5), Color3.fromRGB(170, 110, 255), Enum.Material.Neon, "LuckCrystal")
+	make("PointLight", { Color = Color3.fromRGB(170, 110, 255), Range = 30, Brightness = 3, Parent = cr })
+	sign(lobby, L + Vector3.new(0, 17, 0), "СТИХИЙНЫЕ БИТВЫ RNG", Color3.fromRGB(255, 220, 90), 520)
+	-- портал на арену (кольцо + светящийся диск, который телепортирует)
+	local pc = L + Vector3.new(0, 0, -44)
+	for i = 0, 23 do
+		local a = i / 24 * math.pi * 2
+		local p = block(lobby, CFrame.new(pc + Vector3.new(math.cos(a) * 9.5, 10 + math.sin(a) * 9.5, 0)) * CFrame.Angles(0, 0, a),
+			Vector3.new(2.6, 2.6, 2.6), (i % 2 == 0) and Color3.fromRGB(150, 70, 255) or Color3.fromRGB(90, 40, 200), Enum.Material.Neon, "PortalRing")
+		p.CanCollide = false
+	end
+	local disc = make("Part", { Name = "PortalTrigger", Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.5, 18, 18),
+		CFrame = CFrame.new(pc + Vector3.new(0, 10, 0)) * CFrame.Angles(0, math.rad(90), 0), Color = Color3.fromRGB(170, 100, 255),
+		Material = Enum.Material.Neon, Transparency = 0.45, CanCollide = false, Parent = lobby })
+	make("PointLight", { Color = Color3.fromRGB(170, 100, 255), Range = 40, Brightness = 4, Parent = disc })
+	make("ParticleEmitter", { Color = ColorSequence.new(Color3.fromRGB(200, 150, 255)), LightEmission = 1, Rate = 40, Lifetime = NumberRange.new(0.8, 1.4),
+		Speed = NumberRange.new(2, 6), SpreadAngle = Vector2.new(180, 180), Size = NumberSequence.new(0.8, 0), Parent = disc })
+	sign(lobby, pc + Vector3.new(0, 23, 0), "НА АРЕНУ!", Color3.fromRGB(200, 160, 255), 300)
+	cyl(lobby, pc + Vector3.new(0, 0.25, 0), 16, 0.5, Color3.fromRGB(120, 70, 220), Enum.Material.Neon, "PortalPad")
+	-- деревья, фонари, кристаллы
+	for _, v in ipairs({ { -30, 18 }, { 32, 22 }, { -36, -14 }, { 38, -16 }, { 12, 40 }, { -16, 42 } }) do tree(lobby, L + Vector3.new(v[1], 0, v[2]), 0.9 + rng:NextNumber() * 0.3) end
+	for i = 0, 7 do local a = i / 8 * math.pi * 2 + 0.2; lamp(lobby, L + Vector3.new(math.cos(a) * 22, 0, math.sin(a) * 22), Color3.fromRGB(255, 220, 140)) end
+	for _, v in ipairs({ { -44, 6 }, { 44, 4 }, { -10, -46 }, { 22, 44 } }) do crystal(lobby, L + Vector3.new(v[1], 0, v[2]), 6 + rng:NextNumber() * 4, Color3.fromRGB(120, 200, 255)) end
+	return lobby
+end
+
+local function buildArena(root)
+	local arena = make("Model", { Name = "Arena", Parent = root })
+	local A = Map.ARENA
+	island(arena, A, 92)
+	-- центральное плато и ступени к летающим площадкам
+	cyl(arena, A + Vector3.new(0, 2, 0), 44, 4, GRASS2, Enum.Material.Grass, "Plateau")
+	cyl(arena, A + Vector3.new(0, 4.1, 0), 18, 0.2, Color3.fromRGB(200, 190, 160), Enum.Material.Sandstone, "PlateauCircle")
+	for i = 0, 3 do
+		local a = i / 4 * math.pi * 2 + math.pi / 4
+		local dir = Vector3.new(math.cos(a), 0, math.sin(a))
+		cyl(arena, A + dir * 30 + Vector3.new(0, 4, 0), 7, 2, Color3.fromRGB(150, 145, 160), Enum.Material.Slate, "Step")
+		cyl(arena, A + dir * 38 + Vector3.new(0, 8, 0), 7, 2, Color3.fromRGB(150, 145, 160), Enum.Material.Slate, "Step")
+		local pl = cyl(arena, A + dir * 50 + Vector3.new(0, 12, 0), 18, 2.5, Color3.fromRGB(185, 180, 195), Enum.Material.Concrete, "FloatPlatform")
+		cyl(arena, pl.Position - Vector3.new(0, 1.6, 0), 19, 0.6, Color3.fromRGB(255, 160, 60), Enum.Material.Neon, "PlatformGlow")
+	end
+	-- украшения
+	for i = 1, 9 do
+		local a = rng:NextNumber() * math.pi * 2
+		local d = 30 + rng:NextNumber() * 50
+		tree(arena, A + Vector3.new(math.cos(a) * d, 0, math.sin(a) * d), 0.8 + rng:NextNumber() * 0.4)
+	end
+	for i = 1, 14 do
+		local a = rng:NextNumber() * math.pi * 2
+		local d = 26 + rng:NextNumber() * 60
+		rock(arena, A + Vector3.new(math.cos(a) * d, 0, math.sin(a) * d), 0.8 + rng:NextNumber() * 1.2)
+	end
+	for i = 1, 6 do
+		local a = rng:NextNumber() * math.pi * 2
+		local d = 60 + rng:NextNumber() * 25
+		crystal(arena, A + Vector3.new(math.cos(a) * d, 0, math.sin(a) * d), 5 + rng:NextNumber() * 5, (i % 2 == 0) and Color3.fromRGB(255, 120, 200) or Color3.fromRGB(120, 220, 255))
+	end
+	-- точки появления на арене (по кругу)
+	for i = 0, 9 do
+		local a = i / 10 * math.pi * 2
+		table.insert(Map.ArenaSpawns, A + Vector3.new(math.cos(a) * 62, 0, math.sin(a) * 62))
+	end
+	return arena
+end
+
+-- манекены для тренировки (можно сбивать, когда ты один на сервере)
+function Map.makeDummy(parent, pos, n)
+	local m = Instance.new("Model")
+	m.Name = "Манекен" .. n
+	local base = make("Part", { Name = "Base", Shape = Enum.PartType.Cylinder, Size = Vector3.new(1, 5, 5), CFrame = CFrame.new(pos + Vector3.new(0, 0.5, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(90, 70, 50), Material = Enum.Material.Wood, Anchored = false, Parent = m })
+	local body = make("Part", { Name = "Body", Size = Vector3.new(2.6, 3.2, 1.6), CFrame = CFrame.new(pos + Vector3.new(0, 3.6, 0)), Color = Color3.fromRGB(220, 190, 130),
+		Material = Enum.Material.Fabric, Anchored = false, Parent = m })
+	local head = make("Part", { Name = "Head", Shape = Enum.PartType.Ball, Size = Vector3.new(2.2, 2.2, 2.2), CFrame = CFrame.new(pos + Vector3.new(0, 6.3, 0)), Color = Color3.fromRGB(235, 205, 150),
+		Material = Enum.Material.Fabric, Anchored = false, Parent = m })
+	local pole = make("Part", { Name = "Pole", Size = Vector3.new(0.5, 2, 0.5), CFrame = CFrame.new(pos + Vector3.new(0, 1.6, 0)), Color = Color3.fromRGB(90, 70, 50), Material = Enum.Material.Wood, Anchored = false, Parent = m })
+	local face = make("Decal", { Texture = "rbxasset://textures/face.png", Face = Enum.NormalId.Front, Parent = head })
+	for _, p in ipairs({ body, head, pole }) do make("WeldConstraint", { Part0 = base, Part1 = p, Parent = base }) end
+	m.PrimaryPart = body
+	m:SetAttribute("Home", pos)
+	m.Parent = parent
+	for _, p in ipairs({ base, body, head, pole }) do pcall(function() p:SetNetworkOwner(nil) end) end
+	return m
+end
+
+function Map.build()
+	buildLighting()
+	local existing = workspace:FindFirstChild("Map")
+	if existing then
+		-- карта уже сохранена в месте: только восстанавливаем точки появления арены
+		for i = 0, 9 do
+			local a = i / 10 * math.pi * 2
+			table.insert(Map.ArenaSpawns, Map.ARENA + Vector3.new(math.cos(a) * 62, 0, math.sin(a) * 62))
+		end
+		return existing
+	end
+	local root = Instance.new("Folder")
+	root.Name = "Map"
+	root.Parent = workspace
+	buildLobby(root)
+	buildArena(root)
+	return root
+end
+
+return Map
+]]></ProtectedString></Properties></Item><Item class="Script" referent="RBX00000005"><Properties><string name="Name">GameServer</string><ProtectedString name="Source"><![CDATA[-- Сервер «Стихийных битв RNG»: карта, данные игроков, роллы, портал на арену, бой и способности.
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+local TweenService = game:GetService("TweenService")
+local DataStoreService = game:GetService("DataStoreService")
+
+local Abilities = require(RS:WaitForChild("Abilities"))
+local Map = require(script.Parent:WaitForChild("MapBuilder"))
+
+Players.CharacterAutoLoads = false   -- персонажи появляются, только когда карта готова
+local mapRoot = Map.build()
+local portal = mapRoot:WaitForChild("Lobby"):WaitForChild("PortalTrigger")
+local luckCrystal = mapRoot.Lobby:FindFirstChild("LuckCrystal")
+
+---------------------------------------------------------------- удалённые события
+local remotes = Instance.new("Folder")
+remotes.Name = "Remotes"
+local function remote(class, name) local r = Instance.new(class); r.Name = name; r.Parent = remotes; return r end
+local RollFn = remote("RemoteFunction", "Roll")
+local EquipFn = remote("RemoteFunction", "Equip")
+local GetDataFn = remote("RemoteFunction", "GetData")
+local BuyLuckFn = remote("RemoteFunction", "BuyLuck")
+local UseEv = remote("RemoteEvent", "Use")
+local AnnounceEv = remote("RemoteEvent", "Announce")
+local DataEv = remote("RemoteEvent", "DataUpdate")
+local ShakeEv = remote("RemoteEvent", "Shake")
+remotes.Parent = RS
+
+---------------------------------------------------------------- данные (сохраняются в DataStore)
+local store = nil
+do
+	local ok, err = pcall(function() store = DataStoreService:GetDataStore("ElementRNG_v1") end)
+	if not ok then warn("[RNG] Сохранение недоступно (опубликуй место и включи API в настройках): " .. tostring(err)) end
+end
+
+local Data = {}       -- [player] = { coins, kills, rolls, owned = {id = кол-во}, equipped, luckUntil }
+local LUCK_COST, LUCK_TIME = 50, 300
+
+local function loadData(plr)
+	local d = { coins = 0, kills = 0, rolls = 0, owned = {}, equipped = nil, luckUntil = 0 }
+	if store then
+		local ok, saved = pcall(function() return store:GetAsync("u" .. plr.UserId) end)
+		if ok and type(saved) == "table" then
+			d.coins = tonumber(saved.coins) or 0
+			d.kills = tonumber(saved.kills) or 0
+			d.rolls = tonumber(saved.rolls) or 0
+			if type(saved.owned) == "table" then
+				for id, n in pairs(saved.owned) do if Abilities.ById[id] then d.owned[id] = tonumber(n) or 1 end end
+			end
+			if type(saved.equipped) == "string" and d.owned[saved.equipped] then d.equipped = saved.equipped end
+		elseif not ok then
+			warn("[RNG] Не удалось загрузить данные: " .. tostring(saved))
+		end
+	end
+	return d
+end
+
+local function saveData(plr)
+	local d = Data[plr]
+	if not d or not store then return end
+	local ok, err = pcall(function()
+		store:SetAsync("u" .. plr.UserId, { coins = d.coins, kills = d.kills, rolls = d.rolls, owned = d.owned, equipped = d.equipped })
+	end)
+	if not ok then warn("[RNG] Не удалось сохранить: " .. tostring(err)) end
+end
+
+local function pack(plr)
+	local d = Data[plr]
+	if not d then return nil end
+	return { owned = d.owned, equipped = d.equipped, coins = d.coins, kills = d.kills, rolls = d.rolls,
+		luckLeft = math.max(0, d.luckUntil - os.clock()), luckCost = LUCK_COST }
+end
+
+local function syncStats(plr)
+	local d, ls = Data[plr], plr:FindFirstChild("leaderstats")
+	if not d or not ls then return end
+	ls["Убийства"].Value = d.kills
+	ls["Монеты"].Value = d.coins
+	ls["Роллы"].Value = d.rolls
+end
+
+local function pushData(plr)
+	local p = pack(plr)
+	if p then DataEv:FireClient(plr, p) end
+end
+
+---------------------------------------------------------------- цели и отбрасывание
+local dummiesFolder = Instance.new("Folder")
+dummiesFolder.Name = "Dummies"
+dummiesFolder.Parent = mapRoot
+for i = 1, 4 do
+	local a = i / 4 * math.pi * 2
+	Map.makeDummy(dummiesFolder, Map.ARENA + Vector3.new(math.cos(a) * 22, 4.2, math.sin(a) * 22), i)
+end
+
+local lastHit = {}    -- [player или манекен] = { by = player, t = время }
+
+local function alive(plr)
+	local c = plr.Character
+	if not c then return nil end
+	local hum = c:FindFirstChildOfClass("Humanoid")
+	local hrp = c:FindFirstChild("HumanoidRootPart")
+	if hum and hrp and hum.Health > 0 then return c, hum, hrp end
+	return nil
+end
+
+-- все, кого можно ударить: игроки на арене и манекены
+local function allTargets(attacker)
+	local list = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= attacker and p:GetAttribute("InArena") then
+			local c, hum, hrp = alive(p)
+			if c then table.insert(list, { plr = p, char = c, hum = hum, hrp = hrp, key = p }) end
+		end
+	end
+	for _, m in ipairs(dummiesFolder:GetChildren()) do
+		if m.PrimaryPart and not m:GetAttribute("Down") then table.insert(list, { model = m, hrp = m.PrimaryPart, key = m }) end
+	end
+	return list
+end
+
+local function targetsNear(attacker, pos, radius)
+	local out = {}
+	for _, t in ipairs(allTargets(attacker)) do
+		if (t.hrp.Position - pos).Magnitude <= radius then table.insert(out, t) end
+	end
+	return out
+end
+
+local function nearestTarget(attacker, pos, dir, range, minDot)
+	local best, bestD = nil, math.huge
+	for _, t in ipairs(allTargets(attacker)) do
+		local to = t.hrp.Position - pos
+		local flat = Vector3.new(to.X, 0, to.Z)
+		local dist = flat.Magnitude
+		if dist <= range and dist < bestD and (dist < 0.1 or flat.Unit:Dot(dir) >= minDot) then best, bestD = t, dist end
+	end
+	return best
+end
+
+local function protected(t)
+	return t.char and (t.char:GetAttribute("ProtectedUntil") or 0) > os.clock()
+end
+
+local function flatUnit(v)
+	local f = Vector3.new(v.X, 0, v.Z)
+	if f.Magnitude < 0.01 then return Vector3.new(0, 0, 0) end
+	return f.Unit
+end
+
+-- главный «удар»: отбросить цель в направлении dir с силой power и подбросом up
+local function knock(t, attacker, dir, power, up)
+	if protected(t) then return false end
+	lastHit[t.key] = { by = attacker, t = os.clock() }
+	local v = flatUnit(dir) * power + Vector3.new(0, up, 0)
+	if t.model then
+		t.hrp.Anchored = false
+		t.hrp.AssemblyLinearVelocity = v
+		t.hrp.AssemblyAngularVelocity = Vector3.new(math.random() * 8 - 4, math.random() * 8 - 4, math.random() * 8 - 4)
+	else
+		local bv = Instance.new("BodyVelocity")
+		bv.Name = "Knock"
+		bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+		bv.P = 1e5
+		bv.Velocity = v
+		bv.Parent = t.hrp
+		Debris:AddItem(bv, 0.22)
+		t.hum.PlatformStand = true
+		task.delay(1, function() if t.hum.Parent then t.hum.PlatformStand = false end end)
+	end
+	return true
+end
+
+local function stun(t, sec)
+	if not t.hum or protected(t) then return end
+	local hum = t.hum
+	hum.WalkSpeed = 0
+	hum.JumpHeight = 0
+	task.delay(sec, function() if hum.Parent then hum.WalkSpeed = 16; hum.JumpHeight = 7.2 end end)
+end
+
+---------------------------------------------------------------- эффекты
+local fxFolder = Instance.new("Folder")
+fxFolder.Name = "FX"
+fxFolder.Parent = workspace
+
+local function fx(props)
+	props.Anchored = true
+	props.CanCollide = false
+	props.CanQuery = false
+	props.CanTouch = false
+	props.CastShadow = false
+	props.Parent = props.Parent or fxFolder
+	return Map.make("Part", props)
+end
+
+local function tween(obj, t, goal, style)
+	local tw = TweenService:Create(obj, TweenInfo.new(t, style or Enum.EasingStyle.Quad, Enum.EasingDirection.Out), goal)
+	tw:Play()
+	return tw
+end
+
+local function burst(pos, color, size, t, material)
+	t = t or 0.4
+	local s = fx({ Shape = Enum.PartType.Ball, Size = Vector3.new(1, 1, 1), Color = color, Material = material or Enum.Material.Neon, CFrame = CFrame.new(pos), Transparency = 0.15 })
+	tween(s, t, { Size = Vector3.new(size, size, size), Transparency = 1 })
+	Debris:AddItem(s, t + 0.1)
+	return s
+end
+
+local function emitter(parent, color, rate, size, life, speed)
+	return Map.make("ParticleEmitter", { Color = ColorSequence.new(color), LightEmission = 0.8, Rate = rate or 60,
+		Size = NumberSequence.new(size or 1.4, 0), Lifetime = NumberRange.new(life or 0.4, (life or 0.4) * 1.6),
+		Speed = NumberRange.new(math.min(speed or 4, (speed or 4) * 2), math.max(speed or 4, (speed or 4) * 2)), SpreadAngle = Vector2.new(180, 180), Parent = parent })
+end
+
+local function light(parent, color, range)
+	return Map.make("PointLight", { Color = color, Range = range or 16, Brightness = 3, Parent = parent })
+end
+
+local function smoke(pos, color)
+	burst(pos, color or Color3.fromRGB(40, 20, 60), 9, 0.45, Enum.Material.SmoothPlastic)
+	local p = fx({ Size = Vector3.new(1, 1, 1), Transparency = 1, CFrame = CFrame.new(pos) })
+	local e = emitter(p, color or Color3.fromRGB(70, 30, 100), 0, 3, 0.6, 6)
+	e.LightEmission = 0.2
+	e:Emit(30)
+	Debris:AddItem(p, 1.2)
+end
+
+local function bolt(from, to, color)
+	local pts = { from }
+	for i = 1, 7 do
+		local a = from:Lerp(to, i / 8)
+		table.insert(pts, a + Vector3.new(math.random() * 6 - 3, 0, math.random() * 6 - 3))
+	end
+	table.insert(pts, to)
+	for i = 1, #pts - 1 do
+		local a, b = pts[i], pts[i + 1]
+		local seg = fx({ Size = Vector3.new(0.7, 0.7, (b - a).Magnitude), CFrame = CFrame.lookAt((a + b) / 2, b), Color = color, Material = Enum.Material.Neon })
+		tween(seg, 0.3, { Transparency = 1, Size = Vector3.new(0.1, 0.1, (b - a).Magnitude) })
+		Debris:AddItem(seg, 0.35)
+	end
+end
+
+-- снаряд: летит по прямой, при попадании (или через life секунд) вызывает onHit(позиция, цель или nil)
+local function projectile(attacker, startPos, dir, speed, life, radius, part, onHit)
+	local pos, t0, done = startPos, os.clock(), false
+	part.CFrame = CFrame.new(pos)
+	local conn
+	conn = RunService.Heartbeat:Connect(function(dt)
+		if done then return end
+		pos = pos + dir * speed * dt
+		part.CFrame = CFrame.lookAt(pos, pos + dir)
+		local hit = nil
+		for _, t in ipairs(targetsNear(attacker, pos, radius)) do hit = t; break end
+		if hit or os.clock() - t0 > life then
+			done = true
+			conn:Disconnect()
+			part:Destroy()
+			onHit(pos, hit)
+		end
+	end)
+end
+
+---------------------------------------------------------------- способности
+local Abil = {}
+
+Abil.Slap = function(plr, hrp, dir)
+	local center = hrp.Position + dir * 4
+	burst(center, Color3.fromRGB(255, 235, 205), 5, 0.22)
+	for _, t in ipairs(targetsNear(plr, center, 6.5)) do knock(t, plr, dir, 62, 26) end
+end
+
+Abil.Fire = function(plr, hrp, dir)
+	local orange = Color3.fromRGB(255, 120, 30)
+	local ball = fx({ Shape = Enum.PartType.Ball, Size = Vector3.new(3.2, 3.2, 3.2), Color = orange, Material = Enum.Material.Neon })
+	emitter(ball, Color3.fromRGB(255, 170, 60), 80, 2.2, 0.35, 3)
+	light(ball, orange, 18)
+	projectile(plr, hrp.Position + dir * 4 + Vector3.new(0, 1, 0), dir, 95, 1.1, 5, ball, function(pos)
+		burst(pos, orange, 22, 0.45)
+		burst(pos, Color3.fromRGB(255, 230, 120), 12, 0.3)
+		for _, t in ipairs(targetsNear(plr, pos, 12)) do knock(t, plr, t.hrp.Position - pos + dir * 3, 78, 48) end
+	end)
+end
+
+Abil.Water = function(plr, hrp, dir)
+	local blue = Color3.fromRGB(40, 150, 255)
+	local base = hrp.Position - Vector3.new(0, 1, 0)
+	local wave = fx({ Size = Vector3.new(14, 7, 3), Color = blue, Material = Enum.Material.Glass, Transparency = 0.25, CFrame = CFrame.lookAt(base + dir * 3, base + dir * 10) })
+	local foam = emitter(wave, Color3.fromRGB(220, 240, 255), 90, 1.6, 0.4, 3)
+	tween(wave, 0.5, { CFrame = CFrame.lookAt(base + dir * 32, base + dir * 40), Size = Vector3.new(22, 9, 3), Transparency = 1 }, Enum.EasingStyle.Linear)
+	Debris:AddItem(wave, 0.55)
+	for _, t in ipairs(targetsNear(plr, hrp.Position, 32)) do
+		local to = flatUnit(t.hrp.Position - hrp.Position)
+		local dist = (t.hrp.Position - hrp.Position).Magnitude
+		if to:Dot(dir) > 0.45 then task.delay(dist / 64, function() knock(t, plr, dir, 95, 30) end) end
+	end
+end
+
+Abil.Earth = function(plr, hrp, dir)
+	local brown = Color3.fromRGB(150, 100, 55)
+	local c = hrp.Position - Vector3.new(0, 3, 0)
+	burst(c, brown, 30, 0.5, Enum.Material.Slate)
+	for i = 1, 12 do
+		local a = i / 12 * math.pi * 2
+		local r = 7 + (i % 3) * 3
+		local s = 2.4 + math.random() * 2
+		local start = CFrame.new(c + Vector3.new(math.cos(a) * r, -2, math.sin(a) * r)) * CFrame.Angles(math.random() * 3, math.random() * 3, 0)
+		local rock = fx({ Size = Vector3.new(s, s * 1.4, s), Color = (i % 2 == 0) and brown or Color3.fromRGB(120, 115, 110), Material = Enum.Material.Slate, CFrame = start })
+		tween(rock, 0.25, { CFrame = start + Vector3.new(0, 4 + math.random() * 2, 0) }, Enum.EasingStyle.Back)
+		task.delay(0.7, function() if rock.Parent then tween(rock, 0.4, { Transparency = 1, CFrame = start }) end end)
+		Debris:AddItem(rock, 1.2)
+	end
+	for _, t in ipairs(targetsNear(plr, hrp.Position, 18)) do knock(t, plr, t.hrp.Position - hrp.Position, 45, 88) end
+end
+
+Abil.Wind = function(plr, hrp, dir)
+	local col = Color3.fromRGB(200, 255, 235)
+	local bv = Instance.new("BodyVelocity")
+	bv.MaxForce = Vector3.new(1e5, 2e4, 1e5)
+	bv.Velocity = dir * 85 + Vector3.new(0, 6, 0)
+	bv.Parent = hrp
+	Debris:AddItem(bv, 0.3)
+	local tor = fx({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(10, 6, 6), Color = col, Material = Enum.Material.ForceField, Transparency = 0.1 })
+	emitter(tor, col, 70, 1.2, 0.3, 8)
+	local hitSet, t0 = {}, os.clock()
+	local conn
+	conn = RunService.Heartbeat:Connect(function()
+		if not hrp.Parent or os.clock() - t0 > 0.45 then
+			conn:Disconnect()
+			tween(tor, 0.25, { Transparency = 1, Size = Vector3.new(12, 10, 10) })
+			Debris:AddItem(tor, 0.3)
+			return
+		end
+		tor.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, (os.clock() - t0) * 25, 0) * CFrame.Angles(0, 0, math.rad(90))
+		for _, t in ipairs(targetsNear(plr, hrp.Position, 9)) do
+			if not hitSet[t.key] then
+				hitSet[t.key] = true
+				knock(t, plr, dir + flatUnit(t.hrp.Position - hrp.Position) * 0.6, 110, 55)
+			end
+		end
+	end)
+end
+
+Abil.Lightning = function(plr, hrp, dir)
+	local yellow = Color3.fromRGB(255, 240, 90)
+	local t = nearestTarget(plr, hrp.Position, dir, 55, 0.1) or nearestTarget(plr, hrp.Position, dir, 25, -1)
+	local pos = t and t.hrp.Position or (hrp.Position + dir * 25)
+	bolt(pos + Vector3.new(math.random() * 10 - 5, 70, math.random() * 10 - 5), pos, yellow)
+	bolt(pos + Vector3.new(math.random() * 10 - 5, 70, math.random() * 10 - 5), pos, Color3.fromRGB(255, 255, 255))
+	local b = burst(pos, yellow, 14, 0.35)
+	light(b, yellow, 40)
+	if t then
+		knock(t, plr, t.hrp.Position - hrp.Position, 45, 40)
+		stun(t, 1.3)
+		local sp = emitter(t.hrp, yellow, 40, 0.8, 0.3, 6)
+		Debris:AddItem(sp, 1.3)
+	end
+end
+
+Abil.Ice = function(plr, hrp, dir)
+	local ice = Color3.fromRGB(160, 230, 255)
+	local shard = fx({ Size = Vector3.new(1.2, 1.2, 4), Color = ice, Material = Enum.Material.Neon })
+	emitter(shard, Color3.fromRGB(230, 250, 255), 50, 0.8, 0.3, 2)
+	projectile(plr, hrp.Position + dir * 4 + Vector3.new(0, 1, 0), dir, 110, 1, 4.5, shard, function(pos, t)
+		burst(pos, ice, 10, 0.35, Enum.Material.Ice)
+		if not t or protected(t) then return end
+		lastHit[t.key] = { by = plr, t = os.clock() }
+		local block = fx({ Size = Vector3.new(5, 7, 5), Color = ice, Material = Enum.Material.Ice, Transparency = 0.35, CFrame = CFrame.new(t.hrp.Position) })
+		t.hrp.Anchored = true
+		task.delay(2, function()
+			if block.Parent then burst(block.Position, ice, 12, 0.3, Enum.Material.Ice); block:Destroy() end
+			if t.hrp.Parent then t.hrp.Anchored = false; knock(t, plr, dir, 60, 32) end
+		end)
+	end)
+end
+
+Abil.Shadow = function(plr, hrp, dir)
+	local purple = Color3.fromRGB(120, 70, 175)
+	local char = plr.Character
+	smoke(hrp.Position, Color3.fromRGB(60, 25, 90))
+	local t = nearestTarget(plr, hrp.Position, dir, 50, -1)
+	if not t then
+		local to = hrp.Position + dir * 18
+		char:PivotTo(CFrame.lookAt(to, to + dir))
+		smoke(to, Color3.fromRGB(60, 25, 90))
+		return
+	end
+	local d = flatUnit(t.hrp.Position - hrp.Position)
+	if d.Magnitude < 0.5 then d = dir end
+	local behind = t.hrp.Position + d * 4 + Vector3.new(0, 0.5, 0)
+	char:PivotTo(CFrame.lookAt(behind, Vector3.new(t.hrp.Position.X, behind.Y, t.hrp.Position.Z)))
+	smoke(behind, Color3.fromRGB(60, 25, 90))
+	task.delay(0.12, function()
+		if not t.hrp.Parent then return end
+		burst(t.hrp.Position, purple, 10, 0.3)
+		knock(t, plr, -d, 125, 55)
+	end)
+end
+
+Abil.Gravity = function(plr, hrp, dir)
+	local purple = Color3.fromRGB(160, 80, 255)
+	local c = hrp.Position + dir * 20 + Vector3.new(0, 4, 0)
+	local core = fx({ Shape = Enum.PartType.Ball, Size = Vector3.new(1, 1, 1), Color = Color3.fromRGB(10, 0, 20), Material = Enum.Material.SmoothPlastic, CFrame = CFrame.new(c) })
+	local halo = fx({ Shape = Enum.PartType.Ball, Size = Vector3.new(2, 2, 2), Color = purple, Material = Enum.Material.ForceField, CFrame = CFrame.new(c) })
+	light(core, purple, 40)
+	local pe = emitter(halo, purple, 120, 1.2, 0.5, -10)
+	tween(core, 0.4, { Size = Vector3.new(7, 7, 7) })
+	tween(halo, 0.4, { Size = Vector3.new(16, 16, 16) })
+	local t0, pulls = os.clock(), {}
+	local conn
+	conn = RunService.Heartbeat:Connect(function()
+		if os.clock() - t0 > 1.8 then
+			conn:Disconnect()
+			for _, bv in pairs(pulls) do if bv.Parent then bv:Destroy() end end
+			burst(c, purple, 46, 0.55)
+			burst(c, Color3.fromRGB(255, 255, 255), 20, 0.3)
+			core:Destroy(); halo:Destroy()
+			ShakeEv:FireAllClients(c, 0.5)
+			for _, t in ipairs(targetsNear(plr, c, 24)) do knock(t, plr, t.hrp.Position - c, 140, 70) end
+			return
+		end
+		for _, t in ipairs(targetsNear(plr, c, 34)) do
+			if not protected(t) then
+				lastHit[t.key] = { by = plr, t = os.clock() }
+				local v = (c - t.hrp.Position)
+				if v.Magnitude > 0.5 then v = v.Unit * 40 end
+				if t.model then
+					t.hrp.AssemblyLinearVelocity = v
+				else
+					local bv = pulls[t.key]
+					if not bv or not bv.Parent then
+						bv = Instance.new("BodyVelocity"); bv.MaxForce = Vector3.new(4e4, 4e4, 4e4); bv.Parent = t.hrp; pulls[t.key] = bv
+						Debris:AddItem(bv, 2.2)
+					end
+					bv.Velocity = v
+				end
+			end
+		end
+	end)
+end
+
+Abil.Meteor = function(plr, hrp, dir)
+	local red = Color3.fromRGB(255, 70, 40)
+	local target = hrp.Position + dir * 28 - Vector3.new(0, 2.8, 0)
+	local mark = fx({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.3, 4, 4), CFrame = CFrame.new(target) * CFrame.Angles(0, 0, math.rad(90)), Color = red, Material = Enum.Material.Neon, Transparency = 0.4 })
+	tween(mark, 1.1, { Size = Vector3.new(0.3, 48, 48), Transparency = 0.6 }, Enum.EasingStyle.Linear)
+	local rock = fx({ Shape = Enum.PartType.Ball, Size = Vector3.new(11, 11, 11), Color = Color3.fromRGB(90, 40, 30), Material = Enum.Material.CrackedLava, CFrame = CFrame.new(target + Vector3.new(-45, 140, 0)) })
+	emitter(rock, Color3.fromRGB(255, 150, 50), 120, 4, 0.6, 4)
+	light(rock, red, 60)
+	tween(rock, 1.1, { CFrame = CFrame.new(target) }, Enum.EasingStyle.Linear)
+	task.delay(1.1, function()
+		rock:Destroy(); mark:Destroy()
+		burst(target, red, 60, 0.7)
+		burst(target, Color3.fromRGB(255, 220, 120), 32, 0.45)
+		ShakeEv:FireAllClients(target, 0.8)
+		for _, t in ipairs(targetsNear(plr, target, 26)) do knock(t, plr, t.hrp.Position - target, 165, 95) end
+	end)
+end
+
+---------------------------------------------------------------- использование: удар и способность
+local lastUse = {}    -- [player] = { slap = время, ability = время }
+
+UseEv.OnServerEvent:Connect(function(plr, kind, dir)
+	local d = Data[plr]
+	if not d or not plr:GetAttribute("InArena") then return end
+	local c, hum, hrp = alive(plr)
+	if not c or hrp.Anchored then return end
+	local a = Abilities.Slap
+	if kind == "ability" then
+		a = Abilities.ById[d.equipped or ""]
+		if not a then return end
+	elseif kind ~= "slap" then
+		return
+	end
+	local now = os.clock()
+	lastUse[plr] = lastUse[plr] or {}
+	if now - (lastUse[plr][kind] or 0) < a.cooldown - 0.15 then return end
+	lastUse[plr][kind] = now
+	c:SetAttribute("ProtectedUntil", 0)   -- кто атакует, тот теряет защиту появления
+	if typeof(dir) ~= "Vector3" or dir.Magnitude ~= dir.Magnitude then dir = hrp.CFrame.LookVector end
+	dir = flatUnit(dir)
+	if dir.Magnitude < 0.5 then dir = flatUnit(hrp.CFrame.LookVector) end
+	local f = Abil[a.id]
+	if f then
+		local ok, err = pcall(f, plr, hrp, dir)
+		if not ok then warn("[RNG] Ошибка способности " .. a.id .. ": " .. tostring(err)) end
+	end
+end)
+
+---------------------------------------------------------------- ролл
+local rollOrder = Abilities.sortedByRarity()
+local rng = Random.new()
+local lastRoll = {}
+
+RollFn.OnServerInvoke = function(plr)
+	local d = Data[plr]
+	if not d then return nil end
+	local now = os.clock()
+	if now - (lastRoll[plr] or 0) < 1.6 then return nil end
+	lastRoll[plr] = now
+	local luck = (d.luckUntil > now) and 2 or 1
+	local res = rollOrder[#rollOrder]
+	for _, a in ipairs(rollOrder) do
+		if rng:NextNumber() < math.min(1, luck / a.chance) then res = a; break end
+	end
+	d.rolls = d.rolls + 1
+	local isNew = d.owned[res.id] == nil
+	d.owned[res.id] = (d.owned[res.id] or 0) + 1
+	local cur = Abilities.ById[d.equipped or ""]
+	local autoEquip = (cur == nil) or (res.chance > cur.chance)
+	if autoEquip then
+		d.equipped = res.id
+		plr:SetAttribute("Equipped", res.id)
+	end
+	syncStats(plr)
+	-- остальным игрокам — только про редкие выпадения (и после того, как у игрока докрутится ролл)
+	task.delay(2.2, function()
+		if res.chance >= 50 then
+			AnnounceEv:FireAllClients(plr.DisplayName .. " выбил(а) «" .. res.name .. "» (1 к " .. res.chance .. ")!", res.color, true)
+		end
+		if plr.Parent then pushData(plr) end
+	end)
+	return { id = res.id, isNew = isNew, equipped = autoEquip, luck = luck }
+end
+
+EquipFn.OnServerInvoke = function(plr, id)
+	local d = Data[plr]
+	if d and type(id) == "string" and d.owned[id] and Abilities.ById[id] then
+		d.equipped = id
+		plr:SetAttribute("Equipped", id)
+		pushData(plr)
+		return true
+	end
+	return false
+end
+
+GetDataFn.OnServerInvoke = function(plr)
+	return pack(plr)
+end
+
+BuyLuckFn.OnServerInvoke = function(plr)
+	local d = Data[plr]
+	if not d or d.coins < LUCK_COST then return false end
+	d.coins = d.coins - LUCK_COST
+	d.luckUntil = math.max(os.clock(), d.luckUntil) + LUCK_TIME
+	syncStats(plr)
+	pushData(plr)
+	return true
+end
+
+---------------------------------------------------------------- игроки
+local function onCharacter(plr, char)
+	plr:SetAttribute("InArena", false)
+	local hum = char:WaitForChild("Humanoid")
+	hum.Died:Connect(function()
+		local lh = lastHit[plr]
+		if lh and lh.by and lh.by.Parent and lh.by ~= plr and os.clock() - lh.t < 10 then
+			local d = Data[lh.by]
+			if d then
+				d.kills = d.kills + 1
+				d.coins = d.coins + 10
+				syncStats(lh.by)
+				pushData(lh.by)
+			end
+			AnnounceEv:FireAllClients(lh.by.DisplayName .. " сбил(а) " .. plr.DisplayName .. "! +10 монет", Color3.fromRGB(255, 140, 100), false)
+		end
+		lastHit[plr] = nil
+		plr:SetAttribute("InArena", false)
+		task.delay(2.5, function() if plr.Parent then plr:LoadCharacter() end end)
+	end)
+end
+
+local function onPlayer(plr)
+	local d = loadData(plr)
+	Data[plr] = d
+	local ls = Instance.new("Folder")
+	ls.Name = "leaderstats"
+	for _, n in ipairs({ "Убийства", "Монеты", "Роллы" }) do
+		local v = Instance.new("IntValue"); v.Name = n; v.Parent = ls
+	end
+	ls.Parent = plr
+	syncStats(plr)
+	plr:SetAttribute("Equipped", d.equipped)
+	plr:SetAttribute("InArena", false)
+	plr.CharacterAdded:Connect(function(c) onCharacter(plr, c) end)
+	plr:LoadCharacter()
+	pushData(plr)
+end
+
+Players.PlayerAdded:Connect(onPlayer)
+for _, p in ipairs(Players:GetPlayers()) do task.spawn(onPlayer, p) end
+
+Players.PlayerRemoving:Connect(function(plr)
+	saveData(plr)
+	Data[plr] = nil
+	lastHit[plr] = nil
+	lastUse[plr] = nil
+	lastRoll[plr] = nil
+end)
+
+game:BindToClose(function()
+	for _, p in ipairs(Players:GetPlayers()) do saveData(p) end
+end)
+
+task.spawn(function()
+	while true do
+		task.wait(90)
+		for _, p in ipairs(Players:GetPlayers()) do task.spawn(saveData, p) end
+	end
+end)
+
+---------------------------------------------------------------- портал на арену
+local portalBusy = {}
+portal.Touched:Connect(function(hit)
+	local char = hit.Parent
+	local plr = Players:GetPlayerFromCharacter(char)
+	if not plr or portalBusy[plr] or plr:GetAttribute("InArena") then return end
+	local c, hum, hrp = alive(plr)
+	if not c then return end
+	portalBusy[plr] = true
+	local sp = Map.ArenaSpawns[math.random(1, #Map.ArenaSpawns)]
+	c:PivotTo(CFrame.lookAt(sp + Vector3.new(0, 4, 0), Vector3.new(Map.ARENA.X, sp.Y + 4, Map.ARENA.Z)))
+	plr:SetAttribute("InArena", true)
+	c:SetAttribute("ProtectedUntil", os.clock() + 3)
+	local ff = Instance.new("ForceField")
+	ff.Parent = c
+	Debris:AddItem(ff, 3)
+	burst(sp + Vector3.new(0, 3, 0), Color3.fromRGB(170, 100, 255), 12, 0.4)
+	task.delay(1, function() portalBusy[plr] = nil end)
+end)
+
+---------------------------------------------------------------- пустота, манекены, кристалл
+task.spawn(function()
+	while true do
+		task.wait(0.3)
+		for _, p in ipairs(Players:GetPlayers()) do
+			local c, hum, hrp = alive(p)
+			if c and hrp.Position.Y < Map.VOID_Y then hum.Health = 0 end
+		end
+		for _, m in ipairs(dummiesFolder:GetChildren()) do
+			local root = m.PrimaryPart
+			if root and not m:GetAttribute("Down") and root.Position.Y < Map.VOID_Y then
+				m:SetAttribute("Down", true)
+				local lh = lastHit[m]
+				if lh and lh.by and lh.by.Parent and Data[lh.by] then
+					Data[lh.by].coins = Data[lh.by].coins + 2
+					syncStats(lh.by)
+					pushData(lh.by)
+				end
+				lastHit[m] = nil
+				task.delay(3, function()
+					local home = m:GetAttribute("Home")
+					for _, part in ipairs(m:GetDescendants()) do
+						if part:IsA("BasePart") then part.AssemblyLinearVelocity = Vector3.new(); part.AssemblyAngularVelocity = Vector3.new() end
+					end
+					m:PivotTo(CFrame.new(home + Vector3.new(0, 3.6, 0)))
+					m:SetAttribute("Down", false)
+				end)
+			end
+		end
+	end
+end)
+
+if luckCrystal then
+	local base = luckCrystal.CFrame
+	RunService.Heartbeat:Connect(function()
+		local t = os.clock()
+		luckCrystal.CFrame = CFrame.new(base.Position + Vector3.new(0, math.sin(t * 1.5) * 0.8, 0)) * CFrame.Angles(0, t * 0.8, 0) * CFrame.Angles(math.rad(45), 0, math.rad(45))
+	end)
+end
+
+print("[RNG] Стихийные битвы RNG запущены")
+]]></ProtectedString></Properties></Item></Item>
+<Item class="StarterPlayer" referent="RBX00000009"><Properties><string name="Name">StarterPlayer</string></Properties><Item class="StarterPlayerScripts" referent="RBX00000007"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX00000008"><Properties><string name="Name">ClientUI</string><ProtectedString name="Source"><![CDATA[-- Интерфейс игрока: кнопка РОЛЛ с прокруткой способностей, авто-ролл, инвентарь, удача,
+-- кнопки «Удар» (F / клик) и «Способность» (E), объявления и тряска камеры.
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local Abilities = require(RS:WaitForChild("Abilities"))
+local remotes = RS:WaitForChild("Remotes")
+local R = {}
+for _, n in ipairs({ "Roll", "Equip", "GetData", "BuyLuck", "Use", "Announce", "DataUpdate", "Shake" }) do R[n] = remotes:WaitForChild(n) end
+
+local data = { owned = {}, equipped = nil, coins = 0, luckLeft = 0, luckCost = 50 }
+local luckEnds = 0
+
+---------------------------------------------------------------- помощники
+local function new(class, props, children)
+	local o = Instance.new(class)
+	for k, v in pairs(props or {}) do
+		if k ~= "Parent" then o[k] = v end
+	end
+	for _, c in ipairs(children or {}) do c.Parent = o end
+	if props and props.Parent then o.Parent = props.Parent end
+	return o
+end
+local function corner(r) return new("UICorner", { CornerRadius = UDim.new(r or 0.2, 0) }) end
+local function stroke(c, th) return new("UIStroke", { Color = c or Color3.fromRGB(20, 15, 35), Thickness = th or 3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) end
+local function tstroke(th) return new("UIStroke", { Color = Color3.fromRGB(20, 15, 35), Thickness = th or 2 }) end
+local function grad(a, b) return new("UIGradient", { Color = ColorSequence.new(a, b), Rotation = 90 }) end
+local function tween(o, t, goal, style, dir)
+	local tw = TweenService:Create(o, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), goal)
+	tw:Play()
+	return tw
+end
+local function sound(id, vol, pitch)
+	local s = new("Sound", { SoundId = id, Volume = vol or 0.4, PlaybackSpeed = pitch or 1, Parent = SoundService })
+	return s
+end
+local sTick = sound("rbxasset://sounds/electronicpingshort.wav", 0.15, 1.6)
+local sWin = sound("rbxasset://sounds/electronicpingshort.wav", 0.5, 0.8)
+local function play(s, pitch) if pitch then s.PlaybackSpeed = pitch end; pcall(function() SoundService:PlayLocalSound(s) end) end
+local function rarityOf(a) return Abilities.Rarities[a.rarity] end
+
+local FONT = Enum.Font.FredokaOne
+local DARK = Color3.fromRGB(28, 22, 46)
+
+---------------------------------------------------------------- экран
+local gui = new("ScreenGui", { Name = "RNGUI", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = player:WaitForChild("PlayerGui") })
+
+-- вспышка на редкий ролл
+local flash = new("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 1, ZIndex = 50, Parent = gui })
+
+-- сверху: надетая способность и подсказка
+local equippedLbl = new("TextLabel", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 6), Size = UDim2.new(0.42, 0, 0, 34),
+	BackgroundColor3 = DARK, BackgroundTransparency = 0.15, Font = FONT, TextScaled = true, TextColor3 = Color3.new(1, 1, 1), Text = "Способность: нет — сделай РОЛЛ!", Parent = gui },
+	{ corner(0.4), stroke(Color3.fromRGB(120, 90, 255), 2), new("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4) }) })
+local hintLbl = new("TextLabel", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 44), Size = UDim2.new(0.5, 0, 0, 24), BackgroundTransparency = 1,
+	Font = FONT, TextScaled = true, TextColor3 = Color3.fromRGB(210, 180, 255), Text = "Прыгни в фиолетовый портал, чтобы попасть на арену!", Parent = gui }, { tstroke(2) })
+
+-- слева: монеты, инвентарь, удача
+local coinsLbl = new("TextLabel", { Position = UDim2.new(0, 10, 0.3, 0), Size = UDim2.new(0, 170, 0, 36), BackgroundColor3 = DARK, BackgroundTransparency = 0.15,
+	Font = FONT, TextScaled = true, TextColor3 = Color3.fromRGB(255, 215, 80), Text = "Монеты: 0", Parent = gui }, { corner(0.3), stroke(Color3.fromRGB(255, 200, 60), 2) })
+local invBtn = new("TextButton", { Position = UDim2.new(0, 10, 0.3, 44), Size = UDim2.new(0, 170, 0, 44), BackgroundColor3 = Color3.fromRGB(70, 140, 255),
+	Font = FONT, TextScaled = true, TextStrokeTransparency = 0.2, TextStrokeColor3 = DARK, TextColor3 = Color3.new(1, 1, 1), Text = "Инвентарь", AutoButtonColor = true, Parent = gui },
+	{ corner(0.3), stroke(), grad(Color3.fromRGB(255, 255, 255), Color3.fromRGB(170, 190, 255)) })
+local luckBtn = new("TextButton", { Position = UDim2.new(0, 10, 0.3, 96), Size = UDim2.new(0, 170, 0, 44), BackgroundColor3 = Color3.fromRGB(80, 200, 110),
+	Font = FONT, TextScaled = true, TextStrokeTransparency = 0.2, TextStrokeColor3 = DARK, TextColor3 = Color3.new(1, 1, 1), Text = "Удача ×2 — 50", AutoButtonColor = true, Parent = gui },
+	{ corner(0.3), stroke(), grad(Color3.fromRGB(255, 255, 255), Color3.fromRGB(170, 230, 180)) })
+
+-- снизу по центру: окно ролла и кнопки
+local rollBox = new("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -96), Size = UDim2.new(0.36, 0, 0, 92), BackgroundColor3 = DARK, BackgroundTransparency = 0.1, Parent = gui },
+	{ corner(0.2), stroke(Color3.fromRGB(120, 90, 255), 3) })
+local rollScale = new("UIScale", { Scale = 1, Parent = rollBox })
+local rollStroke = rollBox:FindFirstChildOfClass("UIStroke")
+local rollName = new("TextLabel", { Position = UDim2.new(0, 0, 0.05, 0), Size = UDim2.new(1, 0, 0.55, 0), BackgroundTransparency = 1, Font = FONT, TextScaled = true,
+	TextColor3 = Color3.new(1, 1, 1), Text = "Нажми РОЛЛ!", Parent = rollBox }, { tstroke(3) })
+local rollInfo = new("TextLabel", { Position = UDim2.new(0, 0, 0.6, 0), Size = UDim2.new(1, 0, 0.32, 0), BackgroundTransparency = 1, Font = FONT, TextScaled = true,
+	TextColor3 = Color3.fromRGB(200, 200, 220), Text = "Выбей способность: огонь, вода, молния...", Parent = rollBox }, { tstroke(2) })
+local newTag = new("TextLabel", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.9, 0, 0.05, 0), Size = UDim2.new(0, 90, 0, 26), Rotation = 12, BackgroundColor3 = Color3.fromRGB(255, 70, 110),
+	Font = FONT, TextScaled = true, TextColor3 = Color3.new(1, 1, 1), Text = "НОВАЯ!", Visible = false, Parent = rollBox }, { corner(0.4), stroke() })
+
+local rollBtn = new("TextButton", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -16), Size = UDim2.new(0.2, 0, 0, 70), BackgroundColor3 = Color3.fromRGB(255, 180, 40),
+	Font = FONT, TextScaled = true, TextStrokeTransparency = 0.2, TextStrokeColor3 = DARK, TextColor3 = Color3.new(1, 1, 1), Text = "РОЛЛ", AutoButtonColor = true, Parent = gui },
+	{ corner(0.3), stroke(DARK, 4), grad(Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 150, 60)), new("UISizeConstraint", { MinSize = Vector2.new(150, 60) }) })
+local autoBtn = new("TextButton", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0.6, 10, 1, -24), Size = UDim2.new(0.09, 0, 0, 52), BackgroundColor3 = Color3.fromRGB(110, 110, 130),
+	Font = FONT, TextScaled = true, TextStrokeTransparency = 0.2, TextStrokeColor3 = DARK, TextColor3 = Color3.new(1, 1, 1), Text = "АВТО: ВЫКЛ", AutoButtonColor = true, Parent = gui },
+	{ corner(0.3), stroke(DARK, 3), new("UISizeConstraint", { MinSize = Vector2.new(96, 44) }) })
+
+-- справа снизу: удар и способность
+local function attackButton(pos, color, title, key)
+	local b = new("TextButton", { AnchorPoint = Vector2.new(1, 1), Position = pos, Size = UDim2.new(0, 96, 0, 96), BackgroundColor3 = color, Text = "", AutoButtonColor = true, Parent = gui },
+		{ corner(1), stroke(DARK, 4) })
+	new("TextLabel", { Size = UDim2.new(1, -10, 0.45, 0), Position = UDim2.new(0, 5, 0.18, 0), BackgroundTransparency = 1, Font = FONT, TextScaled = true, TextColor3 = Color3.new(1, 1, 1),
+		Text = title, Name = "Title", ZIndex = 3, Parent = b }, { tstroke(2) })
+	new("TextLabel", { Size = UDim2.new(1, 0, 0.24, 0), Position = UDim2.new(0, 0, 0.64, 0), BackgroundTransparency = 1, Font = FONT, TextScaled = true, TextColor3 = Color3.fromRGB(230, 230, 240),
+		Text = key, Name = "Key", ZIndex = 3, Parent = b }, { tstroke(1.5) })
+	local cd = new("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, 0), Size = UDim2.new(1, 0, 0, 0), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45,
+		Name = "Cooldown", ZIndex = 2, Parent = b }, { corner(1) })
+	return b, cd
+end
+local slapBtn, slapCd = attackButton(UDim2.new(1, -124, 1, -20), Color3.fromRGB(255, 150, 120), "УДАР", "F / клик")
+local abilBtn, abilCd = attackButton(UDim2.new(1, -16, 1, -110), Color3.fromRGB(120, 90, 255), "—", "E")
+
+-- объявления (редкие роллы, кто кого сбил)
+local feed = new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 74), Size = UDim2.new(0.6, 0, 0, 120), BackgroundTransparency = 1, Parent = gui },
+	{ new("UIListLayout", { HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }) })
+local feedN = 0
+local function announce(text, color, big)
+	feedN = feedN + 1
+	local l = new("TextLabel", { Size = UDim2.new(1, 0, 0, big and 34 or 24), BackgroundTransparency = 1, Font = FONT, TextScaled = true, TextColor3 = color or Color3.new(1, 1, 1),
+		Text = text, LayoutOrder = feedN, TextTransparency = 1, Parent = feed }, { tstroke(2.5) })
+	tween(l, 0.25, { TextTransparency = 0 })
+	task.delay(big and 6 or 4, function()
+		if l.Parent then tween(l, 0.5, { TextTransparency = 1 }); task.wait(0.55); l:Destroy() end
+	end)
+	local kids = feed:GetChildren()
+	local labels = {}
+	for _, k in ipairs(kids) do if k:IsA("TextLabel") then table.insert(labels, k) end end
+	if #labels > 4 then table.sort(labels, function(a, b) return a.LayoutOrder < b.LayoutOrder end); labels[1]:Destroy() end
+end
+
+---------------------------------------------------------------- инвентарь
+local inv = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0.5, 0, 0.66, 0), BackgroundColor3 = DARK, Visible = false, ZIndex = 20, Parent = gui },
+	{ corner(0.06), stroke(Color3.fromRGB(120, 90, 255), 4), new("UISizeConstraint", { MinSize = Vector2.new(330, 260) }) })
+new("TextLabel", { Size = UDim2.new(1, -60, 0, 44), Position = UDim2.new(0, 14, 0, 6), BackgroundTransparency = 1, Font = FONT, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Left,
+	TextColor3 = Color3.new(1, 1, 1), Text = "Твои способности", ZIndex = 21, Parent = inv }, { tstroke(2) })
+local closeBtn = new("TextButton", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8, 0, 8), Size = UDim2.new(0, 40, 0, 40), BackgroundColor3 = Color3.fromRGB(230, 70, 80),
+	Font = FONT, TextScaled = true, TextStrokeTransparency = 0.2, TextStrokeColor3 = DARK, TextColor3 = Color3.new(1, 1, 1), Text = "X", ZIndex = 21, Parent = inv }, { corner(0.3), stroke() })
+local list = new("ScrollingFrame", { Position = UDim2.new(0, 10, 0, 58), Size = UDim2.new(1, -20, 1, -68), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 8,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(0, 0, 0, 0), ZIndex = 21, Parent = inv },
+	{ new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }) })
+
+local function refreshInventory()
+	for _, c in ipairs(list:GetChildren()) do if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end end
+	local any = false
+	for _, a in ipairs(Abilities.sortedByRarity()) do
+		local n = data.owned[a.id]
+		if n then
+			any = true
+			local r = rarityOf(a)
+			local row = new("Frame", { Size = UDim2.new(1, -10, 0, 74), BackgroundColor3 = Color3.fromRGB(45, 38, 70), LayoutOrder = -a.chance, ZIndex = 22, Parent = list },
+				{ corner(0.15), stroke(r.color, 2) })
+			new("TextLabel", { Position = UDim2.new(0, 10, 0, 4), Size = UDim2.new(0.62, 0, 0, 30), BackgroundTransparency = 1, Font = FONT, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = a.color, Text = a.name .. "  ×" .. n, ZIndex = 23, Parent = row }, { tstroke(2) })
+			new("TextLabel", { Position = UDim2.new(0, 10, 0, 34), Size = UDim2.new(0.62, 0, 0, 18), BackgroundTransparency = 1, Font = FONT, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = r.color, Text = r.name .. " · " .. Abilities.chanceText(a), ZIndex = 23, Parent = row })
+			new("TextLabel", { Position = UDim2.new(0, 10, 0, 53), Size = UDim2.new(0.62, 0, 0, 16), BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = Color3.fromRGB(200, 200, 215), Text = a.desc, ZIndex = 23, Parent = row })
+			local isEq = data.equipped == a.id
+			local eq = new("TextButton", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.new(0.3, 0, 0, 44), BackgroundColor3 = isEq and Color3.fromRGB(90, 90, 110) or Color3.fromRGB(80, 200, 110),
+				Font = FONT, TextScaled = true, TextStrokeTransparency = 0.2, TextStrokeColor3 = DARK, TextColor3 = Color3.new(1, 1, 1), Text = isEq and "Надето" or "Надеть", AutoButtonColor = not isEq, ZIndex = 23, Parent = row }, { corner(0.3), stroke() })
+			if not isEq then
+				eq.MouseButton1Click:Connect(function() R.Equip:InvokeServer(a.id) end)
+			end
+		end
+	end
+	if not any then
+		new("TextLabel", { Size = UDim2.new(1, -10, 0, 60), BackgroundTransparency = 1, Font = FONT, TextScaled = true, TextColor3 = Color3.fromRGB(200, 200, 215),
+			Text = "Пока пусто. Нажми РОЛЛ!", ZIndex = 22, Parent = list })
+	end
+end
+invBtn.MouseButton1Click:Connect(function() inv.Visible = not inv.Visible; if inv.Visible then refreshInventory() end end)
+closeBtn.MouseButton1Click:Connect(function() inv.Visible = false end)
+
+---------------------------------------------------------------- данные
+local function applyData(p)
+	if not p then return end
+	data = p
+	luckEnds = os.clock() + (p.luckLeft or 0)
+	coinsLbl.Text = "Монеты: " .. tostring(p.coins or 0)
+	local a = Abilities.ById[p.equipped or ""]
+	if a then
+		local r = rarityOf(a)
+		equippedLbl.Text = "Способность: " .. a.name .. " (" .. r.name .. ")"
+		equippedLbl.TextColor3 = a.color
+		abilBtn.Title.Text = string.upper(a.name)
+		abilBtn.BackgroundColor3 = a.color:Lerp(Color3.new(0, 0, 0), 0.25)
+	else
+		equippedLbl.Text = "Способность: нет — сделай РОЛЛ!"
+		equippedLbl.TextColor3 = Color3.new(1, 1, 1)
+		abilBtn.Title.Text = "—"
+	end
+	if inv.Visible then refreshInventory() end
+end
+R.DataUpdate.OnClientEvent:Connect(applyData)
+task.spawn(function()
+	for _ = 1, 30 do
+		local p = R.GetData:InvokeServer()
+		if p then applyData(p); break end
+		task.wait(1)
+	end
+end)
+
+-- таймер удачи
+task.spawn(function()
+	while true do
+		local left = luckEnds - os.clock()
+		if left > 0 then
+			luckBtn.Text = string.format("Удача ×2: %d:%02d", math.floor(left / 60), math.floor(left % 60))
+		else
+			luckBtn.Text = "Удача ×2 — " .. tostring(data.luckCost or 50)
+		end
+		task.wait(0.5)
+	end
+end)
+luckBtn.MouseButton1Click:Connect(function()
+	local ok = R.BuyLuck:InvokeServer()
+	if not ok then announce("Не хватает монет! Сбивай врагов и манекены на арене.", Color3.fromRGB(255, 120, 120), false) end
+end)
+
+---------------------------------------------------------------- РОЛЛ
+local rolling, auto = false, false
+local pool = Abilities.List
+
+local function showRoll(a, final)
+	local r = rarityOf(a)
+	rollName.Text = a.name
+	rollName.TextColor3 = a.color
+	rollInfo.Text = r.name .. " · " .. Abilities.chanceText(a)
+	rollInfo.TextColor3 = r.color
+	rollStroke.Color = r.color
+	if final then
+		rollScale.Scale = 1.25
+		tween(rollScale, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
+	end
+end
+
+local function doRoll()
+	if rolling then return end
+	rolling = true
+	rollBtn.Text = "..."
+	newTag.Visible = false
+	local res = R.Roll:InvokeServer()
+	if not res then
+		rolling = false
+		rollBtn.Text = "РОЛЛ"
+		return
+	end
+	local final = Abilities.ById[res.id]
+	-- прокрутка: быстро, потом всё медленнее
+	local wait_, i = 0.035, 0
+	while wait_ < 0.3 do
+		i = i + 1
+		local a = pool[math.random(1, math.min(#pool, 4 + math.floor(i / 3)))]
+		showRoll(a, false)
+		play(sTick, 1.3 + math.random() * 0.5)
+		task.wait(wait_)
+		wait_ = wait_ * 1.13
+	end
+	showRoll(final, true)
+	play(sWin, final.chance >= 50 and 0.6 or 1)
+	if final.chance >= 25 then
+		flash.BackgroundColor3 = final.color
+		flash.BackgroundTransparency = 0.25
+		tween(flash, 0.9, { BackgroundTransparency = 1 })
+	end
+	if res.isNew then newTag.Visible = true end
+	if res.equipped then announce("Надета новая способность: " .. final.name .. "!", final.color, false) end
+	task.wait(0.5)
+	rolling = false
+	rollBtn.Text = "РОЛЛ"
+end
+
+rollBtn.MouseButton1Click:Connect(function() task.spawn(doRoll) end)
+autoBtn.MouseButton1Click:Connect(function()
+	auto = not auto
+	autoBtn.Text = auto and "АВТО: ВКЛ" or "АВТО: ВЫКЛ"
+	autoBtn.BackgroundColor3 = auto and Color3.fromRGB(80, 200, 110) or Color3.fromRGB(110, 110, 130)
+	if auto then
+		task.spawn(function()
+			while auto do
+				doRoll()
+				task.wait(0.35)
+			end
+		end)
+	end
+end)
+
+---------------------------------------------------------------- бой
+local lastUse = { slap = 0, ability = 0 }
+
+local function inArena() return player:GetAttribute("InArena") == true end
+
+local function cooldownAnim(frame, t)
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	tween(frame, t, { Size = UDim2.new(1, 0, 0, 0) }, Enum.EasingStyle.Linear)
+end
+
+local function use(kind)
+	if not inArena() then
+		announce("На арене! Сначала прыгни в портал.", Color3.fromRGB(210, 180, 255), false)
+		return
+	end
+	local a = (kind == "slap") and Abilities.Slap or Abilities.ById[data.equipped or ""]
+	if not a then
+		announce("Нет способности — нажми РОЛЛ!", Color3.fromRGB(255, 200, 80), false)
+		return
+	end
+	local now = os.clock()
+	if now - lastUse[kind] < a.cooldown then return end
+	lastUse[kind] = now
+	cooldownAnim(kind == "slap" and slapCd or abilCd, a.cooldown)
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local dir = hrp and hrp.CFrame.LookVector or Vector3.new(0, 0, -1)
+	R.Use:FireServer(kind, dir)
+end
+
+slapBtn.MouseButton1Click:Connect(function() use("slap") end)
+abilBtn.MouseButton1Click:Connect(function() use("ability") end)
+UIS.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.F or input.UserInputType == Enum.UserInputType.MouseButton1 then use("slap")
+	elseif input.KeyCode == Enum.KeyCode.E then use("ability")
+	elseif input.KeyCode == Enum.KeyCode.R then task.spawn(doRoll) end
+end)
+
+-- подсказка про портал и «тусклые» кнопки в лобби
+local function updateArenaState()
+	local a = inArena()
+	hintLbl.Visible = not a
+	slapBtn.BackgroundTransparency = a and 0 or 0.5
+	abilBtn.BackgroundTransparency = a and 0 or 0.5
+end
+player:GetAttributeChangedSignal("InArena"):Connect(updateArenaState)
+updateArenaState()
+
+---------------------------------------------------------------- объявления и тряска
+R.Announce.OnClientEvent:Connect(function(text, color, big)
+	announce(text, color, big)
+	if big then
+		flash.BackgroundColor3 = color
+		flash.BackgroundTransparency = 0.6
+		tween(flash, 1, { BackgroundTransparency = 1 })
+	end
+end)
+
+R.Shake.OnClientEvent:Connect(function(pos, power)
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hum or not hrp then return end
+	local dist = (hrp.Position - pos).Magnitude
+	local k = math.clamp(1 - dist / 120, 0, 1) * power
+	if k <= 0.02 then return end
+	local t0 = os.clock()
+	local conn
+	conn = RunService.RenderStepped:Connect(function()
+		local e = os.clock() - t0
+		if e > 0.5 then conn:Disconnect(); hum.CameraOffset = Vector3.new(); return end
+		local m = k * (1 - e / 0.5) * 1.6
+		hum.CameraOffset = Vector3.new(math.random() * 2 - 1, math.random() * 2 - 1, 0) * m
+	end)
+end)
+
+print("[RNG] Интерфейс загружен")
+]]></ProtectedString></Properties></Item></Item></Item>
+</roblox>
