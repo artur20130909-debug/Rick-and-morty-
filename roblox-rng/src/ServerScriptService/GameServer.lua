@@ -662,12 +662,18 @@ Ryu.ryu3 = function(plr, char, hum, hrp)
 	setPose(char, "ultCharge")
 	CineEv:FireClient(plr, "ult", hrp, nil, 3.4)
 	AnnounceEv:FireAllClients("РЮ: «ГРАНИТНЫЙ ЗАЛП»!", RYU, true)
-	-- песня (если указан ID в Abilities.Config.RyuSongId)
-	if CFG.RyuSongId and CFG.RyuSongId ~= "" then
-		local snd = Map.make("Sound", { Name = "RyuSong", SoundId = "rbxassetid://" .. tostring(CFG.RyuSongId), Volume = CFG.RyuSongVolume or 1,
-			RollOffMaxDistance = 400, RollOffMinDistance = 40, Parent = hrp })
-		snd:Play()
-		task.delay(18, function() if snd.Parent then tween(snd, 2, { Volume = 0 }); Debris:AddItem(snd, 2.1) end end)
+	-- реплика: в JJS Рю иногда кричит «Let's larp!»
+	popText(hrp.Position + Vector3.new(0, 4.5, 0), (math.random() < 0.15) and "LET'S LARP!" or "ДО ПОСЛЕДНЕЙ КАПЛИ!", RYU, true)
+	-- песня LARPZO: все слои из Abilities.Config.RyuSong играют одновременно (музыка + вокал)
+	local old = hrp:FindFirstChild("RyuSong")
+	while old do old:Destroy(); old = hrp:FindFirstChild("RyuSong") end
+	for _, id in ipairs(CFG.RyuSong or {}) do
+		if tostring(id) ~= "" then
+			local snd = Map.make("Sound", { Name = "RyuSong", SoundId = "rbxassetid://" .. tostring(id), Volume = CFG.RyuSongVolume or 1,
+				RollOffMaxDistance = 400, RollOffMinDistance = 40, Parent = hrp })
+			snd:Play()
+			task.delay(22, function() if snd.Parent then tween(snd, 2, { Volume = 0 }); Debris:AddItem(snd, 2.1) end end)
+		end
 	end
 	-- заряд в ладонях и трещины земли
 	local handPos = hrp.Position + look * 2.6 + Vector3.new(0, 0.6, 0)
