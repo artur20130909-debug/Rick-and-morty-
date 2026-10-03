@@ -314,13 +314,51 @@ track('battle_guard', {
   drums: { k: 'x...x...x...x...', s: '....x.......x...', h: 'xoxoxoxoxoxoxoxo' },
 });
 
+// Рик-наёмник: «вестерн»-чиптюн в ля миноре, пила и щелчки
+track('battle_hunter', {
+  bpm: 152, swing: 0, rev: .15,
+  chords: ['Am', 'Am', 'G', 'F', 'Am', 'Dm', 'E', 'E7'],
+  mel: ['A4:3 r:1 E5:2 A5:2 G5:2 E5:2 C5:2 D5:2', 'E5:4 D5:2 C5:2 B4:2 C5:2 A4:4', 'G4:2 B4:2 D5:2 G5:3 r:1 F5:2 D5:2 B4:2', 'C5:2 F5:2 A5:2 C6:4 A5:2 F5:4',
+    'A5:2 A5:1 A5:1 C6:2 A5:2 E6:3 r:1 D6:2 C6:2', 'D6:3 r:1 C6:2 A5:2 F5:2 A5:2 D6:4', 'E6:2 D6:2 C6:2 B5:2 G#5:2 B5:2 E6:4', 'G#5:2 B5:2 D6:2 E6:2 D6:2 B5:2 G#5:2 E5:2'],
+  parts: [{ t: 'mel', i: 'saw', v: .042, o: 0 }, { t: 'arp', i: 'chip', v: .026, every: 2, o: 12 }, { t: 'bass', i: 'sbass', v: .2, p: 'drive' }, { t: 'comp', i: 'pad', v: .016, p: 'pad' }],
+  drums: { k: 'x..x..x.x..x..x.', s: '....x.......x...', h: 'x.x.x.x.x.x.x.xx', tk: '..x...x...x...x.' },
+});
+/* ---------- Цитадель: город, Нижний ярус, туннель ---------- */
+// Центральный квартал: бодрый «городской» чиптюн
+track('citcity', {
+  bpm: 118, swing: .08, rev: .22,
+  chords: ['Fmaj7', 'Em7', 'Dm7', 'C', 'Bb', 'Am7', 'Gm7', 'C7'],
+  mel: ['A5:2 C6:2 E6:2 C6:2 A5:3 r:1 G5:2 F5:2', 'G5:2 B5:2 D6:2 B5:2 G5:4 E5:4', 'F5:2 A5:2 C6:2 F6:3 r:1 E6:2 D6:2 C6:2', 'E6:4 C6:2 G5:2 E5:2 G5:2 C6:4',
+    'D6:2 Bb5:2 F5:2 Bb5:2 D6:3 r:1 F6:4', 'E6:2 C6:2 A5:2 E5:2 A5:2 C6:2 E6:4', 'D6:2 Bb5:2 G5:2 D5:2 F5:2 G5:2 Bb5:4', 'C6:3 r:1 Bb5:2 G5:2 E5:2 C5:2 E5:2 G5:2'],
+  parts: [{ t: 'mel', i: 'lead', v: .045, o: 0 }, { t: 'mel', i: 'marimba', v: .06, o: -12 }, { t: 'comp', i: 'piano', v: .024, p: 'off' }, { t: 'bass', i: 'tri', v: .2, p: 'root8' }],
+  drums: { k: 'x.......x..x....', s: '....x.......x...', h: 'x.o.x.o.x.o.x.o.' },
+});
+// Нижний ярус: грязноватый фанк в ми миноре
+track('mortytown', {
+  bpm: 100, swing: .15, rev: .25,
+  chords: ['Em7', 'Em7', 'Am7', 'B7', 'Em7', 'Em7', 'Cmaj7', 'B7'],
+  mel: ['E5:2 r:1 E5:1 G5:2 A5:2 B5:3 r:1 A5:2 G5:2', 'E5:4 r:4 D5:2 E5:2 G5:4', 'A5:2 r:1 A5:1 C6:2 B5:2 A5:3 r:1 G5:2 E5:2', 'F#5:2 A5:2 B5:2 D#6:2 C6:2 B5:2 A5:4',
+    'B5:2 r:1 B5:1 D6:2 B5:2 G5:3 r:1 E5:4', 'G5:2 A5:2 B5:2 E6:4 D6:2 B5:4', 'C6:2 B5:2 G5:2 E5:2 G5:2 B5:2 C6:4', 'D#6:3 r:1 B5:2 A5:2 F#5:2 D#5:2 B4:4'],
+  parts: [{ t: 'mel', i: 'pluck', v: .07, o: 0 }, { t: 'bass', i: 'sbass', v: .2, p: 'funk' }, { t: 'comp', i: 'ep', v: .04, p: 'stab' }, { t: 'arp', i: 'chip', v: .018, every: 2, o: 12 }],
+  drums: { k: 'x.....x...x.....', s: '....x.......x..o', h: 'x.xox.x.x.xox.xo' },
+});
+// технический туннель: напряжённый «стелс»
+track('tunnel', {
+  bpm: 96, swing: 0, rev: .4,
+  chords: ['Dm', 'Dm', 'Bb', 'A', 'Dm', 'Dm', 'Gm', 'A'],
+  mel: ['D5:2 r:2 F5:2 r:2 A5:2 r:2 G5:2 F5:2', 'E5:2 r:2 D5:2 r:6 A4:4', 'D5:2 r:2 F5:2 r:2 Bb5:4 A5:2 G5:2', 'A5:2 r:2 G5:2 r:2 E5:4 C#5:4',
+    'D5:1 D5:1 r:2 F5:2 r:2 A5:2 r:2 D6:4', 'C6:2 A5:2 F5:2 D5:2 r:8', 'G5:2 r:2 Bb5:2 r:2 D6:3 r:1 C6:2 Bb5:2', 'A5:4 E5:4 C#5:4 A4:4'],
+  parts: [{ t: 'mel', i: 'chip', v: .05, o: 0 }, { t: 'mel', i: 'pulse', v: .018, o: -12 }, { t: 'comp', i: 'pad', v: .02, p: 'pad' }, { t: 'bass', i: 'tri', v: .2, p: 'pulse' }],
+  drums: { tk: 'x.x.x.x.x.x.x.x.', k: 'x.......x.......' },
+});
 // готовые треки (сгенерированы под стиль игры, встроены build.js как MUS_SRC); если не декодируются — играет синтез-вариант
 if (typeof MUS_SRC !== 'undefined' && MUS_SRC.home) TR.morning = { name: 'morning', src: MUS_SRC.home, start: 3.9, loopStart: 5.39, loopEnd: 55.385, xfade: 1.25, fallback: 'morning_syn' }; else TR.morning = TR.morning_syn;
 if (typeof MUS_SRC !== 'undefined' && MUS_SRC.town) TR.town = { name: 'town', src: MUS_SRC.town, loopStart: 2.14, loopEnd: 50.145, xfade: 1.09, fallback: 'town_syn' }; else TR.town = TR.town_syn;
 
 /* ---------- выравнивание громкости треков (замерено офлайн-рендером, цель ≈ −24 дБ RMS) ---------- */
 const TGAIN = { morning: .32, morning_syn: .63, town_syn: .49, school: .5, title: .54, town: .37, evening: .72, night: .81, garage: .64, citadel: .59, escape: .45, fridge: .86, space: .6, battle: 1,
-  battle_mees: .5, battle_pickle: .6, battle_evil: .5, battle_robot: .64, battle_brad: .54, battle_slime: .86, battle_guard: .5 };
+  battle_mees: .5, battle_pickle: .6, battle_evil: .5, battle_robot: .64, battle_brad: .54, battle_slime: .86, battle_guard: .5, battle_hunter: .59,
+  citcity: .5, mortytown: .5, tunnel: .57 };
 /* ---------- секвенсор ---------- */
 let CUR = null; const OLD = [];
 function music(name) {

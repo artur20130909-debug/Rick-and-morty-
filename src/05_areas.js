@@ -444,61 +444,6 @@ area('gym', {
   exits: [{ r: [468, 306, 64, 20], to: 'schoolhall', at: [1062, 196], dir: 'd', door: 1 }],
   things: [{ r: [60, 140, 880, 12], look: [N('Трибуны. Кто-то нацарапал: «Брэд — король». Ниже: «Брэд не умеет писать, это писал Брэд».')] }],
 });
-/* ---------- Цитадель ---------- */
-function spaceRect(X, Y, w, h, gold) {
-  R(X, Y, w, h, grad(0, Y, 0, Y + h, [[0, '#04061a'], [1, gold ? '#5a3a10' : '#14103a']]));
-  for (let i = 0; i < w * h / 300; i++) E(X + (i * 97.3) % w, Y + (i * 61.7) % h, .8, .8, '#fff', null);
-}
-function citTower(X, yb, w, h, c) { R(X, yb - h, w, h, c, OL, .8); PG([X - 6, yb - h, X + w + 6, yb - h, X + w / 2, yb - h - 20], shade(c, .15), OL, .8); for (let i = 0; i < h / 12; i++) R(X + 4, yb - h + 6 + i * 12, w - 8, 3, '#ffe9a0', null); }
-area('cit_dock', {
-  name: 'Цитадель Риков: ангар', w: 900, h: 360, indoor: 1, noTint: 1, bounds: [26, 172, 874, 320], music: 'citadel',
-  bg() {
-    roomShell({ L: 20, Rr: 880, WT: 30, FT: 160, FB: 320, wall: '#3a4a5a', wall2: '#2a3644', wh2: 26, floor: 'metal', fc: '#5a6472', fc2: '#48525e' });
-    R(140, 40, 620, 96, '#1a2230', OL); spaceRect(146, 46, 608, 84);
-    for (let i = 0; i < 6; i++) citTower(180 + i * 100, 130, 22 + (i % 2) * 10, 30 + (i * 13) % 40, '#6a7a8a');
-    for (let i = 0; i < 7; i++) R(146 + i * 101, 46, 4, 84, '#2a3644');
-    E(330, 262, 120, 40, '#4a5464', '#7dff5a', 2); E(330, 262, 90, 28, null, '#7dff5a', 1); tx('C-137 ДОК 7', 330, 266, 10, '#7dff5a');
-    for (let i = 0; i < 4; i++) { RR(30 + i * 230, 34, 14, 8, 2, '#ff5a5a', OL, .6); }
-  },
-  props: [{ y: 290, hide: () => !G.flags.shipDocked, solid: [250, 255, 160, 35], draw() { ship(330, 290, {}); } }],
-  crowd: () => citCrowd('cit_dock'),
-  exits: [{ r: [868, 172, 12, 150], to: 'cit_plaza', at: [60, 270], dir: 'r' }],
-  things: [{ r: [140, 136, 620, 30], look: [N('Сквозь окно видно Цитадель — тысячи башен. Каждая принадлежит какому-то Рику. Или принадлежала.')] }],
-});
-area('cit_plaza', {
-  name: 'Цитадель Риков: главная площадь', w: 1500, h: 380, indoor: 1, noTint: 1, bounds: [26, 182, 1474, 356], music: () => G.flags.escape ? 'escape' : 'citadel',
-  cacheKey: () => G.flags.escape ? 'e' : '',
-  bg() {
-    roomShell({ L: 20, Rr: 1480, WT: 20, FT: 170, FB: 360, wall: '#4a5a6c', wall2: '#3a4858', wh2: 30, floor: 'metal', fc: '#7a8494', fc2: '#646e7e' });
-    for (let i = 0; i < 5; i++) { const sx = 80 + i * 280; R(sx, 36, 200, 80, '#101820', OL); R(sx + 6, 42, 188, 68, G.flags.escape ? '#5a1010' : '#1a3a5a'); if (G.flags.escape) tx('⚠ ТРЕВОГА ⚠', sx + 100, 82, 16, '#ff5a5a'); else { E(sx + 50, 76, 18, 20, '#f8d3b0', null); path(() => x.ellipse(sx + 50, 66, 19, 11, 0, PI, 0), '#674326', null); E(sx + 44, 74, 6, 5, '#111', null); tx(i % 2 ? 'МОРТИ — ПРЕЗИДЕНТ' : 'ГОЛОСУЙ ЗА МОРТИ', sx + 128, 80, 9, '#ffe14a'); } }
-    R(1376, 70, 70, 100, '#2a3644', OL); R(1382, 76, 58, 94, '#5a6a7a', OL); LN(1411, 76, 1411, 170, OL, 1.5); tx('ЛИФТ', 1411, 66, 9, '#7dff5a');
-    E(750, 290, 150, 40, null, '#9aa6b8', 2);
-  },
-  props: [{ y: 280, solid: [720, 262, 60, 18], draw() { shadow(750, 280, 40, 8); box(722, 280, 56, 18, 20, '#8a96a8', '#6a7688'); drawChar('statue', 750, 253, { sc: 1.25, noShadow: 1 }); } }],
-  crowd: () => citCrowd('cit_plaza'),
-  exits: [
-    { r: [20, 182, 12, 176], to: 'cit_dock', at: [850, 250], dir: 'l' },
-    { r: [1380, 176, 62, 12], to: 'cit_office', at: [400, 300], dir: 'u', door: 1 },
-  ],
-  things: [{ r: [720, 240, 60, 40], look: [N('Статуя Морти с повязкой. На табличке: «Тот, кто дал нам выбор».')] }],
-});
-area('cit_office', {
-  name: 'Кабинет президента', w: 800, h: 360, indoor: 1, noTint: 1, bounds: [44, 176, 756, 318], music: () => G.flags.goldPortal ? 'escape' : 'citadel',
-  cacheKey: () => G.flags.goldPortal ? 'g' : '',
-  bg() {
-    roomShell({ L: 40, Rr: 760, WT: 24, FT: 166, FB: 320, wall: '#2a2236', wall2: '#1e1828', wh2: 24, floor: 'carpet', fc: '#5a2a3a', fc2: '#4a2030' });
-    R(100, 34, 600, 116, '#0a0a14', OL); spaceRect(106, 40, 588, 104, G.flags.goldPortal);
-    if (G.flags.goldPortal) { x.save(); x.shadowColor = '#ffd84a'; x.shadowBlur = 30; E(400, 92, 70, 44, null, '#ffd84a', 6); E(400, 92, 50, 32, 'rgba(255,220,90,.5)', null); x.restore(); }
-    else { E(400, 92, 220, 30, null, 'rgba(160,200,255,.35)', 2); tx('ЦЕНТРАЛЬНАЯ КОНЕЧНАЯ КРИВАЯ', 400, 132, 8, 'rgba(160,200,255,.6)'); }
-    for (let i = 0; i < 7; i++) R(106 + i * 98, 40, 4, 104, '#1e1828');
-    for (const fx of [70, 715]) { LN(fx, 160, fx, 70, '#c9a46a', 2.5); PG([fx, 72, fx + 26, 78, fx, 96], '#e2e86c'); E(fx + 9, 84, 3, 3, '#111', null); }
-  },
-  props: [{ y: 236, solid: [320, 208, 160, 28], draw() { shadow(400, 236, 90, 7); box(320, 236, 160, 26, 24, '#3a2a1a', '#2a1e12'); R(330, 182, 30, 8, '#c9a46a', OL, .6); RR(420, 176, 36, 14, 2, '#1a1a22', OL); R(424, 179, 28, 8, '#7dff5a'); } }],
-  crowd: () => citCrowd('cit_office'),
-  under() { if (G.flags.goldPortal) { x.save(); x.globalCompositeOperation = 'lighter'; x.fillStyle = rgrad(400, 120, 10, 300, [[0, 'rgba(255,210,90,' + (.25 + sin(T / 6) * .08) + ')'], [1, 'rgba(255,210,90,0)']]); x.fillRect(0, 0, 800, 360); x.restore(); } },
-  exits: [{ r: [370, 306, 60, 20], to: 'cit_plaza', at: [1411, 200], dir: 'd', door: 1, cond: () => !G.flags.officeLocked, msg: [N('Двери лифта заблокированы.')] }],
-  things: [{ r: [100, 150, 600, 20], look: () => [N(G.flags.goldPortal ? 'Окно сияет золотом. Там, за Кривой, — что-то, чего не видел ни один Рик.' : 'За окном светится тонкая линия на краю космоса. Будто кто-то обвёл вселенную карандашом.')] }],
-});
 /* ---------- Измерение холодильника ---------- */
 area('fridge', {
   name: 'Измерение внутри холодильника', w: 1400, h: 380, indoor: 1, noTint: 1, bounds: [30, 196, 1370, 360], music: 'fridge',
@@ -532,14 +477,5 @@ function schoolCrowd(id) {
   if (id === 'classroom') { [[240, 256], [540, 256], [240, 314], [440, 314], [540, 314]].forEach((p, i) => L.push(npc('stu' + ((i * 7 + 1) % 10), p[0], p[1], { dir: 'u', sit: 1, talk: stuTalk(i + 3) }))); }
   if (id === 'cafeteria') { [[160, 210, 'd'], [280, 210, 'd'], [600, 210, 'd'], [720, 260, 'u']].forEach((p, i) => L.push(npc('stu' + ((i * 5 + 2) % 10), p[0], p[1], { dir: p[2], talk: stuTalk(i + 5) }))); }
   if (id === 'gym') { [[200, 230, 'r'], [300, 280, 'd'], [800, 240, 'l'], [700, 290, 'u']].forEach((p, i) => L.push(npc('stu' + ((i * 3 + 4) % 10), p[0], p[1], { dir: p[2], wander: 30, talk: stuTalk(i + 1) }))); }
-  return L;
-}
-const CIT_LINES = { r: ['Не смотри на меня, Морти. Не твой я Рик.', 'Цитадель уже не та. Раньше хоть кто-то был главным, кроме Морти.', 'Я Рик из вселенной, где все стулья — это Рики. Не спрашивай.', 'Говорят, президент что-то задумал. Что-то... большое.'], m: ['Мы все — Морти. Но некоторые из нас — Морти побольше.', 'Президент дал нам выбор. Мне не нравится, что я выбрал.', 'Ты тоже чувствуешь, будто весь мир — это круг? Странно.', 'Привет! Мы, Морти, должны держаться вместе. Наверное.'] };
-function citCrowd(id) {
-  if (G.crowd && G.crowd[id]) return G.crowd[id]();
-  const L = [];
-  if (id === 'cit_dock') { L.push(npc('crick4', 760, 240, { dir: 'l', pose: 'cross', emo: 'angry', talk: [['Рик-охранник', 'Проходи. Президент ждёт. Не задерживайся у окон — ты портишь вид.']] })); L.push(npc('cmorty3', 620, 300, { dir: 'l', talk: [['Морти-охранник', 'Добро пожаловать в Цитадель! Ну... то, что от неё осталось.']] })); }
-  if (id === 'cit_plaza' && G.flags.escape) { for (let i = 0; i < 6; i++) { const r = i % 2 === 0; L.push(npc(r ? 'crick' + (i % 4) : 'cmorty' + (i % 5), 200 + i * 200, 220 + (i * 53) % 120, { dir: 'l', pose: 'up', emo: 'shock', wander: 160, spd: 3, talk: [[r ? 'Рик' : 'Морти', pick(['ВСЕ К ШАТТЛАМ!', 'Это конец! Опять!', 'Где мой портал?! ГДЕ МОЙ ПОРТАЛ?!', 'Я же говорил — не голосуйте за Морти!'])]] })); } return L; }
-  if (id === 'cit_plaza') { for (let i = 0; i < 8; i++) { const r = i % 2 === 0, idn = r ? 'crick' + (i / 2 % 4) : 'cmorty' + ((i * 3) % 5 === 3 ? 4 : (i * 3) % 5); L.push(npc(idn, 160 + i * 150, 220 + (i * 37) % 110, { dir: pick(['l', 'r', 'd']), wander: 40, talk: [[r ? 'Рик' : 'Морти', CIT_LINES[r ? 'r' : 'm'][i % 4]]] })); } }
   return L;
 }
