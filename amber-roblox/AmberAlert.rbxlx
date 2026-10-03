@@ -1,0 +1,2299 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+<External>null</External>
+<External>nil</External>
+<Item class="Workspace" referent="RBX00000001"><Properties><string name="Name">Workspace</string><bool name="StreamingEnabled">false</bool></Properties></Item>
+<Item class="Lighting" referent="RBX00000002"><Properties><string name="Name">Lighting</string><token name="Technology">4</token><token name="LightingStyle">0</token><bool name="PrioritizeLightingQuality">true</bool><bool name="GlobalShadows">true</bool><float name="ShadowSoftness">0.25</float><float name="EnvironmentDiffuseScale">1</float><float name="EnvironmentSpecularScale">1</float><float name="Brightness">2</float><float name="ClockTime">0.5</float><Color3 name="Ambient"><R>0.07</R><G>0.07</G><B>0.1</B></Color3><Color3 name="OutdoorAmbient"><R>0.16</R><G>0.17</G><B>0.22</B></Color3><float name="ExposureCompensation">0</float></Properties></Item>
+<Item class="ReplicatedStorage" referent="RBX0000000A"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="Folder" referent="RBX00000003"><Properties><string name="Name">Client</string></Properties></Item><Item class="Folder" referent="RBX00000004"><Properties><string name="Name">Inmates</string></Properties></Item><Item class="Folder" referent="RBX00000009"><Properties><string name="Name">Shared</string></Properties><Item class="ModuleScript" referent="RBX00000005"><Properties><string name="Name">Build</string><ProtectedString name="Source"><![CDATA[-- Помощники постройки (сервер и клиент): детали, клинья, цилиндры, стены с проёмами,
+-- свет, подсказки ProximityPrompt, надписи, текстуры. Все детали по умолчанию закреплены (Anchored).
+local B = {}
+
+local function apply(o, props)
+	if props then
+		for k, v in pairs(props) do
+			if k ~= "Parent" then o[k] = v end
+		end
+	end
+end
+B.apply = apply
+
+-- цвет: Color3, "#RRGGBB" или r, g, b (0..255)
+function B.color(r, g, b)
+	if typeof(r) == "Color3" then return r end
+	if type(r) == "string" then return Color3.fromHex(r) end
+	return Color3.fromRGB(r, g, b)
+end
+
+-- ID ассета из Config: "" -> "", "123" -> "rbxassetid://123", "rbxasset://..." -> как есть
+function B.asset(id)
+	if id == nil or id == "" then return "" end
+	if tonumber(id) then return "rbxassetid://" .. tostring(id) end
+	return tostring(id)
+end
+
+-- материал по имени с запасным вариантом (новые материалы вроде Carpet, Plaster, RoofShingles,
+-- CeramicTiles, Leather, Rubber, Cardboard, ClayRoofTiles есть не во всех версиях)
+function B.mat(name, fallback)
+	local ok, m = pcall(function() return Enum.Material[name] end)
+	if ok and m then return m end
+	return fallback or Enum.Material.SmoothPlastic
+end
+
+function B.make(class, props, parent)
+	local o = Instance.new(class)
+	apply(o, props)
+	o.Parent = parent or (props and props.Parent)
+	return o
+end
+
+function B.model(parent, name)
+	local m = Instance.new("Model")
+	m.Name = name or "Model"
+	m.Parent = parent
+	return m
+end
+
+function B.folder(parent, name)
+	local f = Instance.new("Folder")
+	f.Name = name or "Folder"
+	f.Parent = parent
+	return f
+end
+
+local function basePart(class, parent, name, size, cf, color, material, props)
+	local p = Instance.new(class)
+	p.Name = name or class
+	p.Anchored = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Size = size
+	p.CFrame = cf
+	if color then p.Color = B.color(color) end
+	p.Material = material or Enum.Material.SmoothPlastic
+	apply(p, props)
+	p.Parent = parent
+	return p
+end
+
+-- прямоугольная деталь: size — Vector3, cf — CFrame центра
+function B.part(parent, name, size, cf, color, material, props)
+	return basePart("Part", parent, name, size, cf, color, material, props)
+end
+
+-- клин: наклонная грань идёт от верхнего заднего (+Z) ребра к нижнему переднему (−Z)
+function B.wedge(parent, name, size, cf, color, material, props)
+	return basePart("WedgePart", parent, name, size, cf, color, material, props)
+end
+
+function B.cornerWedge(parent, name, size, cf, color, material, props)
+	return basePart("CornerWedgePart", parent, name, size, cf, color, material, props)
+end
+
+-- цилиндр: ось вдоль X у cf; length — длина, d — диаметр
+function B.cyl(parent, name, length, d, cf, color, material, props)
+	local p = basePart("Part", parent, name, Vector3.new(length, d, d), cf, color, material, props)
+	p.Shape = Enum.PartType.Cylinder
+	return p
+end
+
+-- вертикальный цилиндр (ось вверх) с центром в cf
+function B.vcyl(parent, name, height, d, cf, color, material, props)
+	return B.cyl(parent, name, height, d, cf * CFrame.Angles(0, 0, math.rad(90)), color, material, props)
+end
+
+function B.ball(parent, name, d, cf, color, material, props)
+	local p = basePart("Part", parent, name, Vector3.new(d, d, d), cf, color, material, props)
+	p.Shape = Enum.PartType.Ball
+	return p
+end
+
+-- невидимая служебная деталь (зоны, точки появления, якоря)
+function B.marker(parent, name, size, cf, props)
+	local p = basePart("Part", parent, name, size or Vector3.new(1, 1, 1), cf, nil, nil, props)
+	p.Transparency = 1
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	apply(p, props)
+	return p
+end
+
+-- Стена от точки a до точки b (обе — низ стены на полу), высота h, толщина th.
+-- openings: { { at = расстояние от a до центра проёма, w = ширина, y0 = низ проёма, y1 = верх проёма }, ... }
+-- Собирает стену из кусков вокруг проёмов (двери, окна). Возвращает Model.
+-- Совет: внешние стены не тоньше 1 стада, иначе свет «протекает» сквозь них.
+function B.wall(parent, name, a, b, h, th, color, material, openings, props)
+	local m = B.model(parent, name)
+	local flat = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+	local len = flat.Magnitude
+	if len < 0.01 then return m end
+	local frame = CFrame.fromMatrix(a, flat.Unit, Vector3.yAxis)
+	local function seg(x0, x1, y0, y1)
+		if x1 - x0 < 0.02 or y1 - y0 < 0.02 then return end
+		B.part(m, "Wall", Vector3.new(x1 - x0, y1 - y0, th), frame * CFrame.new((x0 + x1) / 2, (y0 + y1) / 2, 0), color, material, props)
+	end
+	local list = {}
+	for _, o in ipairs(openings or {}) do table.insert(list, o) end
+	table.sort(list, function(p, q) return p.at < q.at end)
+	local cursor = 0
+	for _, o in ipairs(list) do
+		local x0, x1 = o.at - o.w / 2, o.at + o.w / 2
+		if x0 > cursor then seg(cursor, x0, 0, h) end
+		if (o.y0 or 0) > 0 then seg(math.max(x0, cursor), x1, 0, o.y0) end
+		if (o.y1 or h) < h then seg(math.max(x0, cursor), x1, o.y1, h) end
+		cursor = math.max(cursor, x1)
+	end
+	seg(cursor, len, 0, h)
+	return m
+end
+
+-- источник света: class = "PointLight" | "SpotLight" | "SurfaceLight"; тени включены по умолчанию
+function B.light(parent, class, props)
+	local l = Instance.new(class)
+	l.Shadows = true
+	apply(l, props)
+	l.Parent = parent
+	return l
+end
+
+-- подсказка взаимодействия (клавиша E по умолчанию)
+function B.prompt(parent, name, action, object, props)
+	local p = Instance.new("ProximityPrompt")
+	p.Name = name or "Prompt"
+	p.ActionText = action or ""
+	p.ObjectText = object or ""
+	p.MaxActivationDistance = 8
+	p.RequiresLineOfSight = false
+	p.KeyboardKeyCode = Enum.KeyCode.E
+	apply(p, props)
+	p.Parent = parent
+	return p
+end
+
+-- надпись на грани детали (вывески, таблички, экраны)
+function B.sign(part, face, text, props, guiProps)
+	local g = Instance.new("SurfaceGui")
+	g.Name = "Sign"
+	g.Face = face or Enum.NormalId.Front
+	g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	g.PixelsPerStud = 40
+	g.LightInfluence = 1
+	apply(g, guiProps)
+	g.Parent = part
+	local l = Instance.new("TextLabel")
+	l.Size = UDim2.fromScale(1, 1)
+	l.BackgroundTransparency = 1
+	l.Text = text or ""
+	l.TextScaled = true
+	l.Font = Enum.Font.GothamBold
+	l.TextColor3 = Color3.new(1, 1, 1)
+	apply(l, props)
+	l.Parent = g
+	return g, l
+end
+
+-- повторяющаяся текстура (обои, плитка); id из Config.Images; пустой id — ничего не делаем
+function B.texture(part, face, id, studsU, studsV, props)
+	local url = B.asset(id)
+	if url == "" then return nil end
+	local t = Instance.new("Texture")
+	t.Texture = url
+	t.Face = face or Enum.NormalId.Front
+	t.StudsPerTileU = studsU or 4
+	t.StudsPerTileV = studsV or 4
+	apply(t, props)
+	t.Parent = part
+	return t
+end
+
+-- одиночная картинка (плакат, лицо)
+function B.decal(part, face, id, props)
+	local url = B.asset(id)
+	if url == "" then return nil end
+	local d = Instance.new("Decal")
+	d.Texture = url
+	d.Face = face or Enum.NormalId.Front
+	apply(d, props)
+	d.Parent = part
+	return d
+end
+
+function B.weld(a, b)
+	local w = Instance.new("WeldConstraint")
+	w.Part0 = a
+	w.Part1 = b
+	w.Parent = a
+	return w
+end
+
+function B.attrs(inst, t)
+	for k, v in pairs(t) do inst:SetAttribute(k, v) end
+	return inst
+end
+
+-- CFrame: позиция + поворот вокруг вертикали в градусах
+function B.at(x, y, z, yawDeg)
+	return CFrame.new(x, y, z) * CFrame.Angles(0, math.rad(yawDeg or 0), 0)
+end
+
+return B
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000006"><Properties><string name="Name">Config</string><ProtectedString name="Source"><![CDATA[-- Настройки и данные игры (общие для сервера и клиента).
+-- Звуки и картинки: вставь ID из Roblox (только цифры). Пустая строка — звук/картинка просто не используется.
+local Config = {}
+
+Config.GameName = "AMBER ALERT"
+Config.MaxPlayersPerHouse = 4
+Config.BoothCountdown = 15          -- секунд в кабинке до старта
+Config.MaxApplesCarried = 14
+Config.AppleGrowSeconds = 18        -- раз в столько секунд на каждом дереве прибавляется яблоко (разбрызгиватель — вдвое быстрее)
+Config.TreeMaxApples = 4
+Config.DawnBonus = 40               -- $ каждому на рассвете
+Config.KillBounty = 120             -- $ за обезвреженного заключённого
+Config.StaminaMax = 100
+Config.FlashlightSeconds = 150      -- на сколько хватает батарейки
+Config.WalkSpeed, Config.SprintSpeed, Config.CrouchSpeed = 12, 20, 6
+
+-- время суток в часах: день 7:00 → 21:00 (оповещение) → ночь до 31:00 (= 7:00 следующего дня)
+Config.Time = { dayStart = 7, alertAt = 21, nightEnd = 31, alertSeconds = 34, dawnSeconds = 7, loadingSeconds = 3 }
+
+Config.Difficulties = {
+	easy    = { order = 1, name = "Лёгкая",      nights = 5,    applePrice = 18, daySeconds = 150, nightSeconds = 150, hpMul = 0.9,  tier = 1, amber = 40,  xp = 60 },
+	normal  = { order = 2, name = "Средняя",     nights = 7,    applePrice = 25, daySeconds = 140, nightSeconds = 165, hpMul = 1,    tier = 2, amber = 90,  xp = 120 },
+	hard    = { order = 3, name = "Сложная",     nights = 10,   applePrice = 37, daySeconds = 130, nightSeconds = 180, hpMul = 1.15, tier = 3, amber = 180, xp = 220 },
+	endless = { order = 4, name = "Бесконечная", nights = 9999, applePrice = 30, daySeconds = 130, nightSeconds = 170, hpMul = 1,    tier = 3, amber = 0,   xp = 40, endless = true },
+}
+
+-- предметы магазина в гараже (покупаются днём за $)
+Config.Items = {
+	battery   = { order = 1,  name = "Батарейки",          icon = "🔋", price = 25,  desc = "Полный заряд фонарика." },
+	medkit    = { order = 2,  name = "Аптечка",            icon = "🩹", price = 50,  desc = "+60 здоровья.", heal = 60 },
+	pepper    = { order = 3,  name = "Перцовый баллончик", icon = "🧯", price = 60,  desc = "Оглушает вблизи на 3 с. 3 заряда.", charges = 3, stun = 3, range = 10 },
+	beartrap  = { order = 4,  name = "Капкан",             icon = "🪤", price = 70,  desc = "Ставится на пол и держит заключённого 6 с.", stun = 6 },
+	motion    = { order = 5,  name = "Лампа с датчиком",   icon = "💡", price = 65,  desc = "Ставится на пол и загорается, когда рядом кто-то есть." },
+	stun      = { order = 6,  name = "Электрошокер",       icon = "⚡", price = 130, desc = "Оглушает на 4 с. Перезарядка 20 с.", stun = 4, range = 8, cooldown = 20 },
+	defib     = { order = 7,  name = "Дефибриллятор",      icon = "💓", price = 200, desc = "Оживить товарища у его тела." },
+	shotgun   = { order = 8,  name = "Дробовик",           icon = "🔫", price = 260, desc = "Урон заключённым. В комплекте 4 патрона.", damage = 60, range = 90, ammo = 4 },
+	shells    = { order = 9,  name = "Патроны ×4",         icon = "🧨", price = 45,  desc = "Для дробовика.", gives = "shells", count = 4 },
+	tree      = { order = 10, name = "Яблоня",             icon = "🌳", price = 150, desc = "Ещё одно дерево во дворе.", farm = true },
+	sprinkler = { order = 11, name = "Разбрызгиватель",    icon = "💦", price = 120, desc = "Яблоки растут вдвое быстрее.", farm = true },
+}
+
+-- классы покупаются в лобби за Amber
+Config.Classes = {
+	novice   = { order = 1, name = "Новичок",  price = 0,   icon = "🙂", desc = "Фонарик. Ничего лишнего.", items = {} },
+	farmer   = { order = 2, name = "Фермер",   price = 120, icon = "🧑‍🌾", desc = "Срывает по 2 яблока и начинает с $60.", items = {}, money = 60 },
+	hunter   = { order = 3, name = "Охотник",  price = 250, icon = "🎯", desc = "Начинает с дробовиком.", items = { shotgun = 1, shells = 4 } },
+	medic    = { order = 4, name = "Медик",    price = 220, icon = "⛑", desc = "Начинает с дефибриллятором и аптечкой.", items = { defib = 1, medkit = 1 } },
+	electric = { order = 5, name = "Электрик", price = 160, icon = "🔌", desc = "Фонарь горит вдвое дольше, щиток включает мгновенно.", items = { battery = 1 } },
+	runner   = { order = 6, name = "Бегун",    price = 160, icon = "👟", desc = "Выносливость +60%.", items = {} },
+}
+
+Config.Ranks = { "Recruit", "Documented", "Field Operative", "Cleared Personnel", "Containment Unit", "Research Unit",
+	"Anomalous Specialist", "Black Ridge Operator", "Classified", "Amber Alert" }
+Config.XpPerLevel = 200
+function Config.levelOf(xp) return math.floor((xp or 0) / Config.XpPerLevel) + 1 end
+function Config.rankOf(level) return Config.Ranks[math.clamp(math.floor(((level or 1) - 1) / 3) + 1, 1, #Config.Ranks)] end
+
+-- текст экстренного оповещения (первая строка всегда одна и та же)
+Config.AlertHead = "ГРАЖДАНСКИЕ ВЛАСТИ ОБЪЯВИЛИ ЧРЕЗВЫЧАЙНУЮ СИТУАЦИЮ В ВАШЕМ РАЙОНЕ."
+Config.AlertUnknown = {
+	"МЫ ПОЛУЧАЕМ СООБЩЕНИЯ О НАРУШЕНИИ ПЕРИМЕТРА В ЛЕЧЕБНИЦЕ BLACK RIDGE.",
+	"ОДИН ЗАКЛЮЧЁННЫЙ НЕ НАЙДЕН. ЕГО ИМЯ, КЛАССИФИКАЦИЯ И УРОВЕНЬ УГРОЗЫ — НЕИЗВЕСТНЫ. СИЛЬНАЯ ПОТЕРЯ СИГНАЛА.",
+	"ГРАЖДАНАМ РЕКОМЕНДУЕТСЯ ОСТАВАТЬСЯ В ПОМЕЩЕНИИ ДО ПОЛУЧЕНИЯ НОВОЙ ИНФОРМАЦИИ.",
+}
+
+-- Звуки. Ключ -> ID в Roblox. Сгенерированные файлы лежат в assets/sounds (см. assets/MANIFEST.md).
+-- Загрузи их: Studio → View → Asset Manager → Bulk Import, затем ПКМ по звуку → Copy ID.
+Config.Sounds = {
+	EasTone = "", EasNoise = "", Static = "", TvNews = "",
+	DoorOpen = "", DoorClose = "", DoorLock = "", DoorBash = "", DoorBreak = "",
+	GlassBreak = "", Footstep = "rbxasset://sounds/action_footsteps_plastic.mp3", FlashlightClick = "",
+	ApplePick = "", Coin = "", PowerDown = "", PowerUp = "", Fuse = "",
+	Shotgun = "", Pepper = "", Stun = "", TrapSnap = "", Heal = "", Defib = "",
+	Jumpscare = "", Heartbeat = "", Breath = "", Whisper = "",
+	AmbientLobby = "", AmbientDay = "", AmbientNight = "", AmbientHouse = "", Wind = "", Crickets = "",
+	Stinger = "", Dawn = "", Win = "", Lose = "", UiClick = "rbxasset://sounds/electronicpingshort.wav", UiHover = "",
+}
+
+-- Картинки (Decal/Texture). Ключ -> ID. Сгенерированные файлы — assets/images.
+Config.Images = {
+	WallpaperLiving = "", WallpaperBedroom = "", WallpaperKids = "", KitchenTiles = "", BathTiles = "",
+	Carpet = "", WoodFloor = "", Ceiling = "", Siding = "", RoofShingles = "",
+	EasLogo = "", BlackRidgeLogo = "", Poster1 = "", Poster2 = "", Poster3 = "", FamilyPhoto = "",
+	TvStatic = "", Vignette = "", Grain = "",
+}
+
+return Config
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000007"><Properties><string name="Name">Net</string><ProtectedString name="Source"><![CDATA[-- Удалённые события и функции. Сервер создаёт их (Net.init), клиент ждёт.
+local RunService = game:GetService("RunService")
+local RS = game:GetService("ReplicatedStorage")
+
+local Net = {}
+Net.Events = { "Action", "Toast", "Alert", "Scene", "Fx", "Hidden" }
+Net.Functions = { "Shop", "Profile", "Lobby" }
+
+local folder = nil
+local function getFolder()
+	if folder then return folder end
+	if RunService:IsServer() then
+		folder = RS:FindFirstChild("Remotes")
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = "Remotes"
+			folder.Parent = RS
+		end
+	else
+		folder = RS:WaitForChild("Remotes")
+	end
+	return folder
+end
+
+local function get(class, name)
+	local f = getFolder()
+	local r = f:FindFirstChild(name)
+	if r then return r end
+	if RunService:IsServer() then
+		r = Instance.new(class)
+		r.Name = name
+		r.Parent = f
+		return r
+	end
+	return f:WaitForChild(name)
+end
+
+function Net.event(name) return get("RemoteEvent", name) end
+function Net.func(name) return get("RemoteFunction", name) end
+
+-- сервер: создать всё сразу
+function Net.init()
+	for _, n in ipairs(Net.Events) do Net.event(n) end
+	for _, n in ipairs(Net.Functions) do Net.func(n) end
+end
+
+return Net
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000008"><Properties><string name="Name">Sound</string><ProtectedString name="Source"><![CDATA[-- Звуки по ключу из Config.Sounds. Пустой ID — тишина (без ошибок).
+local Debris = game:GetService("Debris")
+local SoundService = game:GetService("SoundService")
+local Config = require(script.Parent.Config)
+local B = require(script.Parent.Build)
+
+local Sound = {}
+
+function Sound.id(key)
+	return B.asset(Config.Sounds[key])
+end
+
+-- where: BasePart/Attachment (звук в 3D), Vector3 (точка в мире) или nil (2D — только на клиенте)
+function Sound.play(key, where, props)
+	local id = Sound.id(key)
+	if id == "" then return nil end
+	local s = Instance.new("Sound")
+	s.Name = key
+	s.SoundId = id
+	s.Volume = 0.6
+	s.RollOffMinDistance = 8
+	s.RollOffMaxDistance = 120
+	B.apply(s, props)
+	if typeof(where) == "Vector3" then
+		local a = Instance.new("Attachment")
+		a.Name = "SoundPoint"
+		a.Parent = workspace.Terrain
+		a.WorldPosition = where
+		s.Parent = a
+		Debris:AddItem(a, s.Looped and 3600 or 20)
+	elseif typeof(where) == "Instance" then
+		s.Parent = where
+	else
+		s.Parent = SoundService
+	end
+	s:Play()
+	if not s.Looped then
+		s.Ended:Connect(function() s:Destroy() end)
+		Debris:AddItem(s, 30)
+	end
+	return s
+end
+
+-- зацикленный звук (фон, гул): возвращает Sound, его можно :Stop()/:Destroy()
+function Sound.loop(key, where, props)
+	local p = { Looped = true }
+	for k, v in pairs(props or {}) do p[k] = v end
+	return Sound.play(key, where, p)
+end
+
+return Sound
+]]></ProtectedString></Properties></Item></Item></Item>
+<Item class="ServerScriptService" referent="RBX00000012"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="Script" referent="RBX0000000B"><Properties><string name="Name">Main</string><ProtectedString name="Source"><![CDATA[-- Точка входа сервера Amber Alert: удалённые события, служебные папки и запуск модулей по порядку.
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+
+local Shared = RS:WaitForChild("Shared")
+local Server = script.Parent:WaitForChild("Server")
+
+local ctx = {
+	Config = require(Shared:WaitForChild("Config")),
+	Build = require(Shared:WaitForChild("Build")),
+	Net = require(Shared:WaitForChild("Net")),
+	Sound = require(Shared:WaitForChild("Sound")),
+}
+ctx.Net.init()
+Players.CharacterAutoLoads = false   -- персонажей появляет сам сервер (лобби, дом, рассвет)
+
+local function folder(parent, name)
+	local f = parent:FindFirstChild(name)
+	if not f then
+		f = Instance.new("Folder")
+		f.Name = name
+		f.Parent = parent
+	end
+	return f
+end
+folder(workspace, "Houses")
+folder(workspace, "Inmates")
+folder(workspace, "Props")
+folder(RS, "Matches")
+
+local order = { "Data", "HouseMap", "LobbyMap", "HouseLogic", "Items", "InmateAI", "Match", "Lobby" }
+for _, name in ipairs(order) do
+	local m = Server:FindFirstChild(name)
+	if m then
+		local ok, mod = pcall(require, m)
+		if ok then
+			ctx[name] = mod
+		else
+			warn("[AA] Модуль " .. name .. " не загрузился: " .. tostring(mod))
+		end
+	else
+		warn("[AA] Нет модуля " .. name)
+	end
+end
+for _, name in ipairs(order) do
+	local mod = ctx[name]
+	if type(mod) == "table" and mod.init then
+		local ok, err = pcall(mod.init, ctx)
+		if not ok then warn("[AA] Ошибка запуска " .. name .. ": " .. tostring(err)) end
+	end
+end
+print("[AA] Сервер Amber Alert запущен")
+]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX00000011"><Properties><string name="Name">Server</string></Properties><Item class="ModuleScript" referent="RBX0000000C"><Properties><string name="Name">Data</string><ProtectedString name="Source"><![CDATA[-- Профиль игрока: Amber (валюта лобби), опыт, уровень, ранг, купленные классы.
+-- Хранится в DataStore (в несохранённом месте Studio просто живёт в памяти).
+local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+
+local Data = {}
+local ctx, Config
+local store = nil
+local profiles = {}      -- [Player] = профиль
+
+local function newProfile()
+	return { amber = 0, xp = 0, class = "novice", owned = { novice = true }, wins = 0, nights = 0 }
+end
+
+local function syncAttrs(plr)
+	local p = profiles[plr]
+	if not p then return end
+	local lvl = Config.levelOf(p.xp)
+	plr:SetAttribute("Amber", p.amber)
+	plr:SetAttribute("XP", p.xp)
+	plr:SetAttribute("Level", lvl)
+	plr:SetAttribute("Rank", Config.rankOf(lvl))
+	plr:SetAttribute("Class", p.class)
+end
+
+local function load(plr)
+	local p = newProfile()
+	if store then
+		local ok, saved = pcall(function() return store:GetAsync("u" .. plr.UserId) end)
+		if ok and type(saved) == "table" then
+			p.amber = tonumber(saved.amber) or 0
+			p.xp = tonumber(saved.xp) or 0
+			p.wins = tonumber(saved.wins) or 0
+			p.nights = tonumber(saved.nights) or 0
+			if type(saved.owned) == "table" then
+				for k, v in pairs(saved.owned) do
+					if Config.Classes[k] and v then p.owned[k] = true end
+				end
+			end
+			if type(saved.class) == "string" and p.owned[saved.class] then p.class = saved.class end
+		elseif not ok then
+			warn("[AA] Не удалось загрузить профиль: " .. tostring(saved))
+		end
+	end
+	profiles[plr] = p
+	syncAttrs(plr)
+	return p
+end
+
+function Data.save(plr)
+	local p = profiles[plr]
+	if not p or not store then return end
+	local ok, err = pcall(function()
+		store:SetAsync("u" .. plr.UserId, { amber = p.amber, xp = p.xp, class = p.class, owned = p.owned, wins = p.wins, nights = p.nights })
+	end)
+	if not ok then warn("[AA] Не удалось сохранить профиль: " .. tostring(err)) end
+end
+
+function Data.get(plr)
+	return profiles[plr] or load(plr)
+end
+
+function Data.snapshot(plr)
+	local p = Data.get(plr)
+	local lvl = Config.levelOf(p.xp)
+	local owned = {}
+	for k in pairs(p.owned) do owned[k] = true end
+	return { amber = p.amber, xp = p.xp, level = lvl, rank = Config.rankOf(lvl), class = p.class, owned = owned, wins = p.wins, nights = p.nights }
+end
+
+function Data.addAmber(plr, n)
+	local p = Data.get(plr)
+	p.amber = math.max(0, p.amber + math.floor(n))
+	syncAttrs(plr)
+end
+
+function Data.addXp(plr, n)
+	local p = Data.get(plr)
+	local before = Config.levelOf(p.xp)
+	p.xp = p.xp + math.floor(n)
+	syncAttrs(plr)
+	local after = Config.levelOf(p.xp)
+	if after > before and ctx.Net then
+		ctx.Net.event("Toast"):FireClient(plr, "Новый уровень: " .. after .. " · " .. Config.rankOf(after), Color3.fromRGB(255, 190, 60))
+	end
+end
+
+function Data.addStats(plr, nights, won)
+	local p = Data.get(plr)
+	p.nights = p.nights + (nights or 0)
+	if won then p.wins = p.wins + 1 end
+end
+
+function Data.classOf(plr)
+	return Data.get(plr).class
+end
+
+local function lobbyInvoke(plr, action, key)
+	local p = Data.get(plr)
+	local c = Config.Classes[key or ""]
+	if not c then return { ok = false, msg = "Нет такого класса", profile = Data.snapshot(plr) } end
+	if (plr:GetAttribute("MatchId") or 0) ~= 0 then
+		return { ok = false, msg = "Классы меняются только в лобби", profile = Data.snapshot(plr) }
+	end
+	if action == "buyClass" then
+		if p.owned[key] then
+			p.class = key
+			syncAttrs(plr)
+			return { ok = true, msg = "Выбран класс: " .. c.name, profile = Data.snapshot(plr) }
+		end
+		if p.amber < c.price then
+			return { ok = false, msg = "Не хватает Amber: нужно " .. c.price, profile = Data.snapshot(plr) }
+		end
+		p.amber = p.amber - c.price
+		p.owned[key] = true
+		p.class = key
+		syncAttrs(plr)
+		Data.save(plr)
+		return { ok = true, msg = "Куплен класс: " .. c.name, profile = Data.snapshot(plr) }
+	elseif action == "setClass" then
+		if not p.owned[key] then return { ok = false, msg = "Сначала купи этот класс", profile = Data.snapshot(plr) } end
+		p.class = key
+		syncAttrs(plr)
+		return { ok = true, msg = "Выбран класс: " .. c.name, profile = Data.snapshot(plr) }
+	end
+	return { ok = false, msg = "Неизвестное действие", profile = Data.snapshot(plr) }
+end
+
+function Data.init(c)
+	ctx = c
+	Config = c.Config
+	local ok, err = pcall(function() store = DataStoreService:GetDataStore("AmberAlertRemake_v1") end)
+	if not ok then
+		store = nil
+		warn("[AA] Сохранение недоступно (опубликуй место и включи API Services): " .. tostring(err))
+	end
+	c.Net.func("Profile").OnServerInvoke = function(plr) return Data.snapshot(plr) end
+	c.Net.func("Lobby").OnServerInvoke = function(plr, action, key)
+		local okL, res = pcall(lobbyInvoke, plr, action, key)
+		if okL then return res end
+		warn("[AA] Ошибка Lobby: " .. tostring(res))
+		return { ok = false, msg = "Ошибка", profile = Data.snapshot(plr) }
+	end
+	Players.PlayerAdded:Connect(load)
+	for _, p in ipairs(Players:GetPlayers()) do if not profiles[p] then load(p) end end
+	Players.PlayerRemoving:Connect(function(plr)
+		Data.save(plr)
+		profiles[plr] = nil
+	end)
+	game:BindToClose(function()
+		for _, p in ipairs(Players:GetPlayers()) do Data.save(p) end
+	end)
+	task.spawn(function()
+		while true do
+			task.wait(120)
+			for _, p in ipairs(Players:GetPlayers()) do task.spawn(Data.save, p) end
+		end
+	end)
+end
+
+return Data
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000D"><Properties><string name="Name">HouseLogic</string><ProtectedString name="Source"><![CDATA[-- Логика дома: двери (открыть / закрыть / запереть / выбить), окна, укрытия,
+-- яблони, электрощиток и свет. Работает с моделью дома из HouseMap (контракт — ARCHITECTURE.md §6).
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+
+local HouseLogic = {}
+local ctx, Config, Sound, Net
+local doorState = setmetatable({}, { __mode = "k" })   -- [дверь] = { closed, openCF, leafCopy, token, match }
+local hideOwner = {}                                    -- [Player] = { hide, match, t0, fails }
+
+local function warnOnce(tag, err)
+	HouseLogic._warned = HouseLogic._warned or {}
+	if HouseLogic._warned[tag] then return end
+	HouseLogic._warned[tag] = true
+	warn("[AA] HouseLogic " .. tag .. ": " .. tostring(err))
+end
+
+local function inMatch(match, plr)
+	return plr and plr:GetAttribute("MatchId") == match.id and match:isAlive(plr)
+end
+
+local function connect(match, signal, fn)
+	match.conns = match.conns or {}
+	local c = signal:Connect(function(...)
+		local ok, err = pcall(fn, ...)
+		if not ok then warnOnce("prompt", err) end
+	end)
+	table.insert(match.conns, c)
+	return c
+end
+
+---------------------------------------------------------------- двери
+local function panelOf(door)
+	local leaf = door:FindFirstChild("Leaf")
+	return leaf and (leaf.PrimaryPart or leaf:FindFirstChild("Panel")), leaf
+end
+
+local function updateDoorPrompts(door)
+	local panel = panelOf(door)
+	if not panel then return end
+	local broken = door:GetAttribute("Broken") == true
+	local p = panel:FindFirstChild("Prompt")
+	local lp = panel:FindFirstChild("LockPrompt")
+	if p then
+		p.Enabled = not broken
+		if door:GetAttribute("Open") then p.ActionText = "Закрыть"
+		elseif door:GetAttribute("Locked") then p.ActionText = "Заперто"
+		else p.ActionText = "Открыть" end
+	end
+	if lp then
+		lp.Enabled = not broken
+		lp.ActionText = door:GetAttribute("Locked") and "Отпереть" or "Запереть"
+	end
+end
+
+function HouseLogic.isOpen(door)
+	return door:GetAttribute("Open") == true or door:GetAttribute("Broken") == true
+end
+
+function HouseLogic.isLocked(door)
+	return door:GetAttribute("Locked") == true and door:GetAttribute("Broken") ~= true
+end
+
+-- открыть/закрыть с плавным поворотом вокруг петли
+function HouseLogic.setDoor(door, open, byInmate)
+	local st = doorState[door]
+	if not st or door:GetAttribute("Broken") then return false end
+	if open and door:GetAttribute("Locked") then return false end
+	if (door:GetAttribute("Open") == true) == open then return true end
+	local panel, leaf = panelOf(door)
+	if not leaf then return false end
+	door:SetAttribute("Open", open)
+	st.token = st.token + 1
+	local my = st.token
+	local cv = Instance.new("CFrameValue")
+	cv.Value = leaf:GetPivot()
+	cv.Changed:Connect(function(v)
+		if st.token == my and leaf.Parent then leaf:PivotTo(v) end
+	end)
+	local tw = TweenService:Create(cv, TweenInfo.new(byInmate and 0.25 or 0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Value = open and st.openCF or st.closed })
+	tw.Completed:Connect(function() cv:Destroy() end)
+	tw:Play()
+	updateDoorPrompts(door)
+	if panel then Sound.play(open and "DoorOpen" or "DoorClose", panel, { Volume = byInmate and 0.9 or 0.6 }) end
+	return true
+end
+
+function HouseLogic.setLocked(door, locked)
+	if door:GetAttribute("Broken") then return end
+	if locked and door:GetAttribute("Open") then HouseLogic.setDoor(door, false) end
+	door:SetAttribute("Locked", locked)
+	updateDoorPrompts(door)
+	local panel = panelOf(door)
+	if panel then Sound.play("DoorLock", panel) end
+end
+
+local function breakDoor(door)
+	local panel, leaf = panelOf(door)
+	door:SetAttribute("Broken", true)
+	door:SetAttribute("Open", true)
+	door:SetAttribute("Locked", false)
+	updateDoorPrompts(door)
+	if panel then Sound.play("DoorBreak", panel, { Volume = 1 }) end
+	if not leaf then return end
+	local push = panel and panel.CFrame.LookVector or Vector3.new(0, 0, 1)
+	if math.random() < 0.5 then push = -push end
+	for _, p in ipairs(leaf:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.Anchored = false
+			p.CanQuery = false
+			p.AssemblyLinearVelocity = push * (18 + math.random() * 10) + Vector3.new(0, 8, 0)
+			pcall(function() p:SetNetworkOwner(nil) end)
+		end
+	end
+	task.delay(1.5, function()
+		for _, p in ipairs(leaf:GetDescendants()) do
+			if p:IsA("BasePart") then p.CanCollide = false end
+		end
+	end)
+end
+
+-- удар по запертой двери; true — дверь выбита
+function HouseLogic.damageDoor(door, amount)
+	if door:GetAttribute("Broken") then return true end
+	local h = (door:GetAttribute("Health") or 100) - (amount or 25)
+	door:SetAttribute("Health", h)
+	local st = doorState[door]
+	local panel, leaf = panelOf(door)
+	if panel then Sound.play("DoorBash", panel, { Volume = 1, PlaybackSpeed = 0.9 + math.random() * 0.2 }) end
+	if h <= 0 then
+		breakDoor(door)
+		return true
+	end
+	-- дверь вздрагивает от удара
+	if st and leaf and not door:GetAttribute("Open") then
+		leaf:PivotTo(st.closed * CFrame.new(0, 0, (math.random() - 0.5) * 0.3) * CFrame.Angles(0, math.rad((math.random() - 0.5) * 3), 0))
+		task.delay(0.08, function()
+			if leaf.Parent and not door:GetAttribute("Open") and not door:GetAttribute("Broken") then leaf:PivotTo(st.closed) end
+		end)
+	end
+	return false
+end
+
+local function wireDoor(match, door)
+	local panel = panelOf(door)
+	if not panel then return end
+	local p = panel:FindFirstChild("Prompt")
+	local lp = panel:FindFirstChild("LockPrompt")
+	if p then
+		connect(match, p.Triggered, function(plr)
+			if not inMatch(match, plr) then return end
+			if door:GetAttribute("Locked") and not door:GetAttribute("Open") then
+				Sound.play("DoorLock", panel, { PlaybackSpeed = 1.3 })
+				Net.event("Toast"):FireClient(plr, "Заперто. Держи R, чтобы отпереть.")
+				return
+			end
+			HouseLogic.setDoor(door, not door:GetAttribute("Open"))
+		end)
+	end
+	if lp then
+		connect(match, lp.Triggered, function(plr)
+			if not inMatch(match, plr) then return end
+			HouseLogic.setLocked(door, not door:GetAttribute("Locked"))
+		end)
+	end
+	updateDoorPrompts(door)
+end
+
+local function initDoor(match, door)
+	local _, leaf = panelOf(door)
+	local hinge = door:FindFirstChild("Hinge")
+	if not leaf or not hinge then
+		warnOnce("door " .. door.Name, "нет Leaf/Hinge")
+		return
+	end
+	local closed = leaf:GetPivot()
+	local h = hinge.CFrame
+	local angle = math.rad(door:GetAttribute("OpenAngle") or 95)
+	local rot = h * CFrame.Angles(0, angle, 0) * h:Inverse()
+	doorState[door] = { closed = closed, openCF = rot * closed, leafCopy = leaf:Clone(), token = 0, match = match }
+	door:SetAttribute("Open", false)
+	door:SetAttribute("Locked", false)
+	door:SetAttribute("Broken", false)
+	door:SetAttribute("Health", 100)
+	wireDoor(match, door)
+end
+
+-- утром двери чинят: выбитые ставим заново
+local function repairDoor(match, door)
+	local st = doorState[door]
+	if not st then return end
+	if door:GetAttribute("Broken") then
+		local old = door:FindFirstChild("Leaf")
+		if old then old:Destroy() end
+		local leaf = st.leafCopy:Clone()
+		leaf.Parent = door
+		leaf:PivotTo(st.closed)
+		door:SetAttribute("Broken", false)
+		door:SetAttribute("Open", false)
+		wireDoor(match, door)
+	end
+	door:SetAttribute("Health", 100)
+	updateDoorPrompts(door)
+end
+
+---------------------------------------------------------------- окна
+function HouseLogic.breakWindow(window)
+	if window:GetAttribute("Broken") then return end
+	window:SetAttribute("Broken", true)
+	local glass = window:FindFirstChild("Glass")
+	if not glass then return end
+	glass.Transparency = 1
+	glass.CanCollide = false
+	glass.CanQuery = false
+	Sound.play("GlassBreak", glass, { Volume = 1 })
+	local props = workspace:FindFirstChild("Props")
+	for _ = 1, 10 do
+		local s = 0.2 + math.random() * 0.5
+		local shard = Instance.new("Part")
+		shard.Name = "Shard"
+		shard.Size = Vector3.new(s, s * 1.4, 0.05)
+		shard.Material = Enum.Material.Glass
+		shard.Transparency = 0.4
+		shard.Color = Color3.fromRGB(200, 225, 235)
+		shard.CanCollide = true
+		shard.CanQuery = false
+		shard.CFrame = glass.CFrame * CFrame.new((math.random() - 0.5) * glass.Size.X, (math.random() - 0.5) * glass.Size.Y, 0)
+			* CFrame.Angles(math.random() * 3, math.random() * 3, math.random() * 3)
+		shard.AssemblyLinearVelocity = glass.CFrame.LookVector * (math.random() - 0.5) * 30 + Vector3.new(0, 4, 0)
+		shard.Parent = props or workspace
+		Debris:AddItem(shard, 6)
+	end
+end
+
+local function repairWindow(window)
+	if not window:GetAttribute("Broken") then return end
+	window:SetAttribute("Broken", false)
+	local glass = window:FindFirstChild("Glass")
+	if glass then
+		glass.Transparency = glass:GetAttribute("T0") or 0.5
+		glass.CanCollide = true
+		glass.CanQuery = true
+	end
+end
+
+---------------------------------------------------------------- укрытия
+function HouseLogic.occupant(hide)
+	local id = hide:GetAttribute("Occupant") or 0
+	if id == 0 then return nil end
+	return Players:GetPlayerByUserId(id)
+end
+
+function HouseLogic.hiddenIn(plr)
+	local h = hideOwner[plr]
+	return h and h.hide or nil
+end
+
+function HouseLogic.hide(match, plr, hide)
+	if hideOwner[plr] or HouseLogic.occupant(hide) then return false end
+	if match.phase == "alert" or match.phase == "loading" or match.phase == "end" then return false end
+	local char = plr.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local inside = hide:FindFirstChild("Inside")
+	if not hrp or not inside then return false end
+	hide:SetAttribute("Occupant", plr.UserId)
+	plr:SetAttribute("Hidden", true)
+	hideOwner[plr] = { hide = hide, match = match, t0 = os.clock(), fails = 0 }
+	hrp.Anchored = true
+	char:PivotTo(inside.CFrame)
+	Sound.play("DoorClose", inside, { Volume = 0.5 })
+	Net.event("Hidden"):FireClient(plr, hide)
+	return true
+end
+
+function HouseLogic.unhide(plr)
+	local h = hideOwner[plr]
+	if not h then return false end
+	hideOwner[plr] = nil
+	if h.hide.Parent then h.hide:SetAttribute("Occupant", 0) end
+	plr:SetAttribute("Hidden", false)
+	local char = plr.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		local exit = h.hide:FindFirstChild("Exit")
+		if exit and h.hide.Parent then char:PivotTo(exit.CFrame + Vector3.new(0, 3, 0)) end
+		hrp.Anchored = false
+		local inside = h.hide:FindFirstChild("Inside")
+		if inside then Sound.play("DoorOpen", inside, { Volume = 0.5 }) end
+	end
+	Net.event("Hidden"):FireClient(plr, nil)
+	return true
+end
+
+-- заключённый вытаскивает игрока из укрытия
+function HouseLogic.pullOut(match, plr)
+	if not hideOwner[plr] then return false end
+	HouseLogic.unhide(plr)
+	match:fxTo(plr, "shake", 1.4, 0.6)
+	match:fxTo(plr, "sound", "Stinger")
+	Net.event("Toast"):FireClient(plr, "Тебя нашли!", Color3.fromRGB(255, 70, 70))
+	return true
+end
+
+-- концентрация в укрытии: провал рядом с заключённым — тебя слышат
+function HouseLogic.qte(plr, ok)
+	local h = hideOwner[plr]
+	if not h then return end
+	if ok then return end
+	h.fails = h.fails + 1
+	local inside = h.hide:FindFirstChild("Inside")
+	local pos = inside and inside.Position
+	if not pos then return end
+	local heard = false
+	for _, inm in ipairs(h.match.inmates or {}) do
+		if inm.root and inm.root.Parent and (inm.root.Position - pos).Magnitude < 24 then heard = true end
+	end
+	if heard then
+		HouseLogic.pullOut(h.match, plr)
+	else
+		Net.event("Toast"):FireClient(plr, "Тише... ты шумишь", Color3.fromRGB(255, 190, 120))
+	end
+end
+
+---------------------------------------------------------------- яблони
+local function setVisible(model, vis)
+	for _, p in ipairs(model:GetDescendants()) do
+		if p:IsA("BasePart") then
+			if p:GetAttribute("T0") == nil then
+				p:SetAttribute("T0", p.Transparency)
+				p:SetAttribute("CC0", p.CanCollide)
+			end
+			p.Transparency = vis and p:GetAttribute("T0") or 1
+			p.CanCollide = vis and p:GetAttribute("CC0") or false
+		end
+	end
+end
+
+function HouseLogic.updateTree(tree)
+	local planted = tree:GetAttribute("Planted") == true
+	local n = tree:GetAttribute("Apples") or 0
+	local plant = tree:FindFirstChild("Plant")
+	if plant then setVisible(plant, planted) end
+	local apples = tree:FindFirstChild("Apples")
+	if apples then
+		for i = 1, 8 do
+			local a = apples:FindFirstChild("Apple" .. i)
+			if a then
+				if a:GetAttribute("T0") == nil then a:SetAttribute("T0", a.Transparency) end
+				a.Transparency = (planted and n >= i) and a:GetAttribute("T0") or 1
+				a.CanCollide = false
+			end
+		end
+	end
+	local p = tree:FindFirstChild("Prompt", true)
+	if p then
+		p.Enabled = planted and n > 0
+		p.ObjectText = "Яблоня · " .. n
+	end
+end
+
+function HouseLogic.plantTree(match)
+	for _, t in ipairs(match.house.trees or {}) do
+		if not t:GetAttribute("Planted") then
+			t:SetAttribute("Planted", true)
+			t:SetAttribute("Apples", 1)
+			HouseLogic.updateTree(t)
+			return true
+		end
+	end
+	return false
+end
+
+-- раз в Config.AppleGrowSeconds на каждом посаженном дереве прибавляется яблоко
+function HouseLogic.growApples(match)
+	for _, t in ipairs(match.house.trees or {}) do
+		local n = t:GetAttribute("Apples") or 0
+		if t:GetAttribute("Planted") and n < Config.TreeMaxApples then
+			t:SetAttribute("Apples", n + 1)
+			HouseLogic.updateTree(t)
+		end
+	end
+end
+
+local function pickApple(match, plr, tree)
+	local n = tree:GetAttribute("Apples") or 0
+	if n <= 0 or not tree:GetAttribute("Planted") then return end
+	local carried = plr:GetAttribute("Apples") or 0
+	if carried >= Config.MaxApplesCarried then
+		Net.event("Toast"):FireClient(plr, "Руки заняты! Продай яблоки в гараже.")
+		return
+	end
+	tree:SetAttribute("Apples", n - 1)
+	HouseLogic.updateTree(tree)
+	local add = (plr:GetAttribute("Class") == "farmer") and 2 or 1
+	plr:SetAttribute("Apples", math.min(Config.MaxApplesCarried, carried + add))
+	match:fxTo(plr, "apple", add)
+	local trunk = tree:FindFirstChild("Plot") or tree.PrimaryPart
+	if trunk then Sound.play("ApplePick", trunk) end
+end
+
+---------------------------------------------------------------- свет и щиток
+function HouseLogic.updateLights(match)
+	local on = match.power ~= false
+	for _, lamp in ipairs(match.house.lights or {}) do
+		if lamp.Parent then
+			for _, l in ipairs(lamp:GetDescendants()) do
+				if l:IsA("Light") then l.Enabled = on end
+			end
+			if lamp:IsA("Light") then lamp.Enabled = on end
+			if lamp:IsA("BasePart") and lamp:GetAttribute("Glow") then
+				lamp.Material = on and Enum.Material.Neon or Enum.Material.SmoothPlastic
+			end
+		end
+	end
+	local fuse = match.house.fuse
+	local lampPart = fuse and fuse:FindFirstChild("Lamp", true)
+	if lampPart and lampPart:IsA("BasePart") then
+		lampPart.Color = on and Color3.fromRGB(80, 255, 120) or Color3.fromRGB(255, 50, 40)
+	end
+	local p = fuse and fuse:FindFirstChild("Prompt", true)
+	if p then p.ActionText = on and "Выключить свет" or "Включить свет" end
+end
+
+function HouseLogic.setPower(match, on, quiet)
+	if match.power == on and not quiet then return end
+	match.power = on
+	if match.folder then match.folder:SetAttribute("Power", on) end
+	HouseLogic.updateLights(match)
+	if not quiet then
+		match:fx("power", on)
+		local fuse = match.house.fuse
+		local at = fuse and (fuse.PrimaryPart or fuse:FindFirstChildWhichIsA("BasePart", true))
+		Sound.play(on and "PowerUp" or "PowerDown", at, { Volume = 1 })
+	end
+end
+
+---------------------------------------------------------------- подключение к матчу
+function HouseLogic.attach(match)
+	local house = match.house
+	match.conns = match.conns or {}
+	for _, door in ipairs(house.doors or {}) do
+		local ok, err = pcall(initDoor, match, door)
+		if not ok then warnOnce("initDoor", err) end
+	end
+	for _, w in ipairs(house.windows or {}) do
+		w:SetAttribute("Broken", false)
+		local g = w:FindFirstChild("Glass")
+		if g and g:GetAttribute("T0") == nil then g:SetAttribute("T0", g.Transparency) end
+	end
+	for _, hide in ipairs(house.hides or {}) do
+		hide:SetAttribute("Occupant", 0)
+		local p = hide:FindFirstChild("Prompt", true)
+		if p then
+			connect(match, p.Triggered, function(plr)
+				if not inMatch(match, plr) then return end
+				if hideOwner[plr] then return end
+				if HouseLogic.occupant(hide) then
+					Net.event("Toast"):FireClient(plr, "Здесь уже кто-то прячется")
+					return
+				end
+				HouseLogic.hide(match, plr, hide)
+			end)
+		end
+	end
+	for _, tree in ipairs(house.trees or {}) do
+		local p = tree:FindFirstChild("Prompt", true)
+		if p then
+			connect(match, p.Triggered, function(plr)
+				if inMatch(match, plr) then pickApple(match, plr, tree) end
+			end)
+		end
+		HouseLogic.updateTree(tree)
+	end
+	local fuse = house.fuse
+	local fp = fuse and fuse:FindFirstChild("Prompt", true)
+	if fp then
+		fp.HoldDuration = 0.6
+		connect(match, fp.Triggered, function(plr)
+			if not inMatch(match, plr) then return end
+			if match.power then
+				HouseLogic.setPower(match, false)
+				return
+			end
+			local wait = (plr:GetAttribute("Class") == "electric") and 0 or 1.2
+			Sound.play("Fuse", fp.Parent)
+			task.delay(wait, function()
+				if match.phase ~= "end" then HouseLogic.setPower(match, true) end
+			end)
+		end)
+	end
+	HouseLogic.setPower(match, true, true)
+end
+
+-- рассвет: двери и окна как новые, свет включён
+function HouseLogic.repairAll(match)
+	for _, door in ipairs(match.house.doors or {}) do
+		local ok, err = pcall(repairDoor, match, door)
+		if not ok then warnOnce("repairDoor", err) end
+	end
+	for _, w in ipairs(match.house.windows or {}) do repairWindow(w) end
+	HouseLogic.setPower(match, true, true)
+end
+
+function HouseLogic.unhideAll(match)
+	for plr, h in pairs(hideOwner) do
+		if h.match == match then HouseLogic.unhide(plr) end
+	end
+end
+
+function HouseLogic.detach(match)
+	HouseLogic.unhideAll(match)
+	for _, c in ipairs(match.conns or {}) do c:Disconnect() end
+	match.conns = {}
+end
+
+function HouseLogic.init(c)
+	ctx = c
+	Config = c.Config
+	Sound = c.Sound
+	Net = c.Net
+	Players.PlayerRemoving:Connect(function(plr)
+		local h = hideOwner[plr]
+		if h then
+			hideOwner[plr] = nil
+			if h.hide.Parent then h.hide:SetAttribute("Occupant", 0) end
+		end
+	end)
+end
+
+return HouseLogic
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000E"><Properties><string name="Name">Items</string><ProtectedString name="Source"><![CDATA[-- Предметы и действия игрока: инвентарь, магазин в гараже (купить/продать яблоки),
+-- использование предметов (дробовик, баллончик, шокер, капкан, лампа, аптечка, батарейки, дефибриллятор),
+-- фонарик, бег/присед для слуха заключённых, выход из укрытия и концентрация.
+local Players = game:GetService("Players")
+
+local Items = {}
+local ctx, Config, Sound, Net, B
+local stunReady = {}            -- [Player] = os.clock(), когда шокер снова готов
+local lastUse = {}              -- [Player] = os.clock() — защита от спама
+
+---------------------------------------------------------------- инвентарь
+local function inv(plr)
+	local f = plr:FindFirstChild("Inventory")
+	if not f then
+		f = Instance.new("Folder")
+		f.Name = "Inventory"
+		f.Parent = plr
+	end
+	return f
+end
+
+function Items.count(plr, key)
+	local v = inv(plr):FindFirstChild(key)
+	return v and v.Value or 0
+end
+
+function Items.add(plr, key, n)
+	local f = inv(plr)
+	local v = f:FindFirstChild(key)
+	if not v then
+		v = Instance.new("IntValue")
+		v.Name = key
+		v.Parent = f
+	end
+	v.Value = v.Value + (n or 1)
+end
+
+function Items.take(plr, key, n)
+	n = n or 1
+	local v = inv(plr):FindFirstChild(key)
+	if not v or v.Value < n then return false end
+	v.Value = v.Value - n
+	if v.Value <= 0 and key ~= "shotgun" then
+		v:Destroy()
+		if plr:GetAttribute("Equipped") == key then plr:SetAttribute("Equipped", "") end
+	end
+	return true
+end
+
+function Items.clear(plr)
+	inv(plr):ClearAllChildren()
+	plr:SetAttribute("Equipped", "")
+end
+
+-- стартовый набор класса в начале матча
+function Items.giveStart(plr)
+	Items.clear(plr)
+	local cls = Config.Classes[plr:GetAttribute("Class") or "novice"] or Config.Classes.novice
+	plr:SetAttribute("Money", cls.money or 0)
+	plr:SetAttribute("Apples", 0)
+	for k, n in pairs(cls.items or {}) do Items.add(plr, k, n) end
+end
+
+---------------------------------------------------------------- помощники
+local function matchOf(plr)
+	return ctx.Match and ctx.Match.of(plr)
+end
+
+local function charParts(plr)
+	local char = plr.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	return char, hrp, hum
+end
+
+local function toast(plr, text, color)
+	Net.event("Toast"):FireClient(plr, text, color)
+end
+
+local function nearShop(match, plr)
+	local shop = match.house.shop
+	local _, hrp = charParts(plr)
+	if not shop or not hrp then return false end
+	return (shop:GetPivot().Position - hrp.Position).Magnitude < 28
+end
+
+-- заключённые перед игроком (конус), ближе range
+local function inmatesInCone(match, origin, dir, range, minDot)
+	local out = {}
+	for _, inm in ipairs(match.inmates or {}) do
+		local r = inm.root
+		if r and r.Parent then
+			local to = r.Position - origin
+			local d = to.Magnitude
+			if d <= range and (d < 3 or to.Unit:Dot(dir) >= minDot) then table.insert(out, inm) end
+		end
+	end
+	return out
+end
+
+local function groundBelow(pos, ignore)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = ignore
+	local hit = workspace:Raycast(pos + Vector3.new(0, 2, 0), Vector3.new(0, -12, 0), params)
+	return hit and hit.Position or (pos - Vector3.new(0, 3, 0))
+end
+
+---------------------------------------------------------------- расставляемые предметы
+local function placeTrap(match, plr)
+	local char, hrp = charParts(plr)
+	local pos = groundBelow(hrp.Position + hrp.CFrame.LookVector * 2.5, { char })
+	local m = B.model(workspace.Props, "BearTrap")
+	local base = B.cyl(m, "Base", 0.25, 2.6, CFrame.new(pos + Vector3.new(0, 0.12, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(70, 66, 60), Enum.Material.CorrodedMetal, { CanCollide = false })
+	for i = -1, 1, 2 do
+		B.part(m, "Jaw", Vector3.new(2.4, 0.5, 0.12), CFrame.new(pos + Vector3.new(0, 0.35, i * 0.9)) * CFrame.Angles(math.rad(i * 25), 0, 0),
+			Color3.fromRGB(110, 105, 95), Enum.Material.Metal, { CanCollide = false })
+	end
+	m.PrimaryPart = base
+	m:SetAttribute("MatchId", match.id)
+	match.props = match.props or {}
+	table.insert(match.props, m)
+	Sound.play("TrapSnap", base, { Volume = 0.3, PlaybackSpeed = 1.6 })
+	task.spawn(function()
+		while m.Parent and match.phase ~= "end" do
+			for _, inm in ipairs(match.inmates or {}) do
+				if inm.root and inm.root.Parent and (inm.root.Position - pos).Magnitude < 3 then
+					if ctx.InmateAI then pcall(ctx.InmateAI.stun, inm, Config.Items.beartrap.stun) end
+					Sound.play("TrapSnap", base, { Volume = 1 })
+					match:toast("Капкан сработал!", Color3.fromRGB(255, 200, 80))
+					m:Destroy()
+					return
+				end
+			end
+			task.wait(0.1)
+		end
+	end)
+end
+
+local function placeMotionLamp(match, plr)
+	local char, hrp = charParts(plr)
+	local pos = groundBelow(hrp.Position + hrp.CFrame.LookVector * 2.5, { char })
+	local m = B.model(workspace.Props, "MotionLamp")
+	local base = B.part(m, "Base", Vector3.new(1, 0.4, 1), CFrame.new(pos + Vector3.new(0, 0.2, 0)), Color3.fromRGB(40, 40, 44), Enum.Material.Metal)
+	local bulb = B.ball(m, "Bulb", 0.8, CFrame.new(pos + Vector3.new(0, 0.75, 0)), Color3.fromRGB(255, 240, 200), Enum.Material.SmoothPlastic, { CanCollide = false })
+	local light = B.light(bulb, "PointLight", { Range = 22, Brightness = 2.5, Color = Color3.fromRGB(255, 235, 200), Enabled = false })
+	m.PrimaryPart = base
+	match.props = match.props or {}
+	table.insert(match.props, m)
+	task.spawn(function()
+		while m.Parent and match.phase ~= "end" do
+			local near = false
+			for _, inm in ipairs(match.inmates or {}) do
+				if inm.root and inm.root.Parent and (inm.root.Position - pos).Magnitude < 14 then near = true end
+			end
+			for _, p in ipairs(match.players) do
+				local _, r = charParts(p)
+				if r and match:isAlive(p) and (r.Position - pos).Magnitude < 9 then near = true end
+			end
+			if light.Enabled ~= near then
+				light.Enabled = near
+				bulb.Material = near and Enum.Material.Neon or Enum.Material.SmoothPlastic
+			end
+			task.wait(0.2)
+		end
+	end)
+end
+
+---------------------------------------------------------------- использование предметов
+local function useItem(plr, key, camCF)
+	local match = matchOf(plr)
+	if not match or not match:isAlive(plr) or plr:GetAttribute("Hidden") then return end
+	local now = os.clock()
+	if lastUse[plr] and now - lastUse[plr] < 0.35 then return end
+	lastUse[plr] = now
+	local char, hrp, hum = charParts(plr)
+	if not hrp or not hum then return end
+	local it = Config.Items[key]
+	if not it or Items.count(plr, key) <= 0 then return end
+	-- камера должна быть у головы игрока (защита от подмены)
+	local origin, dir = hrp.Position + Vector3.new(0, 1.5, 0), hrp.CFrame.LookVector
+	if typeof(camCF) == "CFrame" and (camCF.Position - hrp.Position).Magnitude < 12 then
+		origin, dir = camCF.Position, camCF.LookVector
+	end
+
+	if key == "battery" then
+		Items.take(plr, key)
+		match:fxTo(plr, "battery")
+		Sound.play("FlashlightClick", hrp)
+	elseif key == "medkit" then
+		if hum.Health >= hum.MaxHealth then toast(plr, "Ты и так здоров"); return end
+		Items.take(plr, key)
+		hum.Health = math.min(hum.MaxHealth, hum.Health + it.heal)
+		Sound.play("Heal", hrp)
+	elseif key == "pepper" then
+		Items.take(plr, key)
+		Sound.play("Pepper", hrp, { Volume = 0.9 })
+		for _, inm in ipairs(inmatesInCone(match, origin, dir, it.range, 0.55)) do
+			if ctx.InmateAI then pcall(ctx.InmateAI.stun, inm, it.stun) end
+		end
+	elseif key == "stun" then
+		if stunReady[plr] and now < stunReady[plr] then
+			toast(plr, string.format("Шокер заряжается: %d с", math.ceil(stunReady[plr] - now)))
+			return
+		end
+		stunReady[plr] = now + it.cooldown
+		Sound.play("Stun", hrp, { Volume = 0.9 })
+		for _, inm in ipairs(inmatesInCone(match, origin, dir, it.range, 0.3)) do
+			if ctx.InmateAI then pcall(ctx.InmateAI.stun, inm, it.stun) end
+		end
+	elseif key == "shotgun" then
+		if not Items.take(plr, "shells") then
+			toast(plr, "Нет патронов — купи в гараже")
+			Sound.play("DoorLock", hrp, { PlaybackSpeed = 1.8 })
+			return
+		end
+		Sound.play("Shotgun", hrp, { Volume = 1, RollOffMaxDistance = 300 })
+		match:fxTo(plr, "shake", 0.8, 0.25)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		local ignore = { workspace:FindFirstChild("Props") }
+		for _, p in ipairs(match.players) do if p.Character then table.insert(ignore, p.Character) end end
+		params.FilterDescendantsInstances = ignore
+		local hitInm = nil
+		local hit = workspace:Raycast(origin, dir * it.range, params)
+		if hit then
+			for _, inm in ipairs(match.inmates or {}) do
+				if inm.model and hit.Instance:IsDescendantOf(inm.model) then hitInm = inm end
+			end
+		end
+		-- дробь разлетается: близкий заключённый в узком конусе тоже получает урон
+		if not hitInm then
+			local list = inmatesInCone(match, origin, dir, 30, 0.93)
+			hitInm = list[1]
+		end
+		if hitInm and ctx.InmateAI then
+			pcall(ctx.InmateAI.damage, hitInm, it.damage, plr)
+		end
+	elseif key == "beartrap" then
+		Items.take(plr, key)
+		placeTrap(match, plr)
+	elseif key == "motion" then
+		Items.take(plr, key)
+		placeMotionLamp(match, plr)
+	elseif key == "defib" then
+		local body = ctx.Match.nearestBody(match, hrp.Position, 10)
+		if not body then toast(plr, "Подойди к телу товарища"); return end
+		Items.take(plr, key)
+		Sound.play("Defib", hrp, { Volume = 1 })
+		ctx.Match.revive(match, body.player, body.cf)
+		match:toast(plr.DisplayName .. " оживил(а) " .. body.player.DisplayName .. "!", Color3.fromRGB(120, 255, 160))
+	end
+end
+
+---------------------------------------------------------------- магазин
+local function shop(plr, action, key)
+	local match = matchOf(plr)
+	if not match then return { ok = false, msg = "Магазин работает только в доме" } end
+	if not match:isAlive(plr) then return { ok = false, msg = "Ты мёртв" } end
+	if match.phase ~= "day" then return { ok = false, msg = "Магазин закрыт до утра" } end
+	if not nearShop(match, plr) then return { ok = false, msg = "Подойди к прилавку в гараже" } end
+	if action == "sell" then
+		local n = plr:GetAttribute("Apples") or 0
+		if n <= 0 then return { ok = false, msg = "Нечего продавать — собери яблоки во дворе" } end
+		local v = n * match.diff.applePrice
+		plr:SetAttribute("Apples", 0)
+		plr:SetAttribute("Money", (plr:GetAttribute("Money") or 0) + v)
+		match:fxTo(plr, "coin", v)
+		return { ok = true, msg = "Продано " .. n .. " 🍎 за $" .. v }
+	elseif action == "buy" then
+		local it = Config.Items[key or ""]
+		if not it then return { ok = false, msg = "Нет такого товара" } end
+		local money = plr:GetAttribute("Money") or 0
+		if money < it.price then return { ok = false, msg = "Не хватает денег: нужно $" .. it.price } end
+		if key == "tree" then
+			if not ctx.HouseLogic.plantTree(match) then return { ok = false, msg = "Во дворе больше нет места" } end
+		elseif key == "sprinkler" then
+			if match.sprinkler then return { ok = false, msg = "Разбрызгиватель уже есть" } end
+			match.sprinkler = true
+			match.folder:SetAttribute("Sprinkler", true)
+			local spot = match.house.sprinkler
+			if spot then
+				local m = B.model(match.house.model, "Sprinkler")
+				local base = B.vcyl(m, "Base", 0.4, 1.2, spot.CFrame, Color3.fromRGB(60, 120, 60), Enum.Material.Plastic)
+				B.vcyl(m, "Head", 0.6, 0.4, spot.CFrame * CFrame.new(0, 0.5, 0), Color3.fromRGB(180, 180, 180), Enum.Material.Metal)
+				local pe = Instance.new("ParticleEmitter")
+				pe.Rate = 60
+				pe.Speed = NumberRange.new(10, 14)
+				pe.SpreadAngle = Vector2.new(60, 60)
+				pe.Lifetime = NumberRange.new(0.6, 1)
+				pe.Size = NumberSequence.new(0.15, 0.05)
+				pe.Color = ColorSequence.new(Color3.fromRGB(200, 225, 255))
+				pe.Transparency = NumberSequence.new(0.3, 1)
+				pe.Acceleration = Vector3.new(0, -30, 0)
+				pe.Parent = base
+				m.PrimaryPart = base
+			end
+		elseif key == "shotgun" then
+			Items.add(plr, "shotgun", 1)
+			Items.add(plr, "shells", it.ammo or 4)
+		elseif key == "shells" then
+			Items.add(plr, "shells", it.count or 4)
+		elseif key == "pepper" then
+			Items.add(plr, "pepper", it.charges or 3)
+		else
+			Items.add(plr, key, 1)
+		end
+		plr:SetAttribute("Money", money - it.price)
+		match:fxTo(plr, "coin", -it.price)
+		return { ok = true, msg = "Куплено: " .. it.name }
+	end
+	return { ok = false, msg = "?" }
+end
+
+---------------------------------------------------------------- фонарик, который видят другие
+local function setFlashlight(plr, on)
+	plr:SetAttribute("Flashlight", on == true)
+	local char = plr.Character
+	local head = char and char:FindFirstChild("Head")
+	if not head then return end
+	local l = head:FindFirstChild("FlashlightRemote")
+	if not l then
+		l = Instance.new("SpotLight")
+		l.Name = "FlashlightRemote"
+		l.Face = Enum.NormalId.Front
+		l.Angle = 50
+		l.Range = 45
+		l.Brightness = 2.2
+		l.Color = Color3.fromRGB(255, 244, 220)
+		l.Shadows = true
+		l.Parent = head
+	end
+	l.Enabled = on == true
+end
+
+local function onAction(plr, kind, a, b)
+	if type(kind) ~= "string" then return end
+	if kind == "flashlight" then
+		setFlashlight(plr, a == true)
+	elseif kind == "sprint" then
+		plr:SetAttribute("Sprinting", a == true)
+	elseif kind == "crouch" then
+		plr:SetAttribute("Crouching", a == true)
+	elseif kind == "equip" then
+		if type(a) ~= "string" then a = "" end
+		if a ~= "" and Items.count(plr, a) <= 0 then a = "" end
+		plr:SetAttribute("Equipped", a)
+	elseif kind == "use" then
+		if type(a) == "string" then useItem(plr, a, b) end
+	elseif kind == "unhide" then
+		ctx.HouseLogic.unhide(plr)
+	elseif kind == "qte" then
+		ctx.HouseLogic.qte(plr, a == true)
+	end
+end
+
+function Items.init(c)
+	ctx = c
+	Config = c.Config
+	Sound = c.Sound
+	Net = c.Net
+	B = c.Build
+	Net.event("Action").OnServerEvent:Connect(function(plr, kind, a, b)
+		local ok, err = pcall(onAction, plr, kind, a, b)
+		if not ok then warn("[AA] Ошибка действия " .. tostring(kind) .. ": " .. tostring(err)) end
+	end)
+	Net.func("Shop").OnServerInvoke = function(plr, action, key)
+		local ok, res = pcall(shop, plr, action, key)
+		if ok then return res end
+		warn("[AA] Ошибка магазина: " .. tostring(res))
+		return { ok = false, msg = "Ошибка магазина" }
+	end
+	Players.PlayerAdded:Connect(function(plr) inv(plr) end)
+	for _, p in ipairs(Players:GetPlayers()) do inv(p) end
+	Players.PlayerRemoving:Connect(function(plr)
+		stunReady[plr] = nil
+		lastUse[plr] = nil
+	end)
+	-- фонарик в голове переживает смерть: при новом персонаже выключаем
+	Players.PlayerAdded:Connect(function(plr)
+		plr.CharacterAdded:Connect(function() plr:SetAttribute("Flashlight", false) end)
+	end)
+end
+
+return Items
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000F"><Properties><string name="Name">Lobby</string><ProtectedString name="Source"><![CDATA[-- Лобби: постройка (LobbyMap, а если он упал — простое запасное лобби), появление игроков,
+-- кабинки: кто стоит в зоне кабинки, тот через Config.BoothCountdown секунд уезжает в дом.
+local Players = game:GetService("Players")
+
+local Lobby = {}
+local ctx, Config, Net, B
+local timers = {}        -- [кабинка] = os.clock() старта
+
+local function insideZone(zone, pos)
+	local l = zone.CFrame:PointToObjectSpace(pos)
+	local s = zone.Size / 2
+	return math.abs(l.X) <= s.X and math.abs(l.Z) <= s.Z and l.Y >= -s.Y - 1 and l.Y <= s.Y + 5
+end
+
+-- запасное лобби: площадка, точка появления и четыре кабинки (если LobbyMap не построился)
+local function fallbackLobby()
+	local model = B.model(workspace, "Lobby")
+	B.part(model, "Ground", Vector3.new(220, 2, 220), CFrame.new(0, -1, 0), Color3.fromRGB(60, 62, 66), Enum.Material.Asphalt)
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Name = "LobbySpawn"
+	spawn.Anchored = true
+	spawn.Neutral = true
+	spawn.Duration = 0
+	spawn.Size = Vector3.new(8, 1, 8)
+	spawn.CFrame = CFrame.new(0, 0.5, 30)
+	spawn.Material = Enum.Material.Metal
+	spawn.Parent = model
+	local boothsF = B.folder(model, "Booths")
+	local booths = {}
+	local diffs = { "easy", "normal", "hard", "endless" }
+	for i, d in ipairs(diffs) do
+		local x = (i - 2.5) * 18
+		local bm = B.model(boothsF, "Booth_" .. i)
+		B.attrs(bm, { Kind = "Booth", Index = i, Difficulty = d, Max = Config.MaxPlayersPerHouse, Count = 0, Countdown = -1 })
+		B.part(bm, "Floor", Vector3.new(12, 0.4, 12), CFrame.new(x, 0.2, -20), Color3.fromRGB(255, 170, 40), Enum.Material.Neon)
+		B.marker(bm, "Zone", Vector3.new(11, 6, 11), CFrame.new(x, 3, -20))
+		local sign = B.part(bm, "Sign", Vector3.new(12, 4, 0.5), CFrame.new(x, 9, -26), Color3.fromRGB(20, 20, 24), Enum.Material.SmoothPlastic)
+		sign:SetAttribute("ScreenFace", "Front")
+		table.insert(booths, bm)
+	end
+	return { model = model, spawn = spawn, booths = booths, kiosks = {}, cells = {} }
+end
+
+function Lobby.sendToLobby(plr)
+	if not plr.Parent then return end
+	plr:SetAttribute("MatchId", 0)
+	plr:SetAttribute("Alive", true)
+	plr:SetAttribute("Hidden", false)
+	plr:SetAttribute("Money", 0)
+	plr:SetAttribute("Apples", 0)
+	plr:SetAttribute("Static", 0)
+	plr:SetAttribute("Sprinting", false)
+	plr:SetAttribute("Crouching", false)
+	plr:SetAttribute("Flashlight", false)
+	if ctx.Items then ctx.Items.clear(plr) end
+	plr.CameraMode = Enum.CameraMode.Classic
+	local ok, err = pcall(function() plr:LoadCharacter() end)
+	if not ok then warn("[AA] LoadCharacter: " .. tostring(err)) end
+	local spawn = Lobby.lobby and Lobby.lobby.spawn
+	local char = plr.Character
+	if spawn and char then char:PivotTo(spawn.CFrame + Vector3.new((math.random() - 0.5) * 6, 4, (math.random() - 0.5) * 6)) end
+	Net.event("Scene"):FireClient(plr, "lobby", {})
+end
+
+local function boothTick()
+	local lobby = Lobby.lobby
+	if not lobby then return end
+	for _, booth in ipairs(lobby.booths or {}) do
+		local zone = booth:FindFirstChild("Zone", true)
+		if zone then
+			local list = {}
+			local max = booth:GetAttribute("Max") or Config.MaxPlayersPerHouse
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if (plr:GetAttribute("MatchId") or 0) == 0 and #list < max then
+					local char = plr.Character
+					local hrp = char and char:FindFirstChild("HumanoidRootPart")
+					local hum = char and char:FindFirstChildOfClass("Humanoid")
+					if hrp and hum and hum.Health > 0 and insideZone(zone, hrp.Position) then table.insert(list, plr) end
+				end
+			end
+			booth:SetAttribute("Count", #list)
+			if #list > 0 then
+				if not timers[booth] then timers[booth] = os.clock() + Config.BoothCountdown end
+				local left = timers[booth] - os.clock()
+				booth:SetAttribute("Countdown", math.max(0, math.ceil(left)))
+				if left <= 0 then
+					timers[booth] = nil
+					booth:SetAttribute("Countdown", -1)
+					booth:SetAttribute("Count", 0)
+					ctx.Match.start(list, booth:GetAttribute("Difficulty") or "normal")
+				end
+			else
+				timers[booth] = nil
+				booth:SetAttribute("Countdown", -1)
+			end
+		end
+	end
+end
+
+function Lobby.init(c)
+	ctx = c
+	Config = c.Config
+	Net = c.Net
+	B = c.Build
+	local lobby = nil
+	if c.LobbyMap and c.LobbyMap.build then
+		local ok, res = pcall(c.LobbyMap.build, workspace)
+		if ok and res and res.model then
+			lobby = res
+		else
+			warn("[AA] LobbyMap не построился, включаю запасное лобби: " .. tostring(res))
+		end
+	end
+	if not lobby then
+		local old = workspace:FindFirstChild("Lobby")
+		if old then old:Destroy() end
+		lobby = fallbackLobby()
+	end
+	Lobby.lobby = lobby
+	local function onPlayer(plr)
+		if c.Data then c.Data.get(plr) end
+		Lobby.sendToLobby(plr)
+	end
+	Players.PlayerAdded:Connect(function(plr) task.spawn(onPlayer, plr) end)
+	for _, p in ipairs(Players:GetPlayers()) do task.spawn(onPlayer, p) end
+	task.spawn(function()
+		while true do
+			task.wait(0.25)
+			local ok, err = pcall(boothTick)
+			if not ok then
+				Lobby.errs = (Lobby.errs or 0) + 1
+				if Lobby.errs <= 3 then warn("[AA] Ошибка кабинок: " .. tostring(err)) end
+			end
+		end
+	end)
+end
+
+return Lobby
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000010"><Properties><string name="Name">Match</string><ProtectedString name="Source"><![CDATA[-- Матч: один дом и 1–4 игрока из кабинки лобби.
+-- Фазы: loading → day (7:00–21:00) → alert (оповещение по ТВ) → night (до 7:00) → dawn → следующий день … → end.
+-- Смерть: тело остаётся, игрок наблюдает; на рассвете или дефибриллятором — оживление.
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+
+local Match = {}
+local ctx, Config, Net, Sound, B
+local matches = {}        -- [id] = матч
+local byPlayer = {}       -- [Player] = матч
+local usedSlots = {}      -- [слот] = id матча (каждый дом стоит в своём месте мира)
+local nextId = 0
+
+local M = {}
+M.__index = M
+
+local function charParts(plr)
+	local char = plr.Character
+	return char, char and char:FindFirstChild("HumanoidRootPart"), char and char:FindFirstChildOfClass("Humanoid")
+end
+
+local function insideBox(part, pos, pad)
+	local l = part.CFrame:PointToObjectSpace(pos)
+	local s = part.Size / 2
+	pad = pad or 0
+	return math.abs(l.X) <= s.X + pad and math.abs(l.Y) <= s.Y + pad and math.abs(l.Z) <= s.Z + pad
+end
+
+---------------------------------------------------------------- методы матча (их используют InmateAI и Items)
+function M:isAlive(plr)
+	return self.alive[plr] == true
+end
+
+function M:alivePlayers()
+	local t = {}
+	for _, p in ipairs(self.players) do
+		if self.alive[p] then table.insert(t, p) end
+	end
+	return t
+end
+
+function M:toast(text, color)
+	for _, p in ipairs(self.players) do
+		if p.Parent then Net.event("Toast"):FireClient(p, text, color) end
+	end
+end
+
+function M:fx(kind, a, b, c)
+	for _, p in ipairs(self.players) do
+		if p.Parent then Net.event("Fx"):FireClient(p, kind, a, b, c) end
+	end
+end
+
+function M:fxTo(plr, kind, a, b, c)
+	if plr and plr.Parent then Net.event("Fx"):FireClient(plr, kind, a, b, c) end
+end
+
+function M:isIndoors(pos)
+	local box = self.house and self.house.interior
+	return box ~= nil and insideBox(box, pos)
+end
+
+function M:roomAt(pos)
+	for _, r in ipairs((self.house and self.house.rooms) or {}) do
+		if insideBox(r, pos) then return r end
+	end
+	return nil
+end
+
+function M:setAttrs()
+	local f = self.folder
+	f:SetAttribute("Id", self.id)
+	f:SetAttribute("Phase", self.phase)
+	f:SetAttribute("Clock", self.clock)
+	f:SetAttribute("Night", self.night)
+	f:SetAttribute("Nights", self.nights)
+	f:SetAttribute("Difficulty", self.diffKey)
+	f:SetAttribute("Inmate", self.inmateKey or "")
+	f:SetAttribute("Unknown", self.unknown == true)
+	f:SetAttribute("Power", self.power ~= false)
+	f:SetAttribute("PlayerCount", #self.players)
+	f:SetAttribute("Sprinkler", self.sprinkler == true)
+	f:SetAttribute("DirectiveCode", "")
+	f:SetAttribute("DirectiveText", "")
+	if self.house then f:SetAttribute("HouseName", self.house.model.Name) end
+end
+
+function M:setPhase(phase)
+	self.phase = phase
+	self.folder:SetAttribute("Phase", phase)
+end
+
+function M:damagePlayer(plr, amount, inm)
+	if not self:isAlive(plr) then return end
+	local _, _, hum = charParts(plr)
+	if not hum then return end
+	if hum.Health - amount <= 0 then
+		self:killPlayer(plr, inm)
+		return
+	end
+	hum:TakeDamage(amount)
+	self:fxTo(plr, "hurt", amount)
+end
+
+-- смерть от заключённого: скример у жертвы, через 1.5 с персонаж падает
+function M:killPlayer(plr, inm)
+	if not self:isAlive(plr) or self.dying[plr] then return end
+	self.dying[plr] = true
+	self.alive[plr] = false
+	ctx.HouseLogic.unhide(plr)
+	local _, hrp = charParts(plr)
+	if hrp then hrp.Anchored = true end
+	self:fxTo(plr, "jumpscare", inm and inm.key or "", inm and inm.model)
+	for _, p in ipairs(self.players) do
+		if p ~= plr then self:fxTo(p, "sound", "Stinger") end
+	end
+	task.delay(1.5, function()
+		self.dying[plr] = nil
+		local _, r, hum = charParts(plr)
+		if r then r.Anchored = false end
+		if hum and hum.Health > 0 then hum.Health = 0 end
+		if self.alive[plr] == false and plr:GetAttribute("Alive") ~= false then self:onDied(plr) end
+	end)
+end
+
+-- персонаж умер (заключённый, падение и т.п.): тело, наблюдение, проверка «все мертвы»
+function M:onDied(plr)
+	if plr:GetAttribute("Alive") == false and not self.alive[plr] and self.bodies[plr] then return end
+	self.alive[plr] = false
+	plr:SetAttribute("Alive", false)
+	plr:SetAttribute("Hidden", false)
+	plr:SetAttribute("Flashlight", false)
+	ctx.HouseLogic.unhide(plr)
+	if self.bodies[plr] then return end
+	local _, hrp = charParts(plr)
+	local cf = hrp and hrp.CFrame or (self.house and self.house.spawns[1]) or CFrame.new()
+	local marker = B.marker(self.house and self.house.model or workspace, "Body_" .. plr.UserId, Vector3.new(3, 2, 3), CFrame.new(cf.Position))
+	local prompt = B.prompt(marker, "Prompt", "Оживить", plr.DisplayName, { HoldDuration = 1.5, KeyboardKeyCode = Enum.KeyCode.E, MaxActivationDistance = 10 })
+	prompt.Triggered:Connect(function(by)
+		if by == plr or not self:isAlive(by) then return end
+		if ctx.Items.count(by, "defib") <= 0 then
+			Net.event("Toast"):FireClient(by, "Нужен дефибриллятор (магазин в гараже)")
+			return
+		end
+		ctx.Items.take(by, "defib")
+		local _, r = charParts(by)
+		if r then Sound.play("Defib", r, { Volume = 1 }) end
+		Match.revive(self, plr, cf)
+		self:toast(by.DisplayName .. " оживил(а) " .. plr.DisplayName .. "!", Color3.fromRGB(120, 255, 160))
+	end)
+	self.bodies[plr] = { player = plr, cf = cf, marker = marker }
+	self:toast(plr.DisplayName .. " погиб(ла)…", Color3.fromRGB(255, 80, 80))
+end
+
+function M:onInmateKilled(inm, byPlayer)
+	local i = table.find(self.inmates, inm)
+	if i then table.remove(self.inmates, i) end
+	if byPlayer and byPlayer.Parent and byPlayer:GetAttribute("MatchId") == self.id then
+		byPlayer:SetAttribute("Money", (byPlayer:GetAttribute("Money") or 0) + Config.KillBounty)
+		self:fxTo(byPlayer, "coin", Config.KillBounty)
+		self.kills = (self.kills or 0) + 1
+	end
+	self:fx("killed", inm and inm.key or "")
+	self:toast("Заключённый обезврежен!", Color3.fromRGB(120, 255, 160))
+	if #self.inmates == 0 and self.phase == "night" then
+		self.clock = math.max(self.clock, Config.Time.nightEnd - 0.6)   -- до рассвета остаётся чуть-чуть
+	end
+end
+
+---------------------------------------------------------------- помощники
+local function spawnAt(plr, cf)
+	local char, hrp, hum = charParts(plr)
+	if not char or not hum or hum.Health <= 0 then
+		plr:LoadCharacter()
+		char, hrp, hum = charParts(plr)
+	end
+	if char and hrp then
+		hrp.Anchored = false
+		char:PivotTo(cf + Vector3.new(0, 3.2, 0))
+	end
+	if hum then hum.Health = hum.MaxHealth end
+end
+
+function Match.revive(match, plr, cf)
+	local body = match.bodies[plr]
+	if body then
+		if body.marker then body.marker:Destroy() end
+		match.bodies[plr] = nil
+	end
+	match.alive[plr] = true
+	match.dying[plr] = nil
+	plr:SetAttribute("Alive", true)
+	plr:SetAttribute("Hidden", false)
+	plr:LoadCharacter()
+	local char = plr.Character
+	if char then char:PivotTo(cf + Vector3.new(0, 3.2, 0)) end
+	plr.CameraMode = Enum.CameraMode.LockFirstPerson
+	match:fxTo(plr, "revived")
+end
+
+function Match.nearestBody(match, pos, radius)
+	local best, bd = nil, radius or 10
+	for _, b in pairs(match.bodies) do
+		local d = (b.cf.Position - pos).Magnitude
+		if d < bd then best, bd = b, d end
+	end
+	return best
+end
+
+function Match.of(plr)
+	return byPlayer[plr]
+end
+
+function Match.list()
+	return matches
+end
+
+---------------------------------------------------------------- фазы
+local function inmateInfo(key)
+	if not key or not ctx.InmateAI then return nil end
+	local ok, def = pcall(ctx.InmateAI.info, key)
+	return ok and def or nil
+end
+
+local function startAlert(m)
+	m:setPhase("alert")
+	m.alertT = 0
+	local key = nil
+	if ctx.InmateAI then
+		local ok, k = pcall(ctx.InmateAI.choose, m)
+		if ok then key = k else warn("[AA] InmateAI.choose: " .. tostring(k)) end
+	end
+	m.inmateKey = key
+	local def = inmateInfo(key)
+	m.unknown = (def ~= nil and def.unknownAlert == true) or (m.diffKey ~= "easy" and math.random() < 0.12)
+	local data = { duration = Config.Time.alertSeconds, night = m.night, nights = m.nights, unknown = m.unknown, directive = nil }
+	if m.unknown or not def then
+		data.lines = Config.AlertUnknown
+		data.num, data.name, data.threat = "???", "НЕИЗВЕСТЕН", "Класс угрозы: неизвестен"
+		data.tip = "Оставайтесь в помещении. Заприте двери."
+		data.inmate = nil
+	else
+		data.lines = def.alert or {}
+		data.num, data.name, data.threat, data.tip, data.inmate = def.num, def.name, def.class, def.tip, key
+	end
+	m.folder:SetAttribute("Inmate", key or "")
+	m.folder:SetAttribute("Unknown", m.unknown == true)
+	-- все к телевизору: смотрят трансляцию
+	ctx.HouseLogic.unhideAll(m)
+	local spots = m.house.alertSpots or {}
+	for i, plr in ipairs(m:alivePlayers()) do
+		local cf = spots[((i - 1) % math.max(1, #spots)) + 1] or m.house.spawns[1]
+		local char, hrp = charParts(plr)
+		if char and hrp then
+			hrp.Anchored = false
+			char:PivotTo(cf + Vector3.new(0, 3.2, 0))
+			hrp.Anchored = true
+		end
+	end
+	for _, plr in ipairs(m.players) do
+		if plr.Parent then Net.event("Alert"):FireClient(plr, data) end
+	end
+end
+
+local function startNight(m)
+	m:setPhase("night")
+	m.nightT = 0
+	for _, plr in ipairs(m.players) do
+		local _, hrp = charParts(plr)
+		if hrp and not m.dying[plr] then hrp.Anchored = false end
+	end
+	local n = 1
+	if (m.diff.endless and m.night > 6) or (m.diffKey == "hard" and m.night >= 8) then n = 2 end
+	if ctx.InmateAI then
+		local keys = { m.inmateKey }
+		if n > 1 then
+			local ok, k2 = pcall(ctx.InmateAI.choose, m)
+			if ok and k2 then table.insert(keys, k2) end
+		end
+		for _, key in ipairs(keys) do
+			if key then
+				local ok, inm = pcall(ctx.InmateAI.spawn, m, key)
+				if ok and inm then
+					if not table.find(m.inmates, inm) then table.insert(m.inmates, inm) end
+				elseif not ok then
+					warn("[AA] Не удалось выпустить заключённого " .. tostring(key) .. ": " .. tostring(inm))
+				end
+			end
+		end
+	end
+	m:toast("Ночь " .. m.night .. ". Доживи до 7:00!", Color3.fromRGB(255, 90, 80))
+	m:fx("sound", "Stinger")
+end
+
+local function startDawn(m)
+	m:setPhase("dawn")
+	m.dawnT = 0
+	m.clock = Config.Time.nightEnd
+	if ctx.InmateAI then pcall(ctx.InmateAI.despawnAll, m) end
+	m.inmates = {}
+	ctx.HouseLogic.unhideAll(m)
+	ctx.HouseLogic.repairAll(m)
+	local spawns = m.house.spawns
+	for i, plr in ipairs(m.players) do
+		plr:SetAttribute("Money", (plr:GetAttribute("Money") or 0) + Config.DawnBonus)
+		plr:SetAttribute("Static", 0)
+		if not m.alive[plr] then
+			Match.revive(m, plr, spawns[((i - 1) % #spawns) + 1])
+		else
+			ctx.Data.addXp(plr, 15)
+		end
+	end
+	m:fx("sound", "Dawn")
+	m:toast("Рассвет! Ночь " .. m.night .. " позади. +$" .. Config.DawnBonus, Color3.fromRGB(255, 220, 140))
+end
+
+local function cleanup(m)
+	if m.cleaned then return end
+	m.cleaned = true
+	if ctx.InmateAI then pcall(ctx.InmateAI.despawnAll, m) end
+	pcall(ctx.HouseLogic.detach, m)
+	for _, b in pairs(m.bodies) do if b.marker then b.marker:Destroy() end end
+	for _, p in ipairs(m.props or {}) do if p.Parent then p:Destroy() end end
+	if m.house then
+		local ok, err = pcall(ctx.HouseMap.destroy, m.house)
+		if not ok then
+			warn("[AA] HouseMap.destroy: " .. tostring(err))
+			if m.house.model then m.house.model:Destroy() end
+		end
+	end
+	if m.folder then m.folder:Destroy() end
+	matches[m.id] = nil
+	if m.slot then usedSlots[m.slot] = nil end
+	for _, p in ipairs(m.players) do
+		if byPlayer[p] == m then byPlayer[p] = nil end
+	end
+end
+
+-- конец матча: награды, экран итогов, через 8 с — обратно в лобби
+function Match.finish(m, win, text)
+	if m.phase == "end" then return end
+	m:setPhase("end")
+	if ctx.InmateAI then pcall(ctx.InmateAI.despawnAll, m) end
+	local survived = win and m.night or (m.night - 1)
+	for _, plr in ipairs(m.players) do
+		if plr.Parent then
+			local amber, xp
+			if m.diff.endless then
+				amber, xp = 12 * survived, 25 * survived
+			elseif win then
+				amber, xp = m.diff.amber, m.diff.xp
+			else
+				amber = math.floor(m.diff.amber * 0.12 * survived)
+				xp = 10 + math.floor(m.diff.xp * 0.2 * survived)
+			end
+			ctx.Data.addAmber(plr, amber)
+			ctx.Data.addXp(plr, xp)
+			ctx.Data.addStats(plr, survived, win)
+			ctx.Data.save(plr)
+			Net.event("Scene"):FireClient(plr, "end", { win = win, nights = survived, amber = amber, xp = xp,
+				text = text or (win and "Вы пережили все ночи!" or "Все погибли…") })
+			m:fxTo(plr, "sound", win and "Win" or "Lose")
+		end
+	end
+	task.delay(8, function()
+		for _, plr in ipairs(m.players) do
+			if plr.Parent and byPlayer[plr] == m then
+				byPlayer[plr] = nil
+				if ctx.Lobby then ctx.Lobby.sendToLobby(plr) end
+			end
+		end
+		cleanup(m)
+	end)
+end
+
+local function step(m, dt)
+	local T = Config.Time
+	if m.phase == "day" then
+		m.clock = m.clock + (T.alertAt - T.dayStart) / m.diff.daySeconds * dt
+		m.appleT = m.appleT + dt * (m.sprinkler and 2 or 1)
+		if m.appleT >= Config.AppleGrowSeconds then
+			m.appleT = 0
+			ctx.HouseLogic.growApples(m)
+		end
+		if m.clock >= T.alertAt then
+			m.clock = T.alertAt
+			startAlert(m)
+		end
+	elseif m.phase == "alert" then
+		m.alertT = m.alertT + dt
+		if m.alertT >= T.alertSeconds then startNight(m) end
+	elseif m.phase == "night" then
+		m.clock = m.clock + (T.nightEnd - T.alertAt) / m.diff.nightSeconds * dt
+		m.nightT = m.nightT + dt
+		local anyDying = next(m.dying) ~= nil
+		if #m:alivePlayers() == 0 and not anyDying then
+			Match.finish(m, false, "Никто не дожил до утра. Ночь " .. m.night)
+			return
+		end
+		if m.clock >= T.nightEnd then startDawn(m) end
+	elseif m.phase == "dawn" then
+		m.dawnT = m.dawnT + dt
+		if m.dawnT >= T.dawnSeconds then
+			if not m.diff.endless and m.night >= m.nights then
+				Match.finish(m, true)
+				return
+			end
+			m.night = m.night + 1
+			m.clock = T.dayStart
+			m:setPhase("day")
+			m.folder:SetAttribute("Night", m.night)
+			m:toast("День " .. m.night .. " из " .. (m.diff.endless and "∞" or tostring(m.nights)) .. ". Готовься к ночи!", Color3.fromRGB(255, 220, 140))
+		end
+	end
+	m.folder:SetAttribute("Clock", m.clock)
+end
+
+local function run(m)
+	local t0 = os.clock()
+	local house = ctx.HouseMap.build(m.origin, workspace.Houses, "House_" .. m.id)
+	if not house or not house.model then error("HouseMap.build ничего не вернул") end
+	m.house = house
+	m.folder:SetAttribute("HouseName", house.model.Name)
+	ctx.HouseLogic.attach(m)
+	task.wait(math.max(0, Config.Time.loadingSeconds - (os.clock() - t0)))
+	local spawns = house.spawns
+	for i, plr in ipairs(m.players) do
+		if plr.Parent then
+			ctx.Items.giveStart(plr)
+			m.alive[plr] = true
+			plr:SetAttribute("Alive", true)
+			plr:SetAttribute("Static", 0)
+			plr:SetAttribute("Hidden", false)
+			spawnAt(plr, spawns[((i - 1) % #spawns) + 1])
+			plr.CameraMode = Enum.CameraMode.LockFirstPerson
+			Net.event("Scene"):FireClient(plr, "house", { matchId = m.id, house = house.model })
+		end
+	end
+	m.clock = Config.Time.dayStart
+	m:setPhase("day")
+	m:setAttrs()
+	m:toast("День 1 из " .. (m.diff.endless and "∞" or tostring(m.nights)) .. ". Собирай яблоки, продавай их в гараже и готовься к 21:00.",
+		Color3.fromRGB(255, 220, 140))
+	local last = os.clock()
+	while m.phase ~= "end" do
+		task.wait(0.1)
+		local now = os.clock()
+		local dt = math.min(0.5, now - last)
+		last = now
+		if #m.players == 0 then break end
+		local ok, err = pcall(step, m, dt)
+		if not ok then
+			m.stepErrors = (m.stepErrors or 0) + 1
+			if m.stepErrors <= 3 then warn("[AA] Ошибка шага матча: " .. tostring(err)) end
+		end
+	end
+	if #m.players == 0 then cleanup(m) end
+end
+
+function Match.start(players, diffKey)
+	local list = {}
+	for _, plr in ipairs(players) do
+		if plr.Parent and not byPlayer[plr] and #list < Config.MaxPlayersPerHouse then table.insert(list, plr) end
+	end
+	if #list == 0 then return nil end
+	local diff = Config.Difficulties[diffKey] or Config.Difficulties.normal
+	nextId = nextId + 1
+	local slot = 1
+	while usedSlots[slot] do slot = slot + 1 end
+	usedSlots[slot] = nextId
+	local folder = Instance.new("Folder")
+	folder.Name = "Match_" .. nextId
+	folder.Parent = RS:WaitForChild("Matches")
+	local m = setmetatable({
+		id = nextId, slot = slot, folder = folder, origin = Vector3.new(3000 + 1200 * slot, 0, 0),
+		diffKey = Config.Difficulties[diffKey] and diffKey or "normal", diff = diff,
+		night = 1, nights = diff.endless and 9999 or diff.nights, phase = "loading", clock = Config.Time.dayStart,
+		players = list, alive = {}, dying = {}, bodies = {}, inmates = {}, used = {}, props = {}, conns = {},
+		power = true, sprinkler = false, appleT = 0, alertT = 0, nightT = 0, dawnT = 0, kills = 0,
+	}, M)
+	matches[m.id] = m
+	m:setAttrs()
+	for _, plr in ipairs(list) do
+		byPlayer[plr] = m
+		plr:SetAttribute("MatchId", m.id)
+		Net.event("Scene"):FireClient(plr, "loading", { text = "Дом 1990 · " .. diff.name })
+	end
+	task.spawn(function()
+		local ok, err = pcall(run, m)
+		if not ok then
+			warn("[AA] Матч " .. m.id .. " упал: " .. tostring(err))
+			m:toast("Ошибка загрузки дома — возвращаемся в лобби", Color3.fromRGB(255, 80, 80))
+			for _, plr in ipairs(m.players) do
+				if plr.Parent and byPlayer[plr] == m then
+					byPlayer[plr] = nil
+					if ctx.Lobby then ctx.Lobby.sendToLobby(plr) end
+				end
+			end
+			m.phase = "end"
+			cleanup(m)
+		end
+	end)
+	return m
+end
+
+---------------------------------------------------------------- игроки
+local function onCharacter(plr, char)
+	local hum = char:WaitForChild("Humanoid", 10)
+	if not hum then return end
+	hum.Died:Connect(function()
+		local m = byPlayer[plr]
+		if m and m.phase ~= "end" and m.phase ~= "loading" then
+			m:onDied(plr)
+		elseif not m then
+			task.delay(2.5, function()
+				if plr.Parent and not byPlayer[plr] and ctx.Lobby then ctx.Lobby.sendToLobby(plr) end
+			end)
+		end
+	end)
+end
+
+function Match.init(c)
+	ctx = c
+	Config = c.Config
+	Net = c.Net
+	Sound = c.Sound
+	B = c.Build
+	local function hook(plr)
+		plr.CharacterAdded:Connect(function(char) onCharacter(plr, char) end)
+		if plr.Character then task.spawn(onCharacter, plr, plr.Character) end
+	end
+	Players.PlayerAdded:Connect(hook)
+	for _, p in ipairs(Players:GetPlayers()) do hook(p) end
+	Players.PlayerRemoving:Connect(function(plr)
+		local m = byPlayer[plr]
+		if not m then return end
+		byPlayer[plr] = nil
+		local i = table.find(m.players, plr)
+		if i then table.remove(m.players, i) end
+		m.alive[plr] = nil
+		m.dying[plr] = nil
+		local b = m.bodies[plr]
+		if b and b.marker then b.marker:Destroy() end
+		m.bodies[plr] = nil
+		m.folder:SetAttribute("PlayerCount", #m.players)
+		if #m.players == 0 then
+			m.phase = "end"
+			cleanup(m)
+		end
+	end)
+end
+
+return Match
+]]></ProtectedString></Properties></Item></Item></Item>
+<Item class="StarterPlayer" referent="RBX00000015"><Properties><string name="Name">StarterPlayer</string><float name="CameraMaxZoomDistance">22</float><float name="CharacterWalkSpeed">14</float><float name="CharacterJumpHeight">5.5</float></Properties><Item class="StarterPlayerScripts" referent="RBX00000014"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX00000013"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Точка входа клиента: собирает общий ctx и запускает клиентские модули по порядку.
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local Shared = RS:WaitForChild("Shared")
+local ClientF = RS:WaitForChild("Client")
+
+local ctx = {
+	player = player,
+	Config = require(Shared:WaitForChild("Config")),
+	Build = require(Shared:WaitForChild("Build")),
+	Net = require(Shared:WaitForChild("Net")),
+	Sound = require(Shared:WaitForChild("Sound")),
+}
+
+local order = { "World", "UI", "Controls", "Hide", "Fx", "InmatesClient" }
+for _, name in ipairs(order) do
+	local m = ClientF:WaitForChild(name, 5)
+	if m then
+		local ok, mod = pcall(require, m)
+		if ok then
+			ctx[name] = mod
+		else
+			warn("[AA] Клиентский модуль " .. name .. " не загрузился: " .. tostring(mod))
+		end
+	else
+		warn("[AA] Нет клиентского модуля " .. name)
+	end
+end
+for _, name in ipairs(order) do
+	local mod = ctx[name]
+	if type(mod) == "table" and mod.init then
+		local ok, err = pcall(mod.init, ctx)
+		if not ok then warn("[AA] Ошибка запуска " .. name .. ": " .. tostring(err)) end
+	end
+end
+
+-- свой «серверный» фонарик (его видят другие) у себя гасим: у нас есть локальный, он лучше
+RunService.Heartbeat:Connect(function()
+	local char = player.Character
+	local head = char and char:FindFirstChild("Head")
+	local l = head and head:FindFirstChild("FlashlightRemote")
+	if l and l.Enabled then l.Enabled = false end
+end)
+
+print("[AA] Клиент Amber Alert запущен")
+]]></ProtectedString></Properties></Item></Item></Item>
+<Item class="SoundService" referent="RBX00000016"><Properties><string name="Name">SoundService</string><bool name="RespectFilteringEnabled">true</bool></Properties></Item>
+</roblox>
