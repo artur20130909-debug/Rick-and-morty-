@@ -12,7 +12,6 @@ local Map = require(script.Parent:WaitForChild("MapBuilder"))
 Players.CharacterAutoLoads = false   -- персонажи появляются, только когда карта готова
 local mapRoot = Map.build()
 local portal = mapRoot:WaitForChild("Lobby"):WaitForChild("PortalTrigger")
-local luckCrystal = mapRoot.Lobby:FindFirstChild("LuckCrystal")
 
 ---------------------------------------------------------------- удалённые события
 local remotes = Instance.new("Folder")
@@ -517,11 +516,21 @@ RollFn.OnServerInvoke = function(plr)
 	end
 	syncStats(plr)
 	-- остальным игрокам — только про редкие выпадения (и после того, как у игрока докрутится ролл)
-	task.delay(2.2, function()
+	task.delay(3.3, function()
 		if res.chance >= 50 then
 			AnnounceEv:FireAllClients(plr.DisplayName .. " выбил(а) «" .. res.name .. "» (1 к " .. res.chance .. ")!", res.color, true)
 		end
 		if plr.Parent then pushData(plr) end
+		-- редкое выпадение видно всем: вспышка и искры вокруг персонажа
+		if res.chance >= 25 then
+			local c, _, hrp = alive(plr)
+			if c then
+				burst(hrp.Position, res.color, 16 + math.min(res.chance, 1000) / 40, 0.6)
+				local sp = emitter(hrp, res.color, 0, 1.2, 0.8, 10)
+				sp:Emit(60)
+				Debris:AddItem(sp, 1.5)
+			end
+		end
 	end)
 	return { id = res.id, isNew = isNew, equipped = autoEquip, luck = luck }
 end
@@ -663,13 +672,5 @@ task.spawn(function()
 		end
 	end
 end)
-
-if luckCrystal then
-	local base = luckCrystal.CFrame
-	RunService.Heartbeat:Connect(function()
-		local t = os.clock()
-		luckCrystal.CFrame = CFrame.new(base.Position + Vector3.new(0, math.sin(t * 1.5) * 0.8, 0)) * CFrame.Angles(0, t * 0.8, 0) * CFrame.Angles(math.rad(45), 0, math.rad(45))
-	end)
-end
 
 print("[RNG] Стихийные битвы RNG запущены")
