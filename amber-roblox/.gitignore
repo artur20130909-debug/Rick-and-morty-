@@ -1,2 +1,4 @@
 tools/node_modules/
 *.rbxlx.bak
+tools/__pycache__/
+__pycache__/
