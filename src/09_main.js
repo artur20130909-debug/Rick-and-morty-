@@ -63,10 +63,10 @@ function update() {
 }
 function draw() {
   x.setTransform(SC, 0, 0, SC, 0, 0);
-  if (S === 'title') drawTitle();
-  else if (S === 'world' && AR) { drawWorld(); drawHUD(); }
-  else if (S === 'battle') drawBattle();
-  else if (S === 'scene' && SCENE) SCENE.draw();
+  if (S === 'title') pixelPass(drawTitle);
+  else if (S === 'world' && AR) { pixelPass(drawWorld); drawHUD(); }
+  else if (S === 'battle') pixelPass(drawBattle);
+  else if (S === 'scene' && SCENE) pixelPass(() => SCENE.draw());
   drawDialog(); drawChoice(); drawMenu(); drawToast(); drawStick(); drawFade(); drawCard();
 }
 let lt = performance.now();
@@ -81,4 +81,4 @@ toTitle();
 requestAnimationFrame(loop);
 // отладка: ?day=N — начать с N-го дня
 (function () { const m = /[?&]day=(\d+)/.exec(location.search); if (m) { G.day = +m[1]; G.done = {}; startDay(); } })();
-window.RM = { G, startDay, enterArea, battle, AREAS, PL, get S() { return S; }, set S(v) { S = v; }, ENTS: () => ENTS, music, CH, say, inp };
+window.RM = { G, startDay, enterArea, battle, AREAS, PL, get S() { return S; }, set S(v) { S = v; }, ENTS: () => ENTS, music, CH, say, inp, clearUI() { DLG = null; CHOICE = null; CARD = null; CUT = 0; WAITS.length = 0; FADE = { a: 0, to: 0, sp: 0, col: '#000', r: null }; }, get B() { return B; } };

@@ -87,7 +87,114 @@ const ONEARM = {
   gesture: (d, g) => [d.shW / 2 + 6, g.shY + d.arm * .42, d.shW / 2 + 9 + sin(T / 9) * 2.5, g.shY + d.arm * .12 + sin(T / 7) * 2],
 };
 
+/* ---------- пиксельные спрайты персонажей ----------
+   В пиксель-режиме персонаж рисуется вектором в 4 раза крупнее сетки арта, затем уменьшается «по ближайшему пикселю»
+   (без сглаживания), полупрозрачные края отсекаются и добавляется контур в 1 пиксель — как у спрайтов Undertale.
+   Центр персонажа всегда попадает на границу пикселя, поэтому симметричное лицо остаётся симметричным. */
+const PXS = 4, PXHI = document.createElement('canvas'), PXHX = PXHI.getContext('2d'), PXLO = document.createElement('canvas'), PXLX = PXLO.getContext('2d', { willReadFrequently: true });
+const PX_OL = [43, 34, 32];
+// общий конвейер: fn рисует вектор в «крупный» холст с матрицей mat → уменьшение по ближайшему пикселю → контур → лица
+function pxRender(lw, lh, mat, fn) {
+  const hw = lw * PXS, hh = lh * PXS; if (PXHI.width < hw || PXHI.height < hh) { PXHI.width = Math.max(PXHI.width, hw); PXHI.height = Math.max(PXHI.height, hh); }
+  if (PXLO.width < lw || PXLO.height < lh) { PXLO.width = Math.max(PXLO.width, lw); PXLO.height = Math.max(PXLO.height, lh); }
+  const main = x; x = PXHX; x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, hw, hh); x.setTransform(...mat); x.globalAlpha = 1;
+  const faces = PXF = [];
+  try { fn(); } catch (e) { console.error(e); } finally { PXF = null; }
+  x = PXLX; x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, lw, lh); x.imageSmoothingEnabled = false; x.drawImage(PXHI, 0, 0, hw, hh, 0, 0, lw, lh);
+  const img = x.getImageData(0, 0, lw, lh), d = img.data, N = lw * lh, op = new Uint8Array(N);
+  for (let i = 0; i < N; i++) { const a = d[i * 4 + 3]; if (a < 120) d[i * 4 + 3] = 0; else { d[i * 4 + 3] = 255; op[i] = 1; } }
+  for (let yy = 0; yy < lh; yy++) for (let xx = 0; xx < lw; xx++) { const i = yy * lw + xx; if (op[i]) continue;
+    if ((xx > 0 && op[i - 1]) || (xx < lw - 1 && op[i + 1]) || (yy > 0 && op[i - lw]) || (yy < lh - 1 && op[i + lw])) { d[i * 4] = PX_OL[0]; d[i * 4 + 1] = PX_OL[1]; d[i * 4 + 2] = PX_OL[2]; d[i * 4 + 3] = 255; } }
+  for (const F of faces) try { pxFaceDraw(d, lw, lh, F); } catch (e) { console.error(e); }
+  x.putImageData(img, 0, 0); x = main;
+  return PXLO;
+}
+function drawCharPx(id, X, Y, o) {
+  const m = x.getTransform(); if (Math.abs(m.b) > 1e-6 || Math.abs(m.c) > 1e-6) return drawCharVec(id, X, Y, o);
+  const k = m.a * PXK, sc = (o.sc || 1) * k;
+  const lw = Math.ceil(38 * sc / PXK * 2) * 2 + 8, lh = Math.ceil(84 * sc / PXK * 2) + 12, foot = lh - 4;
+  const lo = pxRender(lw, lh, [PXS / PXK * k, 0, 0, PXS / PXK * k, (lw / 2) * PXS, foot * PXS], () => drawCharVec(id, 0, 0, Object.assign({}, o, { sc: o.sc || 1, noShadow: true, alpha: null })));
+  const d0 = CH[id]; if (!o.noShadow && d0 && !d0.draw) shadow(X, Y, d0.hipW * .95 * (o.sc || 1), 3.2 * (o.sc || 1), .25); else if (!o.noShadow) shadow(X, Y, 12 * (o.sc || 1), 3.4 * (o.sc || 1), .22);
+  const p = m.transformPoint(new DOMPoint(X, Y)), px = Math.round(p.x) - lw / 2, py = Math.round(p.y) - foot;
+  x.save(); x.setTransform(1, 0, 0, 1, 0, 0); x.imageSmoothingEnabled = false; if (o.alpha != null) x.globalAlpha *= o.alpha; x.drawImage(lo, 0, 0, lw, lh, px, py, lw, lh); x.restore();
+}
+// пиксельный портрет для окна диалога: рамка [bx,by,bw,bh] в логических координатах экрана
+function pxPortrait(id, X, Y, sz, o, bx, by, bw, bh) {
+  if (!PIX) return portrait(id, X, Y, sz, o);
+  const lw = Math.ceil(bw / PXK), lh = Math.ceil(bh / PXK), k = PXS / PXK;
+  const lo = pxRender(lw, lh, [k, 0, 0, k, -bx * k, -by * k], () => portrait(id, X, Y, sz, Object.assign({ vec: 1 }, o)));
+  x.save(); x.imageSmoothingEnabled = false; x.drawImage(lo, 0, 0, lw, lh, bx, by, lw * PXK, lh * PXK); x.restore();
+}
+// ---- лицо по пикселям: при пиксель-рендере face() только записывает геометрию, черты рисуются точными пикселями ----
+let PXF = null;
+function pxFaceRecord(d, v, o, emo) {
+  const k = v === 's' ? 1 : 0, fx = k * d.hw * .17, ey = d.eyeY, r = d.eyeR, m = x.getTransform(), sc = Math.hypot(m.a, m.b);
+  const P = (px, py) => { const q = m.transformPoint(new DOMPoint(px, py)); return [q.x, q.y]; };
+  const blink = d.id !== 'statue' && ((T + d.seed * 53) % 230) < 6 && emo !== 'shock';
+  let lx = (k ? .38 : 0) * r, ly = (emo === 'sad' ? .3 : 0) * r; if (o.look) { lx = o.look[0] * r * .45; ly = o.look[1] * r * .35; }
+  const flip = m.a < 0;   // персонаж смотрит влево (зеркало)
+  const eyes = [[fx - d.eyeGap * (k ? .78 : 1), k ? .8 : 1, -1], [fx + d.eyeGap * (k ? .95 : 1), 1, 1]].filter(e => !(d.patch && e[2] === -1));
+  PXF.push({ d, v, emo, sc, flip, front: !k, blink, talk: o.talk && ((T / 3.4 | 0) % 2 === 0), mid: P(fx, ey), look: [lx * sc * (flip ? -1 : 1), ly * sc],
+    eyes: eyes.map(([ex, wk, sd]) => ({ c: P(ex, ey), rx: r * wk * sc, ry: r * 1.05 * sc, sd })), mouth: P(fx + (k ? 1 : 0), d.mouthY), mw: d.mouthW * sc, nose: P(fx + (k ? 1.5 : 0), ey + r + 2.2) });
+}
+function pxFaceDraw(D, lw, lh, F) {
+  const set = (xx, yy, c) => { xx = Math.round(xx); yy = Math.round(yy); if (xx < 0 || yy < 0 || xx >= lw || yy >= lh) return; const i = (yy * lw + xx) * 4; D[i] = c[0]; D[i + 1] = c[1]; D[i + 2] = c[2]; D[i + 3] = 255; };
+  const hex = h => { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+  const d = F.d, OLc = [43, 34, 32], WH = [255, 255, 255], PU = [16, 14, 18], SK = hex(d.skin), SKD = hex(shade(d.skin, -.28)), A = PXS;
+  const emo = F.emo, cells = new Set(), key = (a, b) => a + ',' + b;
+  // клетки глаза: правый считаем, левый — зеркалом относительно центра лица (в анфас), чтобы глаза были одинаковыми
+  // глаз — аккуратный шаблон: белок 3×3 (у больших глаз 3×4, у маленьких 2×3) с контуром; в анфас правый глаз ставится
+  // не ближе 1 колонки от центра лица, левый — его точное зеркало (ровные одинаковые глаза, между ними «переносица»)
+  const mx = F.mid[0] / A, B = Math.round(mx), eyeCells = (e, c0) => { const big = e.rx / A >= 2.6, ew = big ? Math.round(e.rx / A * 2) : e.rx / A >= 1.75 ? 3 : 2, eh = big ? Math.round(e.ry / A * 2) : e.ry / A >= 2.15 ? 4 : 3, cx = e.c[0] / A, cy = e.c[1] / A, out = [];
+    const x0 = c0 !== undefined ? c0 : Math.round(cx - ew / 2), y0 = Math.round(cy - eh / 2);
+    for (let j = 0; j < eh; j++) for (let i = 0; i < ew; i++) { if (big) { const u = (i + .5 - ew / 2) / (ew / 2), w = (j + .5 - eh / 2) / (eh / 2); if (u * u + w * w > 1.08) continue; } out.push([x0 + i, y0 + j]); } return out; };
+  let E2 = F.eyes.map(e => ({ e, cl: eyeCells(e) }));
+  if (F.front && E2.length === 2) { const R = E2.find(q => q.e.sd === (F.flip ? -1 : 1)) || E2[1], L = E2.find(q => q !== R), ew = R.e.rx / A >= 2.6 ? Math.round(R.e.rx / A * 2) : R.e.rx / A >= 1.75 ? 3 : 2;
+    const c0 = Math.max(B + 1, Math.round(R.e.c[0] / A - ew / 2)); R.cl = eyeCells(R.e, c0); L.cl = R.cl.map(([i, j]) => [2 * B - 1 - i, j]); }
+  for (const q of E2) for (const [i, j] of q.cl) cells.add(key(i, j));
+  const lid = emo === 'angry' ? .42 : emo === 'tired' ? .3 : emo === 'smug' ? .48 : emo === 'sad' ? .25 : 0;
+  let top = 1e9, bot = -1e9;
+  for (const q of E2) {
+    const ys = q.cl.map(c => c[1]), xs = q.cl.map(c => c[0]); if (!ys.length) continue; const y0 = Math.min(...ys), y1 = Math.max(...ys), x0 = Math.min(...xs), x1 = Math.max(...xs); top = Math.min(top, y0); bot = Math.max(bot, y1); q.box = [x0, y0, x1, y1];
+    // контур глаза
+    for (const [i, j] of q.cl) for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!cells.has(key(i + a, j + b))) set(i + a, j + b, d.glasses ? [34, 34, 34] : OLc);
+    if (F.blink) { for (const [i, j] of q.cl) set(i, j, SK); for (let i = x0; i <= x1; i++) set(i, Math.round((y0 + y1) / 2), OLc); continue; }
+    for (const [i, j] of q.cl) set(i, j, WH);
+    // зрачок: центр глаза + взгляд; у большого глаза — 2×2
+    const lk = Math.max(-1, Math.min(1, Math.round(F.look[0] / A * .8))), cx = Math.max(x0, Math.min(x1, Math.floor((x0 + x1) / 2 + .5) + (x1 - x0 >= 2 ? lk : 0))), cy = Math.max(y0, Math.min(y1, Math.floor((y0 + y1) / 2 + .5 + F.look[1] / A)));
+    set(cx, cy, PU); if (y1 - y0 >= 3 && emo !== 'shock') set(cx, cy + 1, PU); if (x1 - x0 >= 5 && emo !== 'shock') { set(cx + 1, cy, PU); set(cx + 1, cy + 1, PU); set(cx, cy - 1, [255, 255, 255]); }
+    if (lid) { const hh = y1 - y0 + 1, ly = y0 + Math.max(1, Math.round(hh * lid)); for (const [i, j] of q.cl) if (j < ly) set(i, j, SK); for (let i = x0; i <= x1; i++) set(i, ly - 1, OLc); }
+    if (d.lash) { set(q.e.sd > 0 !== F.flip ? x1 + 1 : x0 - 1, y0 - 1, OLc); }
+  }
+  if (top > 1e8) return;
+  // брови
+  const bc = d.hk === 'rick' ? [143, 198, 216] : hex(shade(d.hair, -.2)), by = top - 3;
+  if (d.brow === 'uni' && E2.length) { const xs = E2.flatMap(q => [q.box[0], q.box[2]]), a0 = Math.min(...xs) - 1, a1 = Math.max(...xs) + 1; for (let i = a0; i <= a1; i++) { set(i, by - (emo === 'angry' ? 0 : 1), OLc); set(i, by + (emo === 'angry' ? 1 : 0), bc); } }
+  else if (d.brow !== 'none' || emo === 'angry' || emo === 'sad' || emo === 'shock') for (const q of E2) { const [x0, , x1] = q.box, inner = (q.e.c[0] / A < mx) ? x1 : x0, outer = inner === x1 ? x0 : x1;
+    for (let i = Math.min(x0, x1); i <= Math.max(x0, x1); i++) { const t = (i - inner) / ((outer - inner) || 1); const yy = emo === 'angry' ? by + 1 - Math.round(t * 1.5) : emo === 'sad' ? by - 1 + Math.round(t) : emo === 'shock' ? by - 1 : by; set(i, yy, emo === 'angry' || emo === 'sad' ? OLc : bc); } }
+  // нос
+  const nx = F.nose[0] / A, ny = Math.max(bot + 1, F.nose[1] / A); set(nx, ny, SKD); if (d.nose === 'rick') { set(nx, ny + 1, SKD); set(nx + (F.flip ? -1 : 1), ny + 1, SKD); }
+  // рот
+  const mxa = F.mouth[0] / A, mya = Math.max(ny + 2, F.mouth[1] / A), w = Math.max(1, Math.round(F.mw / A * .7)), MO = [90, 36, 36];
+  const line = (yy, a, b, c) => { for (let i = Math.round(mxa + a); i <= Math.round(mxa + b); i++) set(i, yy, c); };
+  if (d.mustache) line(mya - 1, -w, w, hex(d.mustache));
+  if (F.talk) { line(mya, -w + 1, w - 1, MO); line(mya + 1, -w + 1, w - 1, MO); set(mxa - w, mya, OLc); set(mxa + w, mya, OLc); }
+  else if (emo === 'shock') { set(mxa, mya, MO); set(mxa, mya + 1, MO); set(mxa - 1, mya, OLc); set(mxa + 1, mya, OLc); set(mxa - 1, mya + 1, OLc); set(mxa + 1, mya + 1, OLc); }
+  else if (emo === 'angry' || emo === 'sad') { line(mya, -w + 1, w - 1, OLc); set(mxa - w, mya + 1, OLc); set(mxa + w, mya + 1, OLc); }
+  else if (emo === 'happy') { line(mya, -w, w, OLc); line(mya + 1, -w + 1, w - 1, MO); }
+  else if (emo === 'smug' || d.mouth === 'smirk') { line(mya, -w, w - 1, OLc); set(mxa + w, mya - 1, OLc); }
+  else if (d.mouth === 'flat') line(mya, -w, w, OLc);
+  else if (d.mouth === 'wavy' || d.mouth === 'rick') { for (let i = -w; i <= w; i++) set(mxa + i, mya + ((i + w) % 2 ? 0 : 1) * (i < 0 ? 1 : 0), OLc); if (d.mouth === 'rick') { set(mxa + w, mya + 1, [190, 225, 235]); set(mxa + w, mya + 2, [190, 225, 235]); } }
+  else if (d.mouth === 'lips') { line(mya, -w, w, [194, 74, 104]); line(mya + 1, -w + 1, w - 1, [150, 50, 80]); }
+  else if (d.mouth === 'grin') { line(mya, -w, w, OLc); line(mya + 1, -w + 1, w - 1, [255, 255, 255]); set(mxa - w - 1, mya - 1, OLc); set(mxa + w + 1, mya - 1, OLc); }
+  else { line(mya + 1, -w + 1, w - 1, OLc); set(mxa - w, mya, OLc); set(mxa + w, mya, OLc); }
+  if (emo === 'blush') for (const q of E2) { set(q.box[0], bot + 2, [255, 120, 140]); set(q.box[2], bot + 2, [255, 120, 140]); }
+}
 function drawChar(id, X, Y, o = {}) {
+  if (PIX && x === PXX && !o.vec) return drawCharPx(id, X, Y, o);
+  return drawCharVec(id, X, Y, o);
+}
+function drawCharVec(id, X, Y, o = {}) {
   const d = CH[id]; if (!d) return;
   if (d.draw) return d.draw(X, Y, o);
   const sc = o.sc || 1, dir = o.dir || 'd', view = dir === 'u' ? 'u' : (dir === 'l' || dir === 'r') ? 's' : 'd';
@@ -315,6 +422,7 @@ function hat(d, v) {
   else if (d.hat === 'helmet') { path(() => x.ellipse(0, -b * .3, a * 1.12, b * .9, 0, PI, 0), '#3a3f4a'); R(-a * 1.1, -b * .32, a * 2.2, 2.4, '#22262e'); }
 }
 function face(d, v, o, emo) {
+  if (PXF) return pxFaceRecord(d, v, o, emo);
   const k = v === 's' ? 1 : 0, fx = k * d.hw * .17, ey = d.eyeY, r = d.eyeR;
   const talk = o.talk && ((T / 3.4 | 0) % 2 === 0);
   const blink = d.id !== 'statue' && ((T + d.seed * 53) % 230) < 6;

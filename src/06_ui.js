@@ -78,7 +78,7 @@ function drawDialog() {
   let tx0 = 34;
   if (id && CH[id]) {
     R(24, y + 12, 76, 74, '#14141c', '#fff', 1);
-    portrait(id, 62, y + 49, 74, { emo: l.emo || undefined, talk: d.c < l.n, pose: l.pose || undefined });
+    pxPortrait(id, 62, y + 49, 74, { emo: l.emo || undefined, talk: d.c < l.n, pose: l.pose || undefined }, 24, y + 11, 76, 76);
     tx0 = 114;
   }
   if (l.who) { const c = NAMECOL[l.who] || '#fff'; font(13, 700); const tw = x.measureText(l.who).width; R(tx0 - 4, y - 9, tw + 14, 18, '#000', '#fff', 2); tx(l.who, tx0 + 3, y + 5, 13, c, 'left'); }

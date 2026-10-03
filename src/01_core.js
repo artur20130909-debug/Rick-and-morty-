@@ -64,8 +64,39 @@ function shadow(X, Y, rx, ry = rx * .3, a = .28) { E(X, Y, rx, ry, 'rgba(0,0,0,'
 function font(s, b = 400) { x.font = b + ' ' + s + 'px ' + FONT; }
 // в шрифте у заглавной «К» есть лишний штрих — подменяем на латинскую K того же шрифта
 const fixK = t => String(t).replace(/К/g, 'K');
-function tx(t, X, Y, s, fl = '#fff', al = 'center', b = 700) { font(s, b); x.fillStyle = fl; x.textAlign = al; x.textBaseline = 'alphabetic'; x.fillText(fixK(t), X, Y); }
-function txo(t, X, Y, s, fl = '#fff', al = 'center', o = '#000', ow = 3) { t = fixK(t); font(s, 700); x.textAlign = al; x.lineJoin = 'round'; x.strokeStyle = o; x.lineWidth = ow; x.strokeText(t, X, Y); x.fillStyle = fl; x.fillText(t, X, Y); }
+function tx(t, X, Y, s, fl = '#fff', al = 'center', b = 700) { if (TXQ) return pxText(() => tx(t, X, Y, s, fl, al, b)); font(s, b); x.fillStyle = fl; x.textAlign = al; x.textBaseline = 'alphabetic'; x.fillText(fixK(t), X, Y); }
+function txo(t, X, Y, s, fl = '#fff', al = 'center', o = '#000', ow = 3) { if (TXQ) return pxText(() => txo(t, X, Y, s, fl, al, o, ow)); t = fixK(t); font(s, 700); x.textAlign = al; x.lineJoin = 'round'; x.strokeStyle = o; x.lineWidth = ow; x.strokeText(t, X, Y); x.fillStyle = fl; x.fillText(t, X, Y); }
+
+/* ---------- ПИКСЕЛЬ-РЕЖИМ (как в Undertale/Deltarune) ----------
+   Мир, битвы и сценки рисуются в маленький холст 320×180 и увеличиваются «по пикселям» без сглаживания.
+   Текст, который рисуется во время такого прохода, откладывается и рисуется поверх в полном разрешении — он остаётся чётким. */
+const PXK = 2;                                    // логических пикселей в одном «пикселе арта»
+const PXV = document.createElement('canvas'); PXV.width = W / PXK; PXV.height = H / PXK; const PXX = PXV.getContext('2d');
+let TXQ = null, PIX = true;
+// отложить текст: запоминаем матрицу (в координатах маленького холста) и прозрачность
+function pxText(fn) { TXQ.push({ m: x.getTransform(), a: x.globalAlpha, fn }); }
+function pxReplay(q, base) {
+  const keep = TXQ; TXQ = null;
+  for (const it of q) { x.save(); x.setTransform(base.multiply(it.m)); x.globalAlpha = it.a; try { it.fn(); } catch (e) { console.error(e); } x.restore(); }
+  TXQ = keep;
+}
+function pixelPass(fn) {
+  if (!PIX) return fn();
+  const main = x, q = []; x = PXX; x.setTransform(1 / PXK, 0, 0, 1 / PXK, 0, 0); x.imageSmoothingEnabled = true; x.globalAlpha = 1; x.globalCompositeOperation = 'source-over';
+  const keep = TXQ; TXQ = q;
+  try { fn(); } catch (e) { console.error(e); } finally { x = main; TXQ = keep; }
+  x.save(); x.setTransform(SC, 0, 0, SC, 0, 0); x.imageSmoothingEnabled = false; x.drawImage(PXV, 0, 0, W, H); x.restore();
+  pxReplay(q, new DOMMatrix([SC * PXK, 0, 0, SC * PXK, 0, 0]));
+}
+// то же для области экрана (портрет в диалоге): fn рисует в логических координатах внутри [X,Y,w,h]
+const PXT = document.createElement('canvas'), PXTX = PXT.getContext('2d');
+function pixelBox(X, Y, w, h, fn) {
+  if (!PIX) return fn();
+  const pw = Math.ceil(w / PXK), ph = Math.ceil(h / PXK); if (PXT.width < pw || PXT.height < ph) { PXT.width = Math.max(PXT.width, pw); PXT.height = Math.max(PXT.height, ph); }
+  const main = x; x = PXTX; x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, PXT.width, PXT.height); x.setTransform(1 / PXK, 0, 0, 1 / PXK, -X / PXK, -Y / PXK); x.imageSmoothingEnabled = true;
+  try { fn(); } catch (e) { console.error(e); } finally { x = main; }
+  x.save(); x.imageSmoothingEnabled = false; x.drawImage(PXT, 0, 0, pw, ph, X, Y, pw * PXK, ph * PXK); x.restore();
+}
 function wrap(t, w, s) {
   font(s); const out = [];
   for (const para of fixK(t).split('\n')) {

@@ -127,21 +127,23 @@ function moveEnt(e) {
 
 /* ---------- кэш фона ---------- */
 function bgCache(a) {
-  const key = G.time + '|' + SC + '|' + (a.cacheKey ? a.cacheKey() : '');
+  const key = G.time + '|' + (PIX ? 'px' : SC) + '|' + (a.cacheKey ? a.cacheKey() : '');
   if (a.cache && a.cacheK === key) return a.cache;
-  const s = Math.min(SC, 7000 / a.w, 3000 / a.h), c = document.createElement('canvas');
+  // в пиксель-режиме фон кэшируется сразу в разрешении арта (1/PXK), а надписи — отдельным списком (рисуются чётко поверх)
+  const s = PIX ? 1 / PXK : Math.min(SC, 7000 / a.w, 3000 / a.h), c = document.createElement('canvas');
   c.width = Math.ceil(a.w * s); c.height = Math.ceil(a.h * s);
-  const old = x; const cx = c.getContext('2d');
-  x = cx; x.setTransform(s, 0, 0, s, 0, 0); x.fillStyle = '#05050a'; x.fillRect(0, 0, a.w, a.h);
+  const old = x, oldQ = TXQ; const cx = c.getContext('2d'); a.cacheTxt = [];
+  x = cx; x.setTransform(s, 0, 0, s, 0, 0); x.fillStyle = '#05050a'; x.fillRect(0, 0, a.w, a.h); TXQ = PIX ? a.cacheTxt : null;
   try { a.bg(); } catch (e) { console.error(e); }
-  x = old; a.cache = c; a.cacheK = key; a.cacheS = s; return c;
+  x = old; TXQ = oldQ; a.cache = c; a.cacheK = key; a.cacheS = s; return c;
 }
 
 /* ---------- вход в локацию ---------- */
 let areaT = 0;
 function enterArea(id, X, Y, dir) {
   const prev = AR ? AR.id : null;
-  AR = AREAS[id]; PL.x = X; PL.y = Y; if (dir) PL.dir = dir; areaT = 0; if (window.PILOT) { window.PILOT = null; inp.jx = inp.jy = 0; }
+  AR = AREAS[id]; PL.x = X; PL.y = Y; if (dir) PL.dir = dir; areaT = 0;
+ if (window.PILOT) { window.PILOT = null; inp.jx = inp.jy = 0; }
   TRAIL.length = 0;
   ENTS = [];
   for (const k in G.npcs) { const n = G.npcs[k]; if (n && n.area === id) ENTS.push(Object.assign(npc(n.id || k, n.x, n.y, n), { key: k })); }
@@ -217,7 +219,10 @@ function useExit(ex) {
   if (ex.cond && !ex.cond()) { if (ex.msg) { PL.y -= ex.dir === 'u' ? -4 : ex.dir === 'd' ? 4 : 0; PL.x -= ex.dir === 'l' ? -4 : ex.dir === 'r' ? 4 : 0; cutscene(async () => { await say(typeof ex.msg === 'function' ? ex.msg() : ex.msg); }); } return; }
   if (typeof onExit === 'function' && onExit(ex) === false) return;
   if (ex.door) sfx('door');
-  cutscene(async () => { await fadeOut(12); enterArea(ex.to, ex.at[0], ex.at[1], ex.face || ex.dir); await fadeIn(12); });
+  cutscene(async () => { await fadeOut(12); enterArea(ex.to, ex.at[0], ex.at[1], ex.face || ex.dir);
+    // защита: после перехода игрок всегда внутри проходимой зоны (иначе любой шаг упирается в «стену» — застревание)
+    const b = AR.bounds; PL.x = cl(PL.x, b[0] + 8, b[2] - 8); PL.y = cl(PL.y, b[1] + 6, b[3] - 2); updCam(true);
+    await fadeIn(12); });
 }
 function interact(n) {
   if (n.ent) { const e = n.ent; if (!e.noFace) faceTo(e, PL); faceTo(PL, e); cutscene(async () => { const r = typeof e.talk === 'function' ? e.talk(e) : e.talk; if (r && r.then) await r; else if (r) await say(r); }); }
@@ -238,6 +243,8 @@ function drawWorld() {
   x.fillStyle = '#05050a'; x.fillRect(0, 0, W, H);
   const ox = Math.max(0, sx), oy = Math.max(0, sy);
   x.drawImage(c, ox * s, oy * s, Math.min(W, a.w - ox) * s, Math.min(H, a.h - oy) * s, ox - sx, oy - sy, Math.min(W, a.w - ox), Math.min(H, a.h - oy));
+  // надписи фона (вывески и т. п.) — в очередь чёткого текста с учётом камеры
+  if (TXQ && a.cacheTxt) { const m0 = new DOMMatrix([1 / PXK, 0, 0, 1 / PXK, 0, 0]).translate(-sx, -sy).scale(1 / s); for (const it of a.cacheTxt) TXQ.push({ m: m0.multiply(it.m), a: it.a, fn: it.fn }); }
   x.save(); x.translate(-Math.round(sx * SC) / SC, -Math.round(sy * SC) / SC);
   if (a.under) a.under();
   if (typeof underFX === 'function') underFX();

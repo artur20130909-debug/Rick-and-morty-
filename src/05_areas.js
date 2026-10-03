@@ -174,7 +174,7 @@ area('kitchen', {
   exits: [
     { r: [20, 170, 12, 160], to: 'living', at: [950, 250], dir: 'l' },
     { r: [868, 170, 12, 160], to: 'garage', at: [50, 250], dir: 'r', door: 1 },
-    { r: [418, 180, 48, 10], to: 'backyard', at: [442, 178], dir: 'u', face: 'd', door: 1 },
+    { r: [418, 180, 48, 10], to: 'backyard', at: [442, 198], dir: 'u', face: 'd', door: 1 },
   ],
   things: [
     { r: [338, 176, 56, 10], look: () => fridgeLook() },
