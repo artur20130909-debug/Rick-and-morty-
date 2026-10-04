@@ -81,13 +81,13 @@ Config.Directives = {
 -- Загрузи их: Studio → View → Asset Manager → Bulk Import, затем ПКМ по звуку → Copy ID.
 Config.Sounds = {
 	EasTone = "9062017787", EasNoise = "", Static = "", TvNews = "",
-	DoorOpen = "172313730", DoorClose = "", DoorLock = "", DoorBash = "1106909528", DoorBreak = "",
+	DoorOpen = "7274931838", DoorClose = "6814493519", DoorLock = "", DoorBash = "1106909528", DoorBreak = "",
 	GlassBreak = "9043345732", Footstep = "rbxasset://sounds/action_footsteps_plastic.mp3", FlashlightClick = "",
 	ApplePick = "", Coin = "", PowerDown = "", PowerUp = "", Fuse = "",
 	Shotgun = "", Pepper = "", Stun = "", TrapSnap = "", Heal = "", Defib = "",
-	Jumpscare = "6754147732", Heartbeat = "9039981149", Breath = "", Whisper = "",
-	AmbientLobby = "", AmbientDay = "", AmbientNight = "9041745502", AmbientHouse = "", Wind = "", Crickets = "",
-	Stinger = "", Dawn = "", Win = "", Lose = "", UiClick = "rbxasset://sounds/electronicpingshort.wav", UiHover = "",
+	Jumpscare = "6754147732", Heartbeat = "9039981149", Breath = "1842447761", Whisper = "140704980462451",
+	AmbientLobby = "1835337424", AmbientDay = "", AmbientNight = "9041745502", AmbientHouse = "1835261249", Wind = "", Crickets = "",
+	Stinger = "1835337231", Dawn = "", Win = "", Lose = "", UiClick = "rbxasset://sounds/electronicpingshort.wav", UiHover = "",
 }
 
 -- Картинки (Decal/Texture). Ключ -> ID. Сгенерированные файлы — assets/images.
