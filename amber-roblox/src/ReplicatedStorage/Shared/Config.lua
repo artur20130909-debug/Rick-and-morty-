@@ -80,13 +80,13 @@ Config.Directives = {
 -- Звуки. Ключ -> ID в Roblox. Сгенерированные файлы лежат в assets/sounds (см. assets/MANIFEST.md).
 -- Загрузи их: Studio → View → Asset Manager → Bulk Import, затем ПКМ по звуку → Copy ID.
 Config.Sounds = {
-	EasTone = "", EasNoise = "", Static = "", TvNews = "",
-	DoorOpen = "", DoorClose = "", DoorLock = "", DoorBash = "", DoorBreak = "",
-	GlassBreak = "", Footstep = "rbxasset://sounds/action_footsteps_plastic.mp3", FlashlightClick = "",
+	EasTone = "9062017787", EasNoise = "", Static = "", TvNews = "",
+	DoorOpen = "172313730", DoorClose = "", DoorLock = "", DoorBash = "1106909528", DoorBreak = "",
+	GlassBreak = "9043345732", Footstep = "rbxasset://sounds/action_footsteps_plastic.mp3", FlashlightClick = "",
 	ApplePick = "", Coin = "", PowerDown = "", PowerUp = "", Fuse = "",
 	Shotgun = "", Pepper = "", Stun = "", TrapSnap = "", Heal = "", Defib = "",
-	Jumpscare = "", Heartbeat = "", Breath = "", Whisper = "",
-	AmbientLobby = "", AmbientDay = "", AmbientNight = "", AmbientHouse = "", Wind = "", Crickets = "",
+	Jumpscare = "6754147732", Heartbeat = "9039981149", Breath = "", Whisper = "",
+	AmbientLobby = "", AmbientDay = "", AmbientNight = "9041745502", AmbientHouse = "", Wind = "", Crickets = "",
 	Stinger = "", Dawn = "", Win = "", Lose = "", UiClick = "rbxasset://sounds/electronicpingshort.wav", UiHover = "",
 }
 
