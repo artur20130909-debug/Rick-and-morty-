@@ -176,7 +176,7 @@ local function spawnAt(plr, cf)
 	end
 	if char and hrp then
 		hrp.Anchored = false
-		char:PivotTo(cf + Vector3.new(0, 3.2, 0))
+		char:PivotTo(cf + Vector3.new(0, 0.5, 0))
 	end
 	if hum then hum.Health = hum.MaxHealth end
 end
@@ -193,7 +193,7 @@ function Match.revive(match, plr, cf)
 	plr:SetAttribute("Hidden", false)
 	plr:LoadCharacter()
 	local char = plr.Character
-	if char then char:PivotTo(cf + Vector3.new(0, 3.2, 0)) end
+	if char then char:PivotTo(cf + Vector3.new(0, 0.5, 0)) end
 	plr.CameraMode = Enum.CameraMode.LockFirstPerson
 	match:fxTo(plr, "revived")
 end
@@ -265,7 +265,7 @@ local function startAlert(m)
 		local char, hrp = charParts(plr)
 		if char and hrp then
 			hrp.Anchored = false
-			char:PivotTo(cf + Vector3.new(0, 3.2, 0))
+			char:PivotTo(cf + Vector3.new(0, 0.5, 0))
 			hrp.Anchored = true
 		end
 	end

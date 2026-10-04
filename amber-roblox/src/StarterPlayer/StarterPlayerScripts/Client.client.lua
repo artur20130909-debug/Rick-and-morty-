@@ -15,7 +15,7 @@ local ctx = {
 	Sound = require(Shared:WaitForChild("Sound")),
 }
 
-local order = { "World", "UI", "Controls", "Hide", "Fx", "InmatesClient" }
+local order = { "World", "UI", "Controls", "Hide", "Fx", "InmatesClient", "LobbySigns" }
 for _, name in ipairs(order) do
 	local m = ClientF:WaitForChild(name, 5)
 	if m then
