@@ -3707,3 +3707,888 @@ I.partWsHook = partWsHook
 I.raycast = raycast
 end -- part3
 part3()
+
+---------------------------------------------------------------------------
+-- 10. Остальные классы: Humanoid, анимации, свет, эффекты, звук, значения,
+--     скрипты, удалённые события, подсказки, камера, GUI
+---------------------------------------------------------------------------
+local function part4()
+local DATA, defclass, N, coerce, newInstance = mock.DATA, I.defclass, I.N, I.coerce, I.newInstance
+local isInst, fullName, eachDesc, getEvent, fireEvent = I.isInst, I.fullName, I.eachDesc, I.getEvent, I.fireEvent
+local propChanged, findChild, fireSignal, newSignal = I.propChanged, I.findChild, I.fireSignal, I.newSignal
+local destroyInst, classes, checkV3 = I.destroyInst, mock.classes, I.checkV3
+local V0 = v3(0, 0, 0)
+local WHITE = c3(1, 1, 1)
+local BLACK = c3(0, 0, 0)
+
+---------------- Humanoid ----------------
+local humans = {}
+I.humans = humans
+local function rootPartOf(hum)
+	local m = hum[DATA].parent
+	if not m then return nil end
+	local r = findChild(m[DATA], "HumanoidRootPart")
+	if r and r[DATA].cls.isa.BasePart then return r end
+	local pp = m[DATA].p.PrimaryPart
+	return pp
+end
+I.rootPartOf = rootPartOf
+local function setState(self, d, st)
+	local old = d.state or E("HumanoidStateType", "Running")
+	if old == st then return end
+	d.state = st
+	fireEvent(d, "StateChanged", old, st)
+end
+local function die(self, d)
+	if d.dead then return end
+	d.dead = true
+	d.move = nil
+	setState(self, d, E("HumanoidStateType", "Dead"))
+	fireEvent(d, "Died")
+	if I.onHumanoidDied then I.onHumanoidDied(self) end
+end
+local function finishMove(self, d, ok)
+	d.move = nil
+	fireEvent(d, "MoveToFinished", ok)
+end
+local function loadTrack(owner, anim)
+	if not isInst(anim) or not anim[DATA].cls.isa.Animation then
+		throw("LoadAnimation: Unable to cast value to Object (нужен экземпляр Animation, получено " .. typeof(anim) .. ")")
+	end
+	local t = newInstance(classes.AnimationTrack)
+	local td = t[DATA]
+	td.p.Animation = anim
+	td.p.Name = anim[DATA].p.Name
+	td.owner = owner
+	if anim[DATA].p.AnimationId == "" then suspicious("ANIM", "LoadAnimation с пустым AnimationId (" .. anim[DATA].p.Name .. ")") end
+	local od = owner[DATA]
+	od.tracks = od.tracks or {}
+	od.tracks[#od.tracks + 1] = t
+	return t
+end
+local function playingTracks(owner)
+	local out = {}
+	for _, t in ipairs(owner[DATA].tracks or {}) do if t[DATA].playing then out[#out + 1] = t end end
+	return out
+end
+
+defclass("Humanoid", "Instance", {
+	props = {
+		Health = 100, MaxHealth = 100, WalkSpeed = 16, JumpPower = 50, JumpHeight = 7.2, UseJumpPower = false, HipHeight = 0,
+		AutoRotate = true, AutoJumpEnabled = true, PlatformStand = false, Sit = false, Jump = false, DisplayName = "",
+		DisplayDistanceType = E("HumanoidDisplayDistanceType", "Viewer"), HealthDisplayType = E("HumanoidHealthDisplayType", "DisplayWhenDamaged"),
+		HealthDisplayDistance = 100, NameDisplayDistance = 100, NameOcclusion = E("NameOcclusion", "OccludeAll"),
+		RigType = E("HumanoidRigType", "R6"), MaxSlopeAngle = 89, RequiresNeck = true, BreakJointsOnDeath = true,
+		EvaluateStateMachine = true, CameraOffset = V0, AutomaticScalingEnabled = true, WalkToPoint = V0,
+		WalkToPart = N "Instance:BasePart", TargetPoint = V0, CollisionType = E("HumanoidCollisionType", "OuterBox"),
+	},
+	get = {
+		RootPart = function(self) return rootPartOf(self) end,
+		MoveDirection = function(self, d) return d.moveDirection or V0 end,
+		FloorMaterial = function(self, d) return d.dead and E("Material", "Air") or E("Material", "Plastic") end,
+		SeatPart = function() return nil end,
+	},
+	set = {
+		Health = function(self, d, v)
+			if rawtype(v) ~= "number" then v = coerce("Health", "number", v) end
+			if v ~= v then suspicious("NAN", "Humanoid.Health = NaN") return end
+			if v > d.p.MaxHealth then v = d.p.MaxHealth end
+			if v < 0 then v = 0 end
+			if d.p.Health == v then return end
+			d.p.Health = v
+			if d.sig then
+				propChanged(self, d, "Health")
+				fireEvent(d, "HealthChanged", v)
+			end
+			if v <= 0 then die(self, d) end
+		end,
+		MaxHealth = function(self, d, v)
+			if rawtype(v) ~= "number" then v = coerce("MaxHealth", "number", v) end
+			d.p.MaxHealth = v
+			if d.p.Health > v then d.p.Health = v end
+			if d.sig then propChanged(self, d, "MaxHealth") end
+		end,
+	},
+	events = { "Died", "HealthChanged", "MoveToFinished", "Running", "Jumping", "StateChanged", "Touched", "Seated",
+		"FreeFalling", "Climbing", "GettingUp", "FallingDown", "Ragdoll", "PlatformStanding", "Swimming", "Strafing",
+		"AnimationPlayed", "ApplyDescriptionFinished", "StateEnabledChanged", "ServerBreakJoints" },
+	methods = {
+		TakeDamage = function(self, amount)
+			if rawtype(amount) ~= "number" then throw("TakeDamage: number expected, got " .. typeof(amount)) end
+			local d = self[DATA]
+			local m = d.parent
+			if m and m[DATA].children then
+				for _, c in ipairs(m[DATA].children) do if c[DATA].cls.name == "ForceField" then return end end
+			end
+			self.Health = d.p.Health - amount
+		end,
+		MoveTo = function(self, pos, part)
+			local d = self[DATA]
+			pos = checkV3(pos, "MoveTo")
+			if part ~= nil and not isInst(part) then throw("MoveTo: part must be a BasePart") end
+			if d.dead then return end
+			d.move = { target = pos, part = part, t0 = mock.now }
+			d.p.WalkToPoint = pos
+		end,
+		Move = function(self, dir, relativeToCamera)
+			local d = self[DATA]
+			dir = checkV3(dir, "Move")
+			d.moveDir = dir
+		end,
+		ChangeState = function(self, st)
+			local d = self[DATA]
+			if typeof(st) ~= "EnumItem" then throw("ChangeState: Enum.HumanoidStateType expected") end
+			if st.Name == "Dead" then
+				d.p.Health = 0
+				die(self, d)
+			else
+				setState(self, d, st)
+			end
+		end,
+		GetState = function(self)
+			local d = self[DATA]
+			return d.state or E("HumanoidStateType", "Running")
+		end,
+		SetStateEnabled = function(self, st, on)
+			local d = self[DATA]
+			d.stateEnabled = d.stateEnabled or {}
+			d.stateEnabled[st] = on and true or false
+		end,
+		GetStateEnabled = function(self, st)
+			local d = self[DATA]
+			if d.stateEnabled and d.stateEnabled[st] ~= nil then return d.stateEnabled[st] end
+			return true
+		end,
+		LoadAnimation = function(self, anim)
+			suspicious("DEPRECATED", "Humanoid:LoadAnimation устарел — используйте Animator:LoadAnimation")
+			return loadTrack(self, anim)
+		end,
+		GetPlayingAnimationTracks = function(self) return playingTracks(self) end,
+		EquipTool = function(self, tool)
+			local m = self[DATA].parent
+			if tool and m then tool.Parent = m; fireEvent(tool[DATA], "Equipped") end
+		end,
+		UnequipTools = function(self) end,
+		ApplyDescription = function() end,
+		ApplyDescriptionReset = function() end,
+		GetAppliedDescription = function() return newInstance(classes.HumanoidDescription) end,
+		AddAccessory = function(self, acc) acc.Parent = self[DATA].parent end,
+		GetAccessories = function(self)
+			local out = {}
+			local m = self[DATA].parent
+			if m then for _, c in ipairs(m:GetChildren()) do if c[DATA].cls.isa.Accoutrement then out[#out + 1] = c end end end
+			return out
+		end,
+		RemoveAccessories = function() end,
+		BuildRigFromAttachments = function() end,
+		GetBodyPartR15 = function() return E("BodyPartR15", "Unknown") end,
+		GetLimb = function() return E("Limb", "Unknown") end,
+		GetMoveVelocity = function(self) return (self[DATA].moveDirection or V0) * self[DATA].p.WalkSpeed end,
+		ReplaceBodyPartR15 = function() return true end,
+	},
+	wsHook = function(self, d, inWs) humans[self] = inWs or nil end,
+})
+I.humanDie = die
+
+-- шаг движения гуманоидов (MoveTo / Move), без физики, с прилипанием к полу лучом вниз
+local floorParams
+local function updateHumanoids(dt)
+	for hum in pairs(humans) do
+		local d = hum[DATA]
+		local dir
+		local target
+		local mv = d.move
+		if mv then
+			if mock.now - mv.t0 > 8 then
+				finishMove(hum, d, false)
+				mv = nil
+			else
+				target = mv.target
+				if mv.part and mv.part[DATA] then target = mv.part[DATA].p.CFrame.Position + target end
+			end
+		end
+		local root = (mv or d.moveDir) and not d.dead and rootPartOf(hum)
+		if root then
+			local rd = root[DATA]
+			local c = rd.p.CFrame
+			local speed = d.p.WalkSpeed
+			local stepLen = speed * dt
+			local nx, nz, done
+			if mv then
+				local dx, dz = target.X - c.X, target.Z - c.Z
+				local dist = sqrt(dx * dx + dz * dz)
+				if dist <= stepLen + 0.05 then
+					nx, nz, done = target.X, target.Z, true
+					dir = dist > 1e-6 and v3(dx / dist, 0, dz / dist) or nil
+				else
+					dir = v3(dx / dist, 0, dz / dist)
+					nx, nz = c.X + dir.X * stepLen, c.Z + dir.Z * stepLen
+				end
+			else
+				local md = d.moveDir
+				local m = sqrt(md.X * md.X + md.Z * md.Z)
+				if m > 1e-3 then
+					dir = v3(md.X / m, 0, md.Z / m)
+					local k = mmin(m, 1)
+					nx, nz = c.X + dir.X * stepLen * k, c.Z + dir.Z * stepLen * k
+				end
+			end
+			if nx then
+				-- высота: пол под новой точкой (луч вниз), иначе оставляем
+				local hip = d.p.HipHeight + rd.p.Size.Y / 2
+				local footY = c.Y - hip
+				local ny = c.Y
+				floorParams = floorParams or RaycastParams.new()
+				floorParams.FilterDescendantsInstances = { hum[DATA].parent }
+				floorParams.FilterType = E("RaycastFilterType", "Exclude")
+				floorParams.RespectCanCollide = true
+				local hit = I.raycast(v3(nx, footY + 2.5, nz), v3(0, -40, 0), floorParams)
+				if hit then ny = hit.Position.Y + hip end
+				local ncf
+				if dir and d.p.AutoRotate then
+					ncf = CFrame.lookAt(v3(nx, ny, nz), v3(nx + dir.X, ny, nz + dir.Z))
+				else
+					ncf = cfnew(nx, ny, nz, c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9])
+				end
+				I.setPartCFrame(root, rd, ncf)
+				rd.p.AssemblyLinearVelocity = dir and dir * speed or V0
+				d.moveDirection = dir or V0
+			end
+			if done then
+				rd.p.AssemblyLinearVelocity = V0
+				d.moveDirection = V0
+				finishMove(hum, d, true)
+			end
+		elseif d.moveDirection and d.moveDirection ~= V0 then
+			d.moveDirection = V0
+		end
+	end
+end
+I.updateHumanoids = updateHumanoids
+
+---------------- анимации ----------------
+defclass("Animation", "Instance", { props = { AnimationId = "" } })
+defclass("AnimationController", "Instance", {
+	methods = {
+		LoadAnimation = function(self, a) return loadTrack(self, a) end,
+		GetPlayingAnimationTracks = function(self) return playingTracks(self) end,
+	},
+	events = { "AnimationPlayed" },
+})
+defclass("Animator", "Instance", {
+	props = { PreferLodEnabled = true, EvaluationThrottled = false },
+	methods = {
+		LoadAnimation = function(self, a) return loadTrack(self, a) end,
+		GetPlayingAnimationTracks = function(self) return playingTracks(self) end,
+		StepAnimations = function() end,
+		ApplyJointVelocities = function() end,
+	},
+	events = { "AnimationPlayed" },
+})
+defclass("AnimationTrack", "Instance", {
+	props = { Animation = N "Instance:Animation", Looped = false, Priority = E("AnimationPriority", "Core"), Speed = 1,
+		TimePosition = 0, WeightCurrent = 1, WeightTarget = 1 },
+	get = {
+		IsPlaying = function(self, d) return d.playing == true end,
+		Length = function(self, d)
+			local a = d.p.Animation
+			return (a and a[DATA].p.AnimationId ~= "") and 1 or 0
+		end,
+	},
+	methods = {
+		Play = function(self, fade, weight, speed)
+			local d = self[DATA]
+			d.playing = true
+			if speed then d.p.Speed = speed end
+			d.playToken = (d.playToken or 0) + 1
+			local tok = d.playToken
+			if d.owner then fireEvent(d.owner[DATA], "AnimationPlayed", self) end
+			if not d.p.Looped then
+				mock.timer(1 / mmax(0.01, abs(d.p.Speed)), function()
+					if d.playToken == tok and d.playing then
+						d.playing = false
+						fireEvent(d, "Stopped")
+						fireEvent(d, "Ended")
+					end
+				end)
+			end
+		end,
+		Stop = function(self)
+			local d = self[DATA]
+			if d.playing then
+				d.playing = false
+				fireEvent(d, "Stopped")
+				fireEvent(d, "Ended")
+			end
+		end,
+		AdjustSpeed = function(self, s) self[DATA].p.Speed = s or 1 end,
+		AdjustWeight = function(self, w) self[DATA].p.WeightTarget = w or 1 end,
+		GetMarkerReachedSignal = function(self, name)
+			local d = self[DATA]
+			d.markers = d.markers or {}
+			d.markers[name] = d.markers[name] or newSignal("Marker:" .. tostring_(name), self)
+			return d.markers[name]
+		end,
+		GetTimeOfKeyframe = function() return 0 end,
+	},
+	events = { "Stopped", "Ended", "DidLoop", "KeyframeReached" },
+	noCreate = true,
+})
+defclass("KeyframeSequence", "Instance", { props = { Loop = true, Priority = E("AnimationPriority", "Action") },
+	methods = { AddKeyframe = function(self, k) k.Parent = self end, GetKeyframes = function(self) return self:GetChildren() end } })
+defclass("Keyframe", "Instance", { props = { Time = 0 },
+	methods = { AddPose = function(self, p) p.Parent = self end, GetPoses = function(self) return self:GetChildren() end,
+		AddMarker = function(self, m) m.Parent = self end, GetMarkers = function() return {} end } })
+defclass("Pose", "Instance", { props = { CFrame = IDENT, Weight = 1, EasingStyle = E("PoseEasingStyle", "Linear"),
+	EasingDirection = E("PoseEasingDirection", "In") },
+	methods = { AddSubPose = function(self, p) p.Parent = self end, GetSubPoses = function(self) return self:GetChildren() end } })
+defclass("KeyframeMarker", "Instance", { props = { Value = "" } })
+
+---------------- свет и окружение ----------------
+defclass("Light", "Instance", { props = { Brightness = 1, Color = WHITE, Enabled = true, Shadows = false }, noCreate = true })
+defclass("PointLight", "Light", { props = { Range = 8 } })
+defclass("SpotLight", "Light", { props = { Angle = 90, Face = E("NormalId", "Front"), Range = 16 } })
+defclass("SurfaceLight", "Light", { props = { Angle = 90, Face = E("NormalId", "Front"), Range = 16 } })
+defclass("Sky", "Instance", { props = { SkyboxBk = "", SkyboxDn = "", SkyboxFt = "", SkyboxLf = "", SkyboxRt = "", SkyboxUp = "",
+	CelestialBodiesShown = true, StarCount = 3000, SunAngularSize = 21, MoonAngularSize = 11, SunTextureId = "", MoonTextureId = "",
+	SkyboxOrientation = V0 } })
+defclass("Atmosphere", "Instance", { props = { Density = 0.395, Offset = 0, Color = c3(199 / 255, 199 / 255, 199 / 255),
+	Decay = c3(106 / 255, 112 / 255, 125 / 255), Glare = 0, Haze = 0 } })
+defclass("Clouds", "Instance", { props = { Cover = 0.5, Density = 0.7, Color = WHITE, Enabled = true } })
+defclass("PostEffect", "Instance", { props = { Enabled = true }, noCreate = true })
+defclass("BloomEffect", "PostEffect", { props = { Intensity = 1, Size = 24, Threshold = 2 } })
+defclass("BlurEffect", "PostEffect", { props = { Size = 24 } })
+defclass("ColorCorrectionEffect", "PostEffect", { props = { Brightness = 0, Contrast = 0, Saturation = 0, TintColor = WHITE } })
+defclass("SunRaysEffect", "PostEffect", { props = { Intensity = 0.25, Spread = 1 } })
+defclass("DepthOfFieldEffect", "PostEffect", { props = { FarIntensity = 0.75, FocusDistance = 0.05, InFocusRadius = 10, NearIntensity = 0.75 } })
+defclass("ColorGradingEffect", "PostEffect", { props = { TonemapperPreset = E("TonemapperPreset", "Default") } })
+
+---------------- визуальные эффекты и украшения ----------------
+defclass("ParticleEmitter", "Instance", {
+	props = { Acceleration = V0, Brightness = 1, Color = ColorSequence.new(WHITE), Drag = 0, EmissionDirection = E("NormalId", "Top"),
+		Enabled = true, FlipbookFramerate = NumberRange.new(1), FlipbookLayout = E("ParticleFlipbookLayout", "None"),
+		FlipbookMode = E("ParticleFlipbookMode", "Loop"), FlipbookStartRandom = false, Lifetime = NumberRange.new(5, 10),
+		LightEmission = 0, LightInfluence = 0, LockedToPart = false, Orientation = E("ParticleOrientation", "FacingCamera"),
+		Rate = 20, RotSpeed = NumberRange.new(0), Rotation = NumberRange.new(0), Shape = E("ParticleEmitterShape", "Box"),
+		ShapeInOut = E("ParticleEmitterShapeInOut", "Outward"), ShapePartial = 1, ShapeStyle = E("ParticleEmitterShapeStyle", "Volume"),
+		Size = NumberSequence.new(1), Speed = NumberRange.new(5), SpreadAngle = v2(0, 0), Squash = NumberSequence.new(0),
+		Texture = "rbxasset://textures/particles/sparkles_main.dds", TimeScale = 1, Transparency = NumberSequence.new(0),
+		VelocityInheritance = 0, WindAffectsDrag = false, ZOffset = 0 },
+	methods = { Emit = function(self, n) local d = self[DATA]; d.emitted = (d.emitted or 0) + (n or 16) end, Clear = function() end },
+})
+defclass("Beam", "Instance", { props = { Attachment0 = N "Instance:Attachment", Attachment1 = N "Instance:Attachment", Brightness = 1,
+	Color = ColorSequence.new(WHITE), CurveSize0 = 0, CurveSize1 = 0, Enabled = true, FaceCamera = false, LightEmission = 0,
+	LightInfluence = 0, Segments = 10, Texture = "", TextureLength = 1, TextureMode = E("TextureMode", "Stretch"), TextureSpeed = 1,
+	Transparency = NumberSequence.new(0.5), Width0 = 1, Width1 = 1, ZOffset = 0 },
+	methods = { SetTextureOffset = function() end } })
+defclass("Trail", "Instance", { props = { Attachment0 = N "Instance:Attachment", Attachment1 = N "Instance:Attachment", Brightness = 1,
+	Color = ColorSequence.new(WHITE), Enabled = true, FaceCamera = false, Lifetime = 2, LightEmission = 0, LightInfluence = 0,
+	MaxLength = 0, MinLength = 0.1, Texture = "", TextureLength = 1, TextureMode = E("TextureMode", "Stretch"),
+	Transparency = NumberSequence.new(0.5), WidthScale = NumberSequence.new(1) }, methods = { Clear = function() end } })
+defclass("Highlight", "Instance", { props = { Adornee = N "Instance", DepthMode = E("HighlightDepthMode", "AlwaysOnTop"), Enabled = true,
+	FillColor = c3(1, 0, 0), FillTransparency = 0.5, OutlineColor = WHITE, OutlineTransparency = 0 } })
+defclass("Fire", "Instance", { props = { Color = c3(236 / 255, 139 / 255, 70 / 255), SecondaryColor = c3(139 / 255, 80 / 255, 55 / 255),
+	Enabled = true, Heat = 9, Size = 5, TimeScale = 1 } })
+defclass("Smoke", "Instance", { props = { Color = WHITE, Enabled = true, Opacity = 0.5, RiseVelocity = 1, Size = 1, TimeScale = 1 } })
+defclass("Sparkles", "Instance", { props = { SparkleColor = c3(144 / 255, 25 / 255, 1), Enabled = true, TimeScale = 1 } })
+defclass("Explosion", "Instance", { props = { BlastPressure = 500000, BlastRadius = 4, DestroyJointRadiusPercent = 1,
+	ExplosionType = E("ExplosionType", "Craters"), Position = V0, TimeScale = 1, Visible = true }, events = { "Hit" } })
+defclass("ForceField", "Instance", { props = { Visible = true } })
+defclass("Decal", "Instance", { props = { Color3 = WHITE, Texture = "", Transparency = 0, Face = E("NormalId", "Front"), ZIndex = 1,
+	LocalTransparencyModifier = 0, ColorMap = "", TextureContent = "" } })
+defclass("Texture", "Decal", { props = { OffsetStudsU = 0, OffsetStudsV = 0, StudsPerTileU = 2, StudsPerTileV = 2 } })
+defclass("SurfaceAppearance", "Instance", { props = { AlphaMode = E("AlphaMode", "Overlay"), ColorMap = "", MetalnessMap = "",
+	NormalMap = "", RoughnessMap = "", Color = WHITE } })
+defclass("DataModelMesh", "Instance", { props = { Offset = V0, Scale = v3(1, 1, 1), VertexColor = v3(1, 1, 1) }, noCreate = true })
+defclass("SpecialMesh", "DataModelMesh", { props = { MeshType = E("MeshType", "Head"), MeshId = "", TextureId = "" } })
+defclass("BlockMesh", "DataModelMesh")
+defclass("CylinderMesh", "DataModelMesh")
+defclass("MaterialVariant", "Instance", { props = { BaseMaterial = E("Material", "Plastic"), ColorMap = "", MetalnessMap = "",
+	NormalMap = "", RoughnessMap = "", StudsPerTile = 10, MaterialPattern = E("MaterialPattern", "Regular") } })
+defclass("SelectionBox", "Instance", { props = { Adornee = N "Instance", Color3 = c3(13 / 255, 105 / 255, 172 / 255), LineThickness = 0.15,
+	SurfaceColor3 = c3(13 / 255, 105 / 255, 172 / 255), SurfaceTransparency = 1, Transparency = 0, Visible = true } })
+defclass("HandleAdornment", "Instance", { props = { Adornee = N "Instance", AlwaysOnTop = false, CFrame = IDENT, Color3 = WHITE,
+	SizeRelativeOffset = V0, Transparency = 0, Visible = true, ZIndex = -1 }, noCreate = true })
+defclass("BoxHandleAdornment", "HandleAdornment", { props = { Size = v3(1, 1, 1) } })
+defclass("SphereHandleAdornment", "HandleAdornment", { props = { Radius = 1 } })
+defclass("CylinderHandleAdornment", "HandleAdornment", { props = { Height = 1, Radius = 1, InnerRadius = 0, Angle = 360 } })
+defclass("ConeHandleAdornment", "HandleAdornment", { props = { Height = 2, Radius = 0.5 } })
+defclass("LineHandleAdornment", "HandleAdornment", { props = { Length = 5, Thickness = 1 } })
+defclass("ClickDetector", "Instance", { props = { MaxActivationDistance = 32, CursorIcon = "" },
+	events = { "MouseClick", "MouseHoverEnter", "MouseHoverLeave", "RightMouseClick" } })
+defclass("Clothing", "Instance", { props = { Color3 = WHITE }, noCreate = true })
+defclass("Shirt", "Clothing", { props = { ShirtTemplate = "" } })
+defclass("Pants", "Clothing", { props = { PantsTemplate = "" } })
+defclass("ShirtGraphic", "Instance", { props = { Graphic = "", Color3 = WHITE } })
+defclass("BodyColors", "Instance", { props = { HeadColor3 = WHITE, LeftArmColor3 = WHITE, RightArmColor3 = WHITE,
+	LeftLegColor3 = WHITE, RightLegColor3 = WHITE, TorsoColor3 = WHITE } })
+defclass("CharacterMesh", "Instance", { props = { BaseTextureId = 0, MeshId = 0, OverlayTextureId = 0, BodyPart = E("BodyPart", "Head") } })
+defclass("Accoutrement", "Instance", { props = { AttachmentPoint = IDENT }, noCreate = false })
+defclass("Accessory", "Accoutrement", { props = { AccessoryType = E("AccessoryType", "Unknown") } })
+defclass("Hat", "Accoutrement")
+defclass("HumanoidDescription", "Instance", { props = { HeightScale = 1, WidthScale = 1, DepthScale = 1, HeadScale = 1,
+	BodyTypeScale = 0, ProportionScale = 0, Shirt = 0, Pants = 0, Face = 0, Head = 0, Torso = 0, LeftArm = 0, RightArm = 0,
+	LeftLeg = 0, RightLeg = 0, HeadColor = WHITE, TorsoColor = WHITE, LeftArmColor = WHITE, RightArmColor = WHITE,
+	LeftLegColor = WHITE, RightLegColor = WHITE, HatAccessory = "", HairAccessory = "", FaceAccessory = "" } })
+defclass("PathfindingModifier", "Instance", { props = { Label = "", PassThrough = false } })
+defclass("PathfindingLink", "Instance", { props = { Attachment0 = N "Instance:Attachment", Attachment1 = N "Instance:Attachment",
+	IsBidirectional = true, Label = "" } })
+defclass("Team", "Instance", { props = { AutoAssignable = true, TeamColor = BrickColor.new("White") },
+	methods = { GetPlayers = function() return {} end }, events = { "PlayerAdded", "PlayerRemoved" } })
+
+---------------- значения ----------------
+defclass("ValueBase", "Instance", { noCreate = true, valueChanged = true })
+local function valueClass(name, default, spec)
+	defclass(name, "ValueBase", {
+		props = { Value = default },
+		set = {
+			Value = function(self, d, v)
+				if spec then v = coerce("Value", spec, v) end
+				if name == "IntValue" and rawtype(v) == "number" then
+					if v ~= v then suspicious("NAN", "IntValue.Value = NaN") end
+					if v == v and abs(v) < 2 ^ 62 then v = floor(v) end
+				end
+				if d.p.Value == v and typeof(d.p.Value) == typeof(v) then return end
+				d.p.Value = v
+				if d.sig then propChanged(self, d, "Value") end
+			end,
+		},
+	})
+	if default == nil then classes[name].types.Value = spec end
+end
+valueClass("IntValue", 0, "number")
+valueClass("NumberValue", 0, "number")
+valueClass("StringValue", "", "string")
+valueClass("BoolValue", false, "boolean")
+valueClass("ObjectValue", nil, "Instance")
+valueClass("CFrameValue", IDENT, "CFrame")
+valueClass("Vector3Value", V0, "Vector3")
+valueClass("Color3Value", BLACK, "Color3")
+valueClass("BrickColorValue", BrickColor.new("Medium stone grey"), "BrickColor")
+valueClass("RayValue", Ray.new(V0, V0), "Ray")
+valueClass("IntConstrainedValue", 0, "number")
+valueClass("DoubleConstrainedValue", 0, "number")
+classes.IntConstrainedValue.types.MinValue, classes.IntConstrainedValue.types.MaxValue = "number", "number"
+
+---------------- скрипты ----------------
+defclass("LuaSourceContainer", "Instance", { props = { Source = "" }, noCreate = true })
+defclass("BaseScript", "LuaSourceContainer", { props = { Disabled = false, Enabled = true, LinkedSource = "",
+	RunContext = E("RunContext", "Legacy") }, noCreate = true })
+defclass("Script", "BaseScript")
+defclass("LocalScript", "Script")
+defclass("ModuleScript", "LuaSourceContainer", { props = { LinkedSource = "" } })
+
+---------------- удалённые и связующие события (поведение — в разделе удалённых) ----------------
+local function remoteMethod(name)
+	return function(...) return I.remote[name](...) end
+end
+local function sideOnly(side, what)
+	return function(sig, ctx)
+		if ctx.side ~= side then throw(what .. " can only be used on the " .. side) end
+	end
+end
+local function callbackProp(name)
+	return function(self, d) throw(name .. " is a callback member of " .. d.cls.name .. "; you can only set the callback value, get is not available") end
+end
+defclass("RemoteEvent", "Instance", {
+	events = { "OnServerEvent", "OnClientEvent" },
+	eventInit = {
+		OnServerEvent = function(s) s.onConnect = sideOnly("server", "OnServerEvent") end,
+		OnClientEvent = function(s) s.onConnect = sideOnly("client", "OnClientEvent") end,
+	},
+	methods = { FireServer = remoteMethod("FireServer"), FireClient = remoteMethod("FireClient"),
+		FireAllClients = remoteMethod("FireAllClients") },
+})
+defclass("UnreliableRemoteEvent", "RemoteEvent")
+defclass("RemoteFunction", "Instance", {
+	get = { OnServerInvoke = callbackProp("OnServerInvoke"), OnClientInvoke = callbackProp("OnClientInvoke") },
+	set = {
+		OnServerInvoke = function(self, d, f) I.remote.setCallback(self, d, "OnServerInvoke", f) end,
+		OnClientInvoke = function(self, d, f) I.remote.setCallback(self, d, "OnClientInvoke", f) end,
+	},
+	methods = { InvokeServer = remoteMethod("InvokeServer"), InvokeClient = remoteMethod("InvokeClient") },
+})
+defclass("BindableEvent", "Instance", {
+	events = { "Event" },
+	methods = { Fire = function(self, ...) local d = self[DATA]; fireEvent(d, "Event", I.copyArgs(false, ...)) end },
+})
+defclass("BindableFunction", "Instance", {
+	get = { OnInvoke = callbackProp("OnInvoke") },
+	set = { OnInvoke = function(self, d, f)
+		if f ~= nil and rawtype(f) ~= "function" then throw("OnInvoke must be a function") end
+		d.cb = f
+	end },
+	methods = { Invoke = function(self, ...)
+		local f = self[DATA].cb
+		if not f then throw("BindableFunction:Invoke — OnInvoke не задан (" .. fullName(self) .. ")") end
+		return I.copyArgs(false, f(I.copyArgs(false, ...)))
+	end },
+})
+
+---------------- инструменты, подсказки ----------------
+defclass("BackpackItem", "Instance", { props = { TextureId = "" }, noCreate = true })
+defclass("Tool", "BackpackItem", {
+	props = { CanBeDropped = true, Enabled = true, Grip = IDENT, ManualActivationOnly = false, RequiresHandle = true, ToolTip = "" },
+	events = { "Activated", "Deactivated", "Equipped", "Unequipped" },
+	methods = { Activate = function(self) fireEvent(self[DATA], "Activated") end, Deactivate = function(self) fireEvent(self[DATA], "Deactivated") end },
+})
+defclass("ProximityPrompt", "Instance", {
+	props = { ActionText = "Interact", ObjectText = "", Enabled = true, HoldDuration = 0, KeyboardKeyCode = E("KeyCode", "E"),
+		GamepadKeyCode = E("KeyCode", "ButtonX"), MaxActivationDistance = 10, RequiresLineOfSight = true,
+		Style = E("ProximityPromptStyle", "Default"), UIOffset = v2(0, 0), ClickablePrompt = true, AutoLocalize = true,
+		Exclusivity = E("ProximityPromptExclusivity", "OnePerButton"), MaxIndicatorDistance = 0, RootLocalizationTable = N "Instance" },
+	events = { "Triggered", "TriggerEnded", "PromptButtonHoldBegan", "PromptButtonHoldEnded", "PromptShown", "PromptHidden" },
+	methods = { InputHoldBegin = function() end, InputHoldEnd = function() end },
+})
+defclass("Dialog", "Instance", { props = { InitialPrompt = "", Purpose = E("DialogPurpose", "Help"), Tone = E("DialogTone", "Neutral") } })
+
+---------------- звук ----------------
+local soundStats = { played = 0, byId = {}, loops = 0 }
+mock.soundStats = soundStats
+local function soundLen(d) return d.p.SoundId ~= "" and 1.5 or 0 end
+local function soundPlay(self)
+	local d = self[DATA]
+	d.playing = true
+	d.p.Playing = true
+	soundStats.played = soundStats.played + 1
+	local id = d.p.SoundId
+	soundStats.byId[id] = (soundStats.byId[id] or 0) + 1
+	if d.p.Looped then soundStats.loops = soundStats.loops + 1 end
+	fireEvent(d, "Played", id)
+	d.tok = (d.tok or 0) + 1
+	local tok = d.tok
+	if id ~= "" and not d.p.Looped then
+		mock.timer(soundLen(d) / mmax(0.05, d.p.PlaybackSpeed), function()
+			if d.tok == tok and d.playing and not d.destroyed then
+				d.playing = false
+				d.p.Playing = false
+				fireEvent(d, "Ended", id)
+			end
+		end)
+	end
+end
+defclass("Sound", "Instance", {
+	props = { SoundId = "", Volume = 0.5, Looped = false, PlaybackSpeed = 1, TimePosition = 0, Playing = false,
+		RollOffMode = E("RollOffMode", "Inverse"), RollOffMinDistance = 10, RollOffMaxDistance = 10000, EmitterSize = 10,
+		MaxDistance = 10000, PlayOnRemove = false, SoundGroup = N "Instance:SoundGroup", PlaybackRegionsEnabled = false,
+		PlaybackRegion = NumberRange.new(0, 60000), LoopRegion = NumberRange.new(0, 60000), Pitch = 1, AudioContent = "" },
+	get = {
+		IsPlaying = function(self, d) return d.playing == true end,
+		IsPaused = function(self, d) return not d.playing end,
+		IsLoaded = function() return true end,
+		TimeLength = function(self, d) return soundLen(d) end,
+		PlaybackLoudness = function() return 0 end,
+	},
+	set = {
+		Playing = function(self, d, v)
+			if v then soundPlay(self) else d.playing = false; d.p.Playing = false end
+		end,
+	},
+	methods = {
+		Play = soundPlay,
+		Stop = function(self)
+			local d = self[DATA]
+			d.playing = false
+			d.p.Playing = false
+			d.p.TimePosition = 0
+			fireEvent(d, "Stopped", d.p.SoundId)
+		end,
+		Pause = function(self) local d = self[DATA]; d.playing = false; d.p.Playing = false; fireEvent(d, "Paused", d.p.SoundId) end,
+		Resume = function(self) soundPlay(self); fireEvent(self[DATA], "Resumed", self[DATA].p.SoundId) end,
+	},
+	events = { "Ended", "Played", "Paused", "Resumed", "Stopped", "Loaded", "DidLoop" },
+})
+defclass("SoundGroup", "Instance", { props = { Volume = 0.5 } })
+defclass("SoundEffect", "Instance", { props = { Enabled = true, Priority = 0 }, noCreate = true })
+for _, nm in ipairs({ "ReverbSoundEffect", "EqualizerSoundEffect", "DistortionSoundEffect", "EchoSoundEffect", "ChorusSoundEffect",
+	"FlangeSoundEffect", "PitchShiftSoundEffect", "TremoloSoundEffect", "CompressorSoundEffect" }) do
+	defclass(nm, "SoundEffect", { props = { DecayTime = 1.5, Density = 1, Diffusion = 1, DryLevel = -6, WetLevel = 0,
+		HighGain = 0, LowGain = 0, MidGain = 0, Level = 0.5, Delay = 1, Feedback = 0.5, Octave = 1.25, Depth = 0.5,
+		Frequency = 5, Rate = 0.5, Mix = 0.5, Attack = 0.1, GainMakeup = 0, Ratio = 40, Release = 0.1, Threshold = -40 } })
+end
+
+---------------- камера ----------------
+local VIEW_W, VIEW_H = 1280, 720
+mock.viewport = { w = VIEW_W, h = VIEW_H }
+local function camProject(d, pos)
+	local cf = d.p.CFrame
+	local lx, ly, lz = mock.cfpointInv(cf, pos.X, pos.Y, pos.Z)
+	local depth = -lz
+	local fov = math.rad(d.p.FieldOfView)
+	local th = math.tan(fov / 2)
+	local aspect = VIEW_W / VIEW_H
+	if depth <= 1e-6 then return v3(0, 0, depth), false end
+	local nx = lx / (depth * th * aspect)
+	local ny = ly / (depth * th)
+	local sx, sy = (nx + 1) / 2 * VIEW_W, (1 - ny) / 2 * VIEW_H
+	return v3(sx, sy, depth), sx >= 0 and sx <= VIEW_W and sy >= 0 and sy <= VIEW_H
+end
+local function camRay(d, x, y, depth)
+	local cf = d.p.CFrame
+	local th = math.tan(math.rad(d.p.FieldOfView) / 2)
+	local aspect = VIEW_W / VIEW_H
+	local nx, ny = x / VIEW_W * 2 - 1, 1 - y / VIEW_H * 2
+	local dir = v3(mock.cfvec(cf, nx * th * aspect, ny * th, -1)).Unit
+	return Ray.new(cf.Position, dir * (depth or 1))
+end
+defclass("Camera", "Instance", {
+	props = { CFrame = CFrame.lookAt(v3(0, 20, 20), V0), Focus = IDENT, FieldOfView = 70, FieldOfViewMode = E("FieldOfViewMode", "Vertical"),
+		CameraType = E("CameraType", "Custom"), CameraSubject = N "Instance", HeadLocked = true, HeadScale = 1,
+		VRTiltAndRollEnabled = false },
+	get = {
+		ViewportSize = function() return v2(VIEW_W, VIEW_H) end,
+		NearPlaneZ = function() return -0.1 end,
+		DiagonalFieldOfView = function(self, d) return d.p.FieldOfView * 1.6 end,
+		MaxAxisFieldOfView = function(self, d) return d.p.FieldOfView * 1.4 end,
+		CoordinateFrame = function(self, d) return d.p.CFrame end,
+	},
+	set = { CoordinateFrame = function(self, d, v) self.CFrame = v end },
+	methods = {
+		WorldToViewportPoint = function(self, p) checkV3(p, "WorldToViewportPoint"); return camProject(self[DATA], p) end,
+		WorldToScreenPoint = function(self, p) checkV3(p, "WorldToScreenPoint"); return camProject(self[DATA], p) end,
+		ViewportPointToRay = function(self, x, y, depth) return camRay(self[DATA], x, y, depth) end,
+		ScreenPointToRay = function(self, x, y, depth) return camRay(self[DATA], x, y, depth) end,
+		GetPartsObscuringTarget = function() return {} end,
+		ZoomToExtents = function() end,
+		Interpolate = function(self, cf, focus) self.CFrame = cf end,
+		GetRenderCFrame = function(self) return self[DATA].p.CFrame end,
+		GetRoll = function() return 0 end,
+		SetRoll = function() end,
+		PanUnits = function() end,
+		TiltUnits = function() return true end,
+		GetLargestCutoffDistance = function() return 0 end,
+	},
+	events = { "InterpolationFinished" },
+})
+
+---------------- GUI ----------------
+local function guiAbs(self, d)
+	local cls = d.cls
+	if cls.isa.ScreenGui then
+		if d.p.IgnoreGuiInset then return 0, 0, VIEW_W, VIEW_H end
+		return 0, 58, VIEW_W, VIEW_H - 58
+	end
+	if cls.isa.SurfaceGui then
+		if d.p.SizingMode.Name == "PixelsPerStud" then
+			local par = d.p.Adornee or d.parent
+			if par and par[DATA].cls.isa.BasePart then
+				local s = par[DATA].p.Size
+				local f = d.p.Face.Name
+				local w, h = s.X, s.Y
+				if f == "Left" or f == "Right" then w, h = s.Z, s.Y elseif f == "Top" or f == "Bottom" then w, h = s.X, s.Z end
+				return 0, 0, w * d.p.PixelsPerStud, h * d.p.PixelsPerStud
+			end
+		end
+		return 0, 0, d.p.CanvasSize.X, d.p.CanvasSize.Y
+	end
+	if cls.isa.BillboardGui then
+		local s = d.p.Size
+		return 0, 0, s.X.Offset + s.X.Scale * 100, s.Y.Offset + s.Y.Scale * 100
+	end
+	if cls.isa.GuiObject then
+		local par = d.parent
+		local px, py, pw, ph = 0, 0, VIEW_W, VIEW_H
+		if par and par[DATA].cls.isa.GuiBase2d then px, py, pw, ph = guiAbs(par, par[DATA]) end
+		local s, pos, ap = d.p.Size, d.p.Position, d.p.AnchorPoint
+		local w, h = s.X.Scale * pw + s.X.Offset, s.Y.Scale * ph + s.Y.Offset
+		local sc = d.p.SizeConstraint.Name
+		if sc == "RelativeXX" then h = s.Y.Scale * pw + s.Y.Offset elseif sc == "RelativeYY" then w = s.X.Scale * ph + s.X.Offset end
+		local x = px + pos.X.Scale * pw + pos.X.Offset - ap.X * w
+		local y = py + pos.Y.Scale * ph + pos.Y.Offset - ap.Y * h
+		return x, y, w, h
+	end
+	return 0, 0, 0, 0
+end
+I.guiAbs = guiAbs
+local function textBounds(d)
+	local text = tostring_(d.p.Text or "")
+	if d.p.RichText then text = sgsub(text, "<[^>]+>", "") end
+	local n = utf8.len(text) or #text
+	local size = d.p.TextSize
+	if d.p.TextScaled then size = 24 end
+	return v2(n * size * 0.5, size)
+end
+I.textBounds = textBounds
+
+defclass("GuiBase", "Instance", { noCreate = true })
+defclass("GuiBase2d", "GuiBase", {
+	props = { AutoLocalize = true, RootLocalizationTable = N "Instance", SelectionGroup = false,
+		SelectionBehaviorDown = E("SelectionBehavior", "Escape"), SelectionBehaviorUp = E("SelectionBehavior", "Escape"),
+		SelectionBehaviorLeft = E("SelectionBehavior", "Escape"), SelectionBehaviorRight = E("SelectionBehavior", "Escape") },
+	get = {
+		AbsolutePosition = function(self, d) local x, y = guiAbs(self, d) return v2(x, y) end,
+		AbsoluteSize = function(self, d) local _, _, w, h = guiAbs(self, d) return v2(w, h) end,
+		AbsoluteRotation = function(self, d) return d.p.Rotation or 0 end,
+	},
+	noCreate = true,
+})
+defclass("LayerCollector", "GuiBase2d", { props = { Enabled = true, ResetOnSpawn = true, ZIndexBehavior = E("ZIndexBehavior", "Sibling") }, noCreate = true })
+defclass("ScreenGui", "LayerCollector", { props = { DisplayOrder = 0, IgnoreGuiInset = false, ClipToDeviceSafeArea = true,
+	ScreenInsets = E("ScreenInsets", "CoreUISafeInsets"), SafeAreaCompatibility = E("SafeAreaCompatibility", "FullscreenExtension") } })
+defclass("GuiMain", "ScreenGui")
+defclass("SurfaceGuiBase", "LayerCollector", { props = { Adornee = N "Instance", Face = E("NormalId", "Front"), Active = true }, noCreate = true })
+defclass("SurfaceGui", "SurfaceGuiBase", { props = { AlwaysOnTop = false, Brightness = 1, CanvasSize = v2(800, 600), ClipsDescendants = true,
+	LightInfluence = 1, PixelsPerStud = 50, SizingMode = E("SurfaceGuiSizingMode", "FixedSize"), ToolPunchThroughDistance = 0,
+	ZOffset = 0, MaxDistance = 0, HorizontalCurvature = 0 } })
+defclass("BillboardGui", "LayerCollector", { props = { Adornee = N "Instance", AlwaysOnTop = false, Brightness = 1, ClipsDescendants = false,
+	DistanceLowerLimit = 0, DistanceStep = 0, DistanceUpperLimit = -1, ExtentsOffset = V0, ExtentsOffsetWorldSpace = V0,
+	LightInfluence = 0, MaxDistance = huge, Size = udim2(0, 0, 0, 0), SizeOffset = v2(0, 0), StudsOffset = V0,
+	StudsOffsetWorldSpace = V0, Active = false, PlayerToHideFrom = N "Instance" },
+	get = { CurrentDistance = function() return 10 end } })
+
+local function guiTween(self, props, info, override, cb)
+	return I.guiTween(self, props, info, override, cb)
+end
+defclass("GuiObject", "GuiBase2d", {
+	props = { Active = false, AnchorPoint = v2(0, 0), AutomaticSize = E("AutomaticSize", "None"),
+		BackgroundColor3 = c3(163 / 255, 162 / 255, 165 / 255), BackgroundTransparency = 0, BorderColor3 = c3(27 / 255, 42 / 255, 53 / 255),
+		BorderMode = E("BorderMode", "Outline"), BorderSizePixel = 1, ClipsDescendants = false, Interactable = true, LayoutOrder = 0,
+		Position = udim2(0, 0, 0, 0), Rotation = 0, Selectable = false, SelectionOrder = 0, Size = udim2(0, 100, 0, 100),
+		SizeConstraint = E("SizeConstraint", "RelativeXY"), Transparency = 0, Visible = true, ZIndex = 1,
+		SelectionImageObject = N "Instance", NextSelectionDown = N "Instance", NextSelectionUp = N "Instance",
+		NextSelectionLeft = N "Instance", NextSelectionRight = N "Instance", GuiState = E("GuiState", "Idle") },
+	events = { "InputBegan", "InputChanged", "InputEnded", "MouseEnter", "MouseLeave", "MouseMoved", "MouseWheelForward",
+		"MouseWheelBackward", "TouchTap", "TouchLongPress", "TouchPan", "TouchPinch", "TouchRotate", "TouchSwipe",
+		"SelectionGained", "SelectionLost", "SelectionChanged" },
+	methods = {
+		TweenPosition = function(self, pos, dir, style, t, override, cb)
+			return guiTween(self, { Position = pos }, TweenInfo.new(t or 1, style or E("EasingStyle", "Quad"), dir or E("EasingDirection", "Out")), override, cb)
+		end,
+		TweenSize = function(self, size, dir, style, t, override, cb)
+			return guiTween(self, { Size = size }, TweenInfo.new(t or 1, style or E("EasingStyle", "Quad"), dir or E("EasingDirection", "Out")), override, cb)
+		end,
+		TweenSizeAndPosition = function(self, size, pos, dir, style, t, override, cb)
+			return guiTween(self, { Size = size, Position = pos }, TweenInfo.new(t or 1, style or E("EasingStyle", "Quad"), dir or E("EasingDirection", "Out")), override, cb)
+		end,
+	},
+	noCreate = true,
+})
+defclass("Frame", "GuiObject", { props = { Style = E("FrameStyle", "Custom") } })
+defclass("ScrollingFrame", "GuiObject", {
+	props = { CanvasSize = udim2(0, 0, 2, 0), CanvasPosition = v2(0, 0), AutomaticCanvasSize = E("AutomaticSize", "None"),
+		ScrollBarThickness = 12, ScrollBarImageColor3 = c3(1, 1, 1), ScrollBarImageTransparency = 0,
+		ScrollingDirection = E("ScrollingDirection", "XY"), ScrollingEnabled = true, ElasticBehavior = E("ElasticBehavior", "WhenScrollable"),
+		VerticalScrollBarInset = E("ScrollBarInset", "None"), HorizontalScrollBarInset = E("ScrollBarInset", "None"),
+		VerticalScrollBarPosition = E("VerticalScrollBarPosition", "Right"), TopImage = "", MidImage = "", BottomImage = "" },
+	get = {
+		AbsoluteCanvasSize = function(self, d)
+			local _, _, w, h = guiAbs(self, d)
+			local cs = d.p.CanvasSize
+			return v2(cs.X.Scale * w + cs.X.Offset, cs.Y.Scale * h + cs.Y.Offset)
+		end,
+		AbsoluteWindowSize = function(self, d) local _, _, w, h = guiAbs(self, d) return v2(w, h) end,
+	},
+})
+local textProps = { Text = "Label", TextColor3 = c3(27 / 255, 42 / 255, 53 / 255), TextSize = 14, Font = E("Font", "Legacy"),
+	FontFace = Font.fromEnum(E("Font", "Legacy")), TextScaled = false, TextWrapped = false, TextXAlignment = E("TextXAlignment", "Center"),
+	TextYAlignment = E("TextYAlignment", "Center"), TextTransparency = 0, TextStrokeColor3 = BLACK, TextStrokeTransparency = 1,
+	RichText = false, LineHeight = 1, MaxVisibleGraphemes = -1, TextTruncate = E("TextTruncate", "None"),
+	TextDirection = E("TextDirection", "Auto"), OpenTypeFeatures = "", TextWrap = false }
+local textGet = {
+	TextBounds = function(self, d) return textBounds(d) end,
+	TextFits = function(self, d)
+		local b = textBounds(d)
+		local _, _, w, h = guiAbs(self, d)
+		return b.X <= w and b.Y <= h
+	end,
+	ContentText = function(self, d) return d.p.RichText and sgsub(d.p.Text, "<[^>]+>", "") or d.p.Text end,
+	LocalizedText = function(self, d) return d.p.Text end,
+}
+local textSet = {
+	Text = function(self, d, v)
+		if rawtype(v) ~= "string" then
+			if rawtype(v) == "number" then v = luauToString(v)
+			else throw("Unable to assign property Text. string expected, got " .. typeof(v)) end
+		end
+		if d.p.Text == v then return end
+		d.p.Text = v
+		if d.sig then propChanged(self, d, "Text") end
+	end,
+}
+local buttonProps = { AutoButtonColor = true, Modal = false, Selected = false, Style = E("ButtonStyle", "Custom"), Active = true, Selectable = true }
+local buttonEvents = { "Activated", "MouseButton1Click", "MouseButton1Down", "MouseButton1Up", "MouseButton2Click",
+	"MouseButton2Down", "MouseButton2Up", "SecondaryActivated" }
+defclass("GuiButton", "GuiObject", { props = buttonProps, events = buttonEvents, noCreate = true })
+local function merge(a, b) local o = {} for k, v in pairs(a) do o[k] = v end for k, v in pairs(b or {}) do o[k] = v end return o end
+defclass("TextLabel", "GuiObject", { props = merge(textProps, { Size = udim2(0, 200, 0, 50) }), get = textGet, set = textSet })
+defclass("TextButton", "GuiButton", { props = merge(textProps, { Text = "Button", Size = udim2(0, 200, 0, 50) }), get = textGet, set = textSet })
+defclass("TextBox", "GuiObject", {
+	props = merge(textProps, { Text = "TextBox", Size = udim2(0, 200, 0, 50), ClearTextOnFocus = true, MultiLine = false,
+		PlaceholderText = "", PlaceholderColor3 = c3(0.7, 0.7, 0.7), CursorPosition = 1, SelectionStart = -1,
+		ShowNativeInput = true, TextEditable = true, Active = true, Selectable = true }),
+	get = textGet, set = textSet,
+	methods = { CaptureFocus = function() end, ReleaseFocus = function() end, IsFocused = function() return false end },
+	events = { "FocusLost", "Focused", "ReturnPressedFromOnScreenKeyboard" },
+})
+local imageProps = { Image = "", ImageColor3 = WHITE, ImageTransparency = 0, ImageRectOffset = v2(0, 0), ImageRectSize = v2(0, 0),
+	ResampleMode = E("ResamplerMode", "Default"), ScaleType = E("ScaleType", "Stretch"), SliceCenter = Rect.new(0, 0, 0, 0),
+	SliceScale = 1, TileSize = udim2(1, 0, 1, 0), ImageContent = "" }
+defclass("ImageLabel", "GuiObject", { props = imageProps, get = { IsLoaded = function() return true end } })
+defclass("ImageButton", "GuiButton", { props = merge(imageProps, { HoverImage = "", PressedImage = "" }), get = { IsLoaded = function() return true end } })
+defclass("ViewportFrame", "GuiObject", { props = { CurrentCamera = N "Instance:Camera", Ambient = c3(200 / 255, 200 / 255, 200 / 255),
+	LightColor = c3(140 / 255, 140 / 255, 140 / 255), LightDirection = v3(-1, -1, -1), ImageColor3 = WHITE, ImageTransparency = 0 } })
+defclass("CanvasGroup", "GuiObject", { props = { GroupColor3 = WHITE, GroupTransparency = 0 } })
+defclass("VideoFrame", "GuiObject", { props = { Video = "", Looped = false, Playing = false, Volume = 1, TimePosition = 0 },
+	get = { TimeLength = function() return 0 end, IsLoaded = function() return true end, Resolution = function() return v2(0, 0) end },
+	methods = { Play = function(self) self[DATA].p.Playing = true end, Pause = function(self) self[DATA].p.Playing = false end },
+	events = { "Ended", "Loaded", "Paused", "Played", "DidLoop" } })
+
+-- UI-компоненты
+defclass("UIBase", "Instance", { noCreate = true })
+defclass("UIComponent", "UIBase", { noCreate = true })
+defclass("UICorner", "UIComponent", { props = { CornerRadius = udim(0, 8) } })
+defclass("UIStroke", "UIComponent", { props = { ApplyStrokeMode = E("ApplyStrokeMode", "Contextual"), Color = BLACK,
+	LineJoinMode = E("LineJoinMode", "Round"), Thickness = 1, Transparency = 0, Enabled = true,
+	BorderStrokePosition = E("BorderStrokePosition", "Outer"), ZIndex = 1, StrokeSizingMode = E("StrokeSizingMode", "FixedSize") } })
+defclass("UIGradient", "UIComponent", { props = { Color = ColorSequence.new(WHITE), Enabled = true, Offset = v2(0, 0), Rotation = 0,
+	Transparency = NumberSequence.new(0) } })
+defclass("UIPadding", "UIComponent", { props = { PaddingBottom = udim(0, 0), PaddingLeft = udim(0, 0), PaddingRight = udim(0, 0), PaddingTop = udim(0, 0) } })
+defclass("UIScale", "UIComponent", { props = { Scale = 1 } })
+defclass("UIConstraint", "UIComponent", { noCreate = true })
+defclass("UIAspectRatioConstraint", "UIConstraint", { props = { AspectRatio = 1, AspectType = E("AspectType", "FitWithinMaxSize"),
+	DominantAxis = E("DominantAxis", "Width") } })
+defclass("UISizeConstraint", "UIConstraint", { props = { MaxSize = v2(huge, huge), MinSize = v2(0, 0) } })
+defclass("UITextSizeConstraint", "UIConstraint", { props = { MaxTextSize = 100, MinTextSize = 1 } })
+defclass("UIFlexItem", "UIComponent", { props = { FlexMode = E("UIFlexMode", "None"), GrowRatio = 0, ShrinkRatio = 0,
+	ItemLineAlignment = E("ItemLineAlignment", "Automatic") } })
+defclass("UIDragDetector", "UIComponent", { props = { Enabled = true }, events = { "DragStart", "DragContinue", "DragEnd" } })
+local function contentSize(self, d)
+	local par = d.parent
+	if not par then return v2(0, 0) end
+	local vertical = d.p.FillDirection.Name == "Vertical"
+	local pad = d.p.Padding and d.p.Padding.Offset or 0
+	local total, cross, n = 0, 0, 0
+	for _, c in ipairs(par[DATA].children or {}) do
+		local cd = c[DATA]
+		if cd.cls.isa.GuiObject and cd.p.Visible then
+			local _, _, w, h = guiAbs(c, cd)
+			if vertical then total, cross = total + h, mmax(cross, w) else total, cross = total + w, mmax(cross, h) end
+			n = n + 1
+		end
+	end
+	total = total + mmax(0, n - 1) * pad
+	if vertical then return v2(cross, total) end
+	return v2(total, cross)
+end
+defclass("UILayout", "UIComponent", { noCreate = true })
+defclass("UIGridStyleLayout", "UILayout", { props = { FillDirection = E("FillDirection", "Horizontal"),
+	HorizontalAlignment = E("HorizontalAlignment", "Left"), VerticalAlignment = E("VerticalAlignment", "Top"),
+	SortOrder = E("SortOrder", "LayoutOrder") }, get = { AbsoluteContentSize = contentSize },
+	methods = { ApplyLayout = function() end, SetCustomSortFunction = function() end }, noCreate = true })
+defclass("UIListLayout", "UIGridStyleLayout", { props = { FillDirection = E("FillDirection", "Vertical"), Padding = udim(0, 0),
+	Wraps = false, HorizontalFlex = E("UIFlexAlignment", "None"), VerticalFlex = E("UIFlexAlignment", "None"),
+	ItemLineAlignment = E("ItemLineAlignment", "Automatic") } })
+defclass("UIGridLayout", "UIGridStyleLayout", { props = { CellPadding = udim2(0, 5, 0, 5), CellSize = udim2(0, 100, 0, 100),
+	FillDirectionMaxCells = 0, StartCorner = E("StartCorner", "TopLeft") },
+	get = { AbsoluteCellCount = function() return v2(1, 1) end, AbsoluteCellSize = function(self, d)
+		return v2(d.p.CellSize.X.Offset, d.p.CellSize.Y.Offset) end } })
+defclass("UIPageLayout", "UIGridStyleLayout", { props = { Animated = true, Circular = false, EasingDirection = E("EasingDirection", "Out"),
+	EasingStyle = E("EasingStyle", "Back"), GamepadInputEnabled = true, Padding = udim(0, 0), ScrollWheelInputEnabled = true,
+	TouchInputEnabled = true, TweenTime = 1 },
+	get = { CurrentPage = function() return nil end },
+	methods = { JumpTo = function() end, JumpToIndex = function() end, Next = function() end, Previous = function() end },
+	events = { "PageEnter", "PageLeave", "Stopped" } })
+defclass("UITableLayout", "UIGridStyleLayout", { props = { FillEmptySpaceColumns = false, FillEmptySpaceRows = false,
+	MajorAxis = E("TableMajorAxis", "RowMajor"), Padding = udim2(0, 0, 0, 0) } })
+end -- part4
+part4()

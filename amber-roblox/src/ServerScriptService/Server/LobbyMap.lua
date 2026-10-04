@@ -486,7 +486,7 @@ local function buildCell(parent, name, cf, W, e)
 	label(plate, NF.Front, e and e.num or "—", e and C.amber or rgb(110, 110, 110), { Font = Enum.Font.Code })
 	-- внутренности: пол, потолок, стены (внутри — бледная «больничная» краска)
 	local paint = vary(C.paintGreen, 0.05)
-	P(m, "Floor", V3(W, 0.5, CELL_D + 0.75), cf, 0, -0.25, (CELL_D - 0.75) / 2, rgb(96, 98, 94), M.Concrete)
+	P(m, "Floor", V3(W, 0.5, CELL_D + 1.5), cf, 0, -0.25, (CELL_D + 1.5) / 2 - 0.75, rgb(96, 98, 94), M.Concrete)
 	P(m, "Ceiling", V3(W, 0.9, CELL_D), cf, 0, H - 0.55, CELL_D / 2 + 0.75, rgb(118, 120, 116), M.Concrete)
 	P(m, "WallA", V3(0.5, H - 1, CELL_D), cf, hw - 0.25, (H - 1) / 2, CELL_D / 2 + 0.75, paint, B.mat("Plaster", M.Concrete))
 	P(m, "WallB", V3(0.5, H - 1, CELL_D), cf, -hw + 0.25, (H - 1) / 2, CELL_D / 2 + 0.75, paint, B.mat("Plaster", M.Concrete))
@@ -640,11 +640,13 @@ local function buildAsylum(root, cellsFolder, inmates)
 		B.part(ent, "PushBar", V3(2.8, 0.3, 0.3), CF(s * 2, L1 + 4, FZ + 0.15), rgb(140, 140, 136), M.Metal)
 	end
 	B.part(ent, "DoorFrame", V3(8.8, 0.5, 0.8), CF(0, L1 + 10.75, FZ + 0.4), rgb(36, 38, 40), M.Metal)
-	local blockSign = B.part(ent, "BlockSign", V3(7, 1.1, 0.2), CF(0, L1 + 11.8, FACE_Z + 0.1), rgb(16, 18, 18), M.SmoothPlastic)
+	local blockSign = B.part(ent, "BlockSign", V3(7, 1.1, 0.2), CF(0, L1 + 11.4, FACE_Z + 0.1), rgb(16, 18, 18), M.SmoothPlastic)
 	label(blockSign, NF.Back, "КОРПУС А", rgb(214, 222, 206))
-	local wl = B.part(ent, "WallLamp", V3(1.4, 0.5, 0.9), CF(0, L1 + 12.5, FACE_Z + 0.45), rgb(40, 42, 44), M.Metal)
-	B.part(ent, "WallLampLens", V3(1.2, 0.08, 0.7), CF(0, L1 + 12.22, FACE_Z + 0.45), C.cold, M.Neon)
-	B.light(wl, "SpotLight", { Face = NF.Bottom, Color = C.cold, Range = 22, Angle = 100, Brightness = 2.2 })
+	for s = -1, 1, 2 do
+		local wl = B.part(ent, "WallLamp", V3(0.9, 1.2, 0.7), CF(s * 6.2, L1 + 8.5, FACE_Z + 0.35), rgb(40, 42, 44), M.Metal)
+		B.part(ent, "WallLampLens", V3(0.7, 0.9, 0.08), CF(s * 6.2, L1 + 8.5, FACE_Z + 0.72), C.cold, M.Neon)
+		B.light(wl, "SpotLight", { Face = NF.Back, Color = C.cold, Range = 20, Angle = 110, Brightness = 1.6, Shadows = (s == 1) })
+	end
 	B.wall(ent, "Wall2", V3(-ENT, L2, FZ), V3(ENT, L2, FZ), STOREY, 1.5, entCol, M.Concrete, { { at = ENT, w = 4.4, y0 = 0, y1 = 8.5 } })
 	B.part(ent, "StaffDoor", V3(4.2, 8.4, 0.3), CF(0, L2 + 4.2, FZ - 0.1), rgb(64, 70, 72), M.CorrodedMetal)
 	local staff = B.part(ent, "StaffSign", V3(3.6, 0.8, 0.1), CF(0, L2 + 9.3, FACE_Z + 0.05), rgb(150, 30, 26), M.SmoothPlastic)
@@ -654,10 +656,10 @@ local function buildAsylum(root, cellsFolder, inmates)
 	-- башня над входом с вывеской
 	B.part(ent, "Tower", V3(2 * ENT, 9, 9), CF(0, ROOF_Y + 4.5, FACE_Z - 4.5), entCol, M.Concrete)
 	B.part(ent, "TowerCap", V3(2 * ENT + 1.2, 0.9, 10.2), CF(0, ROOF_Y + 9.45, FACE_Z - 4.5), C.concreteDark, M.Concrete)
-	local ts = B.part(ent, "TowerSign", V3(2 * ENT - 1.5, 4.6, 0.4), CF(0, ROOF_Y + 5, FACE_Z + 0.2), rgb(14, 16, 16), M.SmoothPlastic)
+	local ts = B.part(ent, "TowerSign", V3(2 * ENT - 1.5, 4.6, 0.4), CF(0, ROOF_Y + 5.5, FACE_Z + 0.2), rgb(14, 16, 16), M.SmoothPlastic)
 	label(ts, NF.Back, "BLACK RIDGE ASYLUM", rgb(206, 220, 200))
 	for s = -1, 1, 2 do
-		local sl = B.part(ent, "SignLamp", V3(1, 0.6, 1), CF(s * 5, ROOF_Y + 1.3, FACE_Z + 1.4) * ANG(rad(35), 0, 0), rgb(36, 38, 40), M.Metal)
+		local sl = B.part(ent, "SignLamp", V3(1, 0.6, 1), CF(s * 5, ROOF_Y + 1.1, FACE_Z + 0.6) * ANG(rad(35), 0, 0), rgb(36, 38, 40), M.Metal)
 		B.light(sl, "SpotLight", { Face = NF.Top, Color = C.cold, Range = 12, Angle = 70, Brightness = 2.5, Shadows = false })
 	end
 	-- углы, пилястры, пояса, карниз, парапет
@@ -672,7 +674,6 @@ local function buildAsylum(root, cellsFolder, inmates)
 	for _, x in ipairs(px) do
 		B.part(fac, "Pilaster", V3(1, top - L1, 0.5), CF(x, L1 + (top - L1) / 2, FACE_Z + 0.25), vary(C.concrete, 0.04), M.Concrete)
 	end
-	B.part(fac, "Band2", V3(2 * HX + 1, 0.9, 0.8), CF(0, L2 - 0.45, FACE_Z + 0.4), C.concrete, M.Concrete)
 	B.part(fac, "Band3", V3(2 * HX + 1, 0.9, 0.8), CF(0, L3 - 0.45, FACE_Z + 0.4), C.concrete, M.Concrete)
 	B.part(fac, "Cornice", V3(2 * HX + 2, 1.2, 1.8), CF(0, ROOF_Y + 0.2, FZ + 0.5), C.concreteDark, M.Concrete)
 	-- оболочка: боковые и задняя стены, крыша
@@ -693,8 +694,8 @@ local function buildAsylum(root, cellsFolder, inmates)
 	B.part(shell, "Parapet", V3(2 * HX, 2.7, 1.5), CF(0, ROOF_Y + 1.35, bz), C.concreteDark, M.Concrete)
 	B.part(shell, "ParapetFront", V3(2 * HX, 2.7, 1.5), CF(0, ROOF_Y + 1.35, FZ), vary(C.brick, 0.05), M.Brick)
 	B.part(shell, "Coping", V3(2 * HX + 1, 0.4, 2), CF(0, top + 0.2, FZ), C.concreteLight, M.Concrete)
-	B.part(shell, "Roof", V3(2 * HX - 3, 1, z1 - z0 - 1.5), CF(0, ROOF_Y + 0.5, (z0 + z1) / 2), rgb(52, 52, 54), M.Slate)
-	B.part(shell, "Plinth", V3(2 * HX, 0.6, z1 - z0), CF(0, 0.3, (z0 + z1) / 2), C.concreteDark, M.Concrete)
+	B.part(shell, "Roof", V3(2 * HX - 3, 1, z1 - z0 - 1.5), CF(0, ROOF_Y + 0.5, (z0 + 1.5 + z1) / 2), rgb(52, 52, 54), M.Slate)
+	B.part(shell, "Plinth", V3(2 * HX, 0.55, z1 - z0), CF(0, -0.025, (z0 + z1) / 2), C.concreteDark, M.Concrete)
 	L.cells = cells
 	L.model = f
 	return L

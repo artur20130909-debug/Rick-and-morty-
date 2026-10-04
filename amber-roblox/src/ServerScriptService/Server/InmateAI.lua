@@ -237,6 +237,12 @@ local function roomPoints(house, room)
 	return pts
 end
 
+-- случайная точка пола в данной комнате
+function Inmate:roomPoint(room)
+	local pts = roomPoints(self.house, room)
+	return pts[math.random(#pts)]
+end
+
 -- случайная точка в комнате дома (Indoor=true); except — не та же комната
 function Inmate:randomRoomPoint(except)
 	local rooms = self.H.rooms

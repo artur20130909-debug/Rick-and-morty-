@@ -1350,36 +1350,486 @@ function Eas.step(dt)
 	end
 end
 
--- @@LOADING@@
+-- ===================== загрузка: перемотка кассеты =====================
 Loading.visible = false
-function Loading.build() end
-function Loading.show(data) end
-function Loading.hide() end
-function Loading.step(dt) end
+local TIPS = {
+	"Днём собирай яблоки во дворе и продавай их Яблочнику в гараже.",
+	"В 21:00 включится телевизор. Слушай оповещение — оно говорит, как выжить.",
+	"Запертая дверь задержит заключённого. Держи R у двери.",
+	"Бег шумный. Присядь (C), чтобы двигаться тихо.",
+	"Шкафы спасают, но не от всех. Читай досье в лечебнице.",
+	"Фонарик садится. Запасные батарейки — в магазине.",
+	"Рассвет оживляет погибших товарищей.",
+	"Щиток в гараже. Без света в доме страшнее.",
+	"Директива из оповещения действует всю ночь. Не нарушай её.",
+}
 
--- @@END@@
+function Loading.build()
+	local root = frame(guis.full, { Name = "Loading", Size = UDim2.fromScale(1, 1), BackgroundColor3 = COL.black, Visible = false, Active = true, ZIndex = 10 })
+	Loading.root = root
+	local st = frame(root, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(1280, 720), BackgroundTransparency = 1, ZIndex = 10 })
+	fitScale(st, 1280, 720, 2, 1)
+	Loading.stage = st
+	Loading.logo = chromaLabel(st, "BLACK RIDGE", 120, F.title, COL.white, { Size = UDim2.fromOffset(1280, 140), Position = UDim2.fromOffset(0, 230), ZIndex = 12 }, 4)
+	stroke(Loading.logo.main, COL.amber, 4, 0.75, true)
+	label(st, spaced("ЛЕЧЕБНИЦА · ОКРУГ ЭМБЕР"), 22, F.code, COL.amber, { Size = UDim2.fromOffset(1280, 30), Position = UDim2.fromOffset(0, 370), ZIndex = 12 })
+	Loading.text = label(st, "", 22, F.bold, COL.txt, { Size = UDim2.fromOffset(1000, 30), Position = UDim2.fromOffset(140, 430), ZIndex = 12 })
+	Loading.dots = label(st, "", 22, F.code, COL.amber, { Size = UDim2.fromOffset(1280, 30), Position = UDim2.fromOffset(0, 466), ZIndex = 12 })
+	Loading.tip = label(st, "", 18, F.body, COL.dim, { Size = UDim2.fromOffset(1000, 50), Position = UDim2.fromOffset(140, 620), TextWrapped = true, ZIndex = 12 })
+	Loading.osd = label(st, "◀◀ REWIND", 34, F.osd, COL.white, { Size = UDim2.fromOffset(400, 40), Position = UDim2.fromOffset(40, 36), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 13 })
+	Loading.counter = label(st, "", 34, F.osd, COL.white, { Size = UDim2.fromOffset(400, 40), Position = UDim2.fromOffset(840, 36), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 13 })
+	-- полосы трекинга
+	Loading.bands = {}
+	for i = 1, 7 do
+		local b = frame(root, { Size = UDim2.new(1, 0, 0, 6), BackgroundColor3 = COL.white, BackgroundTransparency = 0.8, ZIndex = 14 })
+		grad(b, COL.white, Color3.fromRGB(120, 120, 140), 0, 0.2, 0.8)
+		Loading.bands[i] = b
+	end
+	Loading.grain = makeGrain(root, 80, 15)
+	addScanlines(root, 160, 0.75, 16)
+	addVignette(root, COL.black, 0.2, 0.1, 17)
+end
+
+function Loading.show(data)
+	if not Loading.root then return end
+	Loading.visible = true
+	Loading.root.Visible = true
+	Loading.t0 = T
+	Loading.tipI = rng:NextInteger(1, #TIPS)
+	Loading.tipT = T
+	setText(Loading.text, tostring((data and data.text) or "Едем к дому…"))
+	setText(Loading.tip, "СОВЕТ: " .. TIPS[Loading.tipI])
+end
+
+function Loading.hide()
+	if not Loading.visible then return end
+	Loading.visible = false
+	Loading.root.Visible = false
+end
+
+function Loading.step(dt)
+	local el = T - Loading.t0
+	for _, b in ipairs(Loading.bands) do
+		b.Position = UDim2.fromScale(0, rng:NextNumber())
+		b.Size = UDim2.new(1, 0, 0, rng:NextInteger(2, 26))
+		b.BackgroundTransparency = 0.6 + 0.35 * rng:NextNumber()
+	end
+	stepGrain(Loading.grain, 0.5, 4)
+	Loading.logo.jitter(3 + (rng:NextNumber() < 0.15 and 10 or 0))
+	Loading.logo.holder.Position = UDim2.fromOffset(rng:NextNumber() < 0.08 and rng:NextInteger(-20, 20) or 0, 230)
+	Loading.osd.TextTransparency = (math.floor(el * 2) % 2 == 0) and 0 or 0.6
+	local cnt = math.max(0, 5000 - el * 900)
+	setText(Loading.counter, string.format("%d:%02d:%02d", math.floor(cnt / 3600), math.floor(cnt / 60) % 60, math.floor(cnt) % 60))
+	local n = math.floor(el * 4) % 6
+	setText(Loading.dots, string.rep("▮", n) .. string.rep("▯", 5 - n))
+	if T - Loading.tipT > 4 then
+		Loading.tipT = T
+		Loading.tipI = Loading.tipI % #TIPS + 1
+		setText(Loading.tip, "СОВЕТ: " .. TIPS[Loading.tipI])
+	end
+end
+
+-- ===================== итоги матча =====================
 EndScr.visible = false
-function EndScr.build() end
-function EndScr.show(data) end
-function EndScr.hide() end
-function EndScr.step(dt) end
 
--- @@DEATH@@
-function Death.build() end
-function Death.show(text) end
-function Death.hide() end
-function Death.spectate(name) end
-function Death.step(dt) end
+function EndScr.build()
+	local root = frame(guis.full, { Name = "End", Size = UDim2.fromScale(1, 1), BackgroundColor3 = COL.black, BackgroundTransparency = 0.25, Visible = false, Active = true })
+	EndScr.root = root
+	addVignette(root, COL.black, 0.25, 0, 1)
+	local p = frame(root, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(720, 470), BackgroundColor3 = COL.panel, BackgroundTransparency = 0.05, ZIndex = 2 })
+	fitScale(p, 720, 470, 1.3, 0.94)
+	corner(p, 6)
+	EndScr.stroke = stroke(p, COL.amber, 2, 0.3)
+	EndScr.panel = p
+	label(p, "■ STOP  — КОНЕЦ ЗАПИСИ", 22, F.osd, COL.white, { Size = UDim2.new(1, -40, 0, 30), Position = UDim2.fromOffset(20, 14), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 3 })
+	EndScr.title = chromaLabel(p, "", 60, F.title, COL.white, { Size = UDim2.new(1, 0, 0, 80), Position = UDim2.fromOffset(0, 54), ZIndex = 3 }, 3)
+	EndScr.nights = label(p, "", 26, F.title, COL.txt, { Size = UDim2.new(1, 0, 0, 34), Position = UDim2.fromOffset(0, 146), ZIndex = 3 })
+	EndScr.amber = label(p, "", 40, F.title, COL.amber, { Size = UDim2.new(0.5, 0, 0, 56), Position = UDim2.fromOffset(0, 196), ZIndex = 3 })
+	stroke(EndScr.amber, COL.amber2, 3, 0.7, true)
+	EndScr.xp = label(p, "", 40, F.title, COL.cyan, { Size = UDim2.new(0.5, 0, 0, 56), Position = UDim2.fromScale(0.5, 0), ZIndex = 3 })
+	EndScr.xp.Position = UDim2.new(0.5, 0, 0, 196)
+	EndScr.text = label(p, "", 17, F.body, COL.dim, { Size = UDim2.new(1, -60, 0, 80), Position = UDim2.fromOffset(30, 262), TextWrapped = true, ZIndex = 3 })
+	EndScr.note = label(p, "В ЛОББИ — ЧЕРЕЗ НЕСКОЛЬКО СЕКУНД…", 16, F.mono, COL.dim, { Size = UDim2.new(1, 0, 0, 24), Position = UDim2.new(0, 0, 1, -50), ZIndex = 3 })
+	addScanlines(p, 90, 0.88, 4)
+end
 
--- @@QTE@@
-function Qte.build() end
-function Qte.start(onResult) return { stop = function() end } end
-function Qte.stopAll() end
-function Qte.step(dt) end
+function EndScr.show(data)
+	if not EndScr.root then return end
+	data = data or {}
+	EndScr.visible = true
+	EndScr.root.Visible = true
+	EndScr.t0 = T
+	EndScr.data = data
+	local win = data.win and true or false
+	EndScr.title.set(win and "ВЫ ВЫЖИЛИ!" or "ВСЕ ПОГИБЛИ")
+	EndScr.title.main.TextColor3 = win and COL.ok or Color3.fromRGB(255, 58, 58)
+	EndScr.stroke.Color = win and COL.ok or COL.red
+	setText(EndScr.nights, "НОЧЕЙ ПЕРЕЖИТО: " .. tostring(data.nights or 0))
+	setText(EndScr.text, tostring(data.text or ""))
+	EndScr.amber.Text = "+0 ◆"
+	EndScr.xp.Text = "+0 XP"
+	playSound(win and "Win" or "Lose")
+	local sc = EndScr.panel:FindFirstChildOfClass("UIScale")
+	if sc then
+		local target = sc.Scale
+		sc.Scale = target * 0.85
+		tween(sc, 0.35, { Scale = target }, Enum.EasingStyle.Back)
+	end
+end
 
--- @@PROMPTS@@
-function Prompts.init() end
-function Prompts.step(dt) end
+function EndScr.hide()
+	if not EndScr.visible then return end
+	EndScr.visible = false
+	EndScr.root.Visible = false
+end
+
+function EndScr.step(dt)
+	local d = EndScr.data or {}
+	local k = clamp01((T - EndScr.t0 - 0.6) / 1.6)
+	setText(EndScr.amber, "+" .. tostring(math.floor((tonumber(d.amber) or 0) * k + 0.5)) .. " ◆")
+	setText(EndScr.xp, "+" .. tostring(math.floor((tonumber(d.xp) or 0) * k + 0.5)) .. " XP")
+	EndScr.title.jitter(2 + (rng:NextNumber() < 0.06 and 6 or 0))
+	EndScr.note.TextTransparency = 0.2 + 0.4 * (0.5 + 0.5 * math.sin(T * 3))
+end
+
+-- ===================== смерть и наблюдение =====================
+function Death.build()
+	local g = guis.death
+	local root = frame(g, { Name = "Death", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(20, 0, 0), BackgroundTransparency = 0.55, Visible = false })
+	Death.root = root
+	addVignette(root, Color3.fromRGB(70, 0, 0), 0.3, 0, 1)
+	local box = frame(root, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0.26), Size = UDim2.fromOffset(900, 200), BackgroundTransparency = 1, ZIndex = 2 })
+	hudScale(box)
+	Death.title = chromaLabel(box, "ТЫ ПОГИБ", 72, F.title, Color3.fromRGB(255, 58, 58), { Size = UDim2.new(1, 0, 0, 90), ZIndex = 2 }, 3)
+	Death.sub = label(box, "", 18, F.bold, COL.txt, { Size = UDim2.new(1, -80, 0, 70), Position = UDim2.fromOffset(40, 96), TextWrapped = true, ZIndex = 2 })
+	stroke(Death.sub, COL.black, 1.5, 0.3, true)
+	Death.grain = makeGrain(root, 40, 3)
+
+	-- полоса наблюдения
+	local bar = frame(g, { Name = "Spectate", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -110), Size = UDim2.fromOffset(460, 44),
+		BackgroundColor3 = COL.black, BackgroundTransparency = 0.3, Visible = false })
+	hudScale(bar)
+	corner(bar, 4)
+	stroke(bar, COL.red, 1.5, 0.3)
+	Death.recDot = frame(bar, { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 14, 0.5, 0), Size = UDim2.fromOffset(12, 12), BackgroundColor3 = COL.red })
+	round(Death.recDot)
+	label(bar, "REC", 18, F.osd, COL.red, { Size = UDim2.fromOffset(50, 44), Position = UDim2.fromOffset(32, 0), TextXAlignment = Enum.TextXAlignment.Left })
+	Death.specName = label(bar, "", 18, F.title, COL.txt, { Size = UDim2.new(1, -100, 1, 0), Position = UDim2.fromOffset(86, 0), TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd })
+	Death.bar = bar
+end
+
+function Death.show(text)
+	if not Death.root then return end
+	deathText = text
+	Death.title.set("ТЫ ПОГИБ")
+	setText(Death.sub, tostring(text or "Наблюдаешь за товарищами. Оживление — на рассвете или дефибриллятором."))
+	if not Death.root.Visible then
+		Death.root.Visible = true
+		Death.root.BackgroundTransparency = 0
+		tween(Death.root, 1.2, { BackgroundTransparency = 0.55 })
+	end
+end
+
+function Death.hide()
+	deathText = nil
+	if Death.root then Death.root.Visible = false end
+	Death.spectate(nil)
+end
+
+function Death.spectate(name)
+	spectating = name
+	if not Death.bar then return end
+	Death.bar.Visible = name ~= nil and name ~= ""
+	if Death.bar.Visible then setText(Death.specName, "НАБЛЮДЕНИЕ: " .. tostring(name)) end
+end
+
+function Death.step(dt)
+	if Death.bar and Death.bar.Visible then
+		Death.recDot.BackgroundTransparency = (math.floor(T * 2) % 2 == 0) and 0 or 0.8
+	end
+	if Death.root and Death.root.Visible then
+		Death.title.jitter(3)
+		stepGrain(Death.grain, 0.25, 3)
+		-- в режиме наблюдения надпись уезжает вверх и бледнеет, чтобы не мешать смотреть
+		local spec = spectating ~= nil
+		Death.title.holder.Parent.Position = UDim2.fromScale(0.5, spec and 0.08 or 0.26)
+		Death.root.BackgroundTransparency = math.max(Death.root.BackgroundTransparency, spec and 0.85 or 0)
+	end
+end
+
+-- ===================== концентрация в укрытии (QTE) =====================
+-- стрелка бегает по полосе; нажми E/Пробел/тап, когда она в янтарной зоне
+function Qte.build()
+	local g = guis.qte
+	local p = mk("TextButton", g, { Name = "QTE", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.66), Size = UDim2.fromOffset(540, 160),
+		BackgroundColor3 = Color3.fromRGB(10, 6, 6), BackgroundTransparency = 0.15, Text = "", Visible = false })
+	hudScale(p, 1.05)
+	corner(p, 6)
+	Qte.stroke = stroke(p, COL.red, 2, 0.2)
+	Qte.panel = p
+	Qte.title = chromaLabel(p, "СОСРЕДОТОЧЬСЯ!", 30, F.title, Color3.fromRGB(255, 74, 74), { Size = UDim2.new(1, 0, 0, 40), Position = UDim2.fromOffset(0, 8) }, 2)
+	local track = frame(p, { Size = UDim2.fromOffset(480, 30), Position = UDim2.fromOffset(30, 60), BackgroundColor3 = COL.black, BackgroundTransparency = 0.2 })
+	corner(track, 3)
+	stroke(track, COL.line, 1, 0.7)
+	Qte.track = track
+	Qte.zone = frame(track, { Size = UDim2.fromScale(0.2, 1), Position = UDim2.fromScale(0.4, 0), BackgroundColor3 = COL.amber, BackgroundTransparency = 0.15 })
+	grad(Qte.zone, COL.white, Color3.fromRGB(200, 200, 200), 90)
+	Qte.needle = frame(track, { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.new(0, 5, 1, 12), Position = UDim2.fromScale(0, 0.5), BackgroundColor3 = COL.white, ZIndex = 3 })
+	stroke(Qte.needle, COL.black, 1, 0.3)
+	Qte.timer = frame(p, { Size = UDim2.fromOffset(480, 4), Position = UDim2.fromOffset(30, 96), BackgroundColor3 = COL.red })
+	Qte.hint = label(p, "", 15, F.mono, COL.dim, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 108) })
+	Qte.fb = label(p, "", 18, F.title, COL.ok, { Size = UDim2.new(1, 0, 0, 22), Position = UDim2.fromOffset(0, 130) })
+	p.Activated:Connect(function() Qte.press() end)
+	Qte.active = nil
+end
+
+function Qte.newRound(q)
+	q.zoneW = math.clamp(0.24 - q.hits * 0.02, 0.1, 0.24)
+	q.zoneX = rng:NextNumber() * (1 - q.zoneW)
+	q.roundT = 0
+	q.win = math.max(1.8, 3.4 - q.hits * 0.2)
+	Qte.zone.Size = UDim2.fromScale(q.zoneW, 1)
+	Qte.zone.Position = UDim2.fromScale(q.zoneX, 0)
+	Qte.zone.BackgroundColor3 = COL.amber
+end
+
+function Qte.result(ok)
+	local q = Qte.active
+	if not q then return end
+	if ok then
+		q.hits = q.hits + 1
+		q.speed = math.min(2.6, q.speed * 1.12)
+		Qte.fb.Text = "ЕСТЬ!"
+		Qte.fb.TextColor3 = COL.ok
+		Qte.zone.BackgroundColor3 = COL.ok
+	else
+		q.speed = math.max(0.8, q.speed * 0.92)
+		Qte.fb.Text = "МИМО"
+		Qte.fb.TextColor3 = COL.red
+		Qte.zone.BackgroundColor3 = COL.red
+		Qte.stroke.Transparency = 0
+	end
+	Qte.fb.TextTransparency = 0
+	q.cool = 0.35
+	if q.onResult then
+		local cb = q.onResult
+		task.spawn(function() safe("qte callback", cb, ok) end)
+	end
+end
+
+function Qte.press()
+	local q = Qte.active
+	if not q or q.cool > 0 then return end
+	local x = q.pos
+	Qte.result(x >= q.zoneX and x <= q.zoneX + q.zoneW)
+end
+
+function Qte.start(onResult)
+	Qte.stopAll()
+	local q = { onResult = onResult, hits = 0, speed = 1, pos = 0, dir = 1, cool = 0.6, roundT = 0, win = 3 }
+	Qte.active = q
+	Qte.newRound(q)
+	Qte.panel.Visible = true
+	Qte.fb.Text = ""
+	Qte.hint.Text = isTouch and "ТАПНИ, когда стрелка в янтарной зоне" or "[E] / [ПРОБЕЛ] — когда стрелка в янтарной зоне"
+	pcall(function()
+		CAS:BindActionAtPriority("AA_QTE", function(_, state)
+			if state == Enum.UserInputState.Begin then Qte.press() end
+			return Enum.ContextActionResult.Sink
+		end, false, Enum.ContextActionPriority.High.Value + 50, Enum.KeyCode.E, Enum.KeyCode.Space, Enum.KeyCode.ButtonA, Enum.KeyCode.ButtonR2)
+	end)
+	local handle = {}
+	function handle.stop()
+		if Qte.active == q then Qte.stopAll() end
+	end
+	handle.Stop = handle.stop
+	return handle
+end
+
+function Qte.stopAll()
+	if not Qte.active then return end
+	Qte.active = nil
+	if Qte.panel then Qte.panel.Visible = false end
+	pcall(function() CAS:UnbindAction("AA_QTE") end)
+end
+
+function Qte.step(dt)
+	local q = Qte.active
+	if not q then return end
+	-- стрелка «пинг-понг»
+	q.pos = q.pos + q.dir * dt * 0.75 * q.speed
+	if q.pos > 1 then q.pos, q.dir = 1, -1 end
+	if q.pos < 0 then q.pos, q.dir = 0, 1 end
+	Qte.needle.Position = UDim2.fromScale(q.pos, 0.5)
+	Qte.title.jitter(2)
+	Qte.stroke.Transparency = math.min(0.6, Qte.stroke.Transparency + dt)
+	if q.cool > 0 then
+		q.cool = q.cool - dt
+		Qte.fb.TextTransparency = 1 - math.max(0, q.cool) / 0.35
+		if q.cool <= 0 then Qte.newRound(q) end
+		return
+	end
+	q.roundT = q.roundT + dt
+	Qte.timer.Size = UDim2.fromOffset(480 * (1 - clamp01(q.roundT / q.win)), 4)
+	if q.roundT >= q.win then Qte.result(false) end
+end
+
+-- ===================== свой вид ProximityPrompt =====================
+-- билборд: клавиша (заполняется при удержании), действие, объект, полоска удержания.
+-- На сенсорном экране клавиша — кнопка: тап = InputHoldBegin/InputHoldEnd.
+Prompts.shown = {}          -- prompt -> ui
+Prompts.current = nil
+
+local function promptAdornee(prompt)
+	local p = prompt.Parent
+	if not p then return nil end
+	if p:IsA("BasePart") or p:IsA("Attachment") then return p end
+	if p:IsA("Model") then return p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart", true) end
+	return nil
+end
+
+local function keyName(prompt, inputType)
+	if inputType == Enum.ProximityPromptInputType.Touch then return "👆" end
+	if inputType == Enum.ProximityPromptInputType.Gamepad then
+		local n = prompt.GamepadKeyCode.Name
+		return (string.gsub(n, "^Button", ""))
+	end
+	local n = prompt.KeyboardKeyCode.Name
+	local map = { One = "1", Two = "2", Three = "3", Four = "4", Five = "5", LeftShift = "SHIFT", Space = "SPACE", Return = "ENTER" }
+	return map[n] or n
+end
+
+local function makeCustom(d)
+	if d:IsA("ProximityPrompt") and d.Style ~= Enum.ProximityPromptStyle.Custom then
+		d.Style = Enum.ProximityPromptStyle.Custom
+	end
+end
+
+function Prompts.show(prompt, inputType)
+	Prompts.hide(prompt)
+	local ad = promptAdornee(prompt)
+	if not ad then return end
+	local touch = inputType == Enum.ProximityPromptInputType.Touch
+	local s = touch and 1.25 or 1
+	local bb = mk("BillboardGui", guis.prompts, { Name = "Prompt", Adornee = ad, AlwaysOnTop = true, LightInfluence = 0, Active = true,
+		Size = UDim2.fromOffset(math.floor(270 * s), math.floor(64 * s)), StudsOffset = Vector3.new(0, 0.4, 0), ResetOnSpawn = false,
+		MaxDistance = (prompt.MaxActivationDistance or 10) + 8, ClipsDescendants = false })
+	local root = frame(bb, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 })
+	mk("UIScale", root, { Scale = s })
+	root.Size = UDim2.fromScale(1 / s, 1 / s)
+	-- клавиша
+	local key = mk("TextButton", root, { Size = UDim2.fromOffset(52, 52), Position = UDim2.fromOffset(4, 6), BackgroundColor3 = Color3.fromRGB(12, 12, 16),
+		BackgroundTransparency = 0.1, Text = "", ClipsDescendants = true })
+	corner(key, 6)
+	local kst = stroke(key, COL.amber, 2, 0.1)
+	local fill = frame(key, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.fromScale(1, 0), BackgroundColor3 = COL.amber })
+	local kl = label(key, keyName(prompt, inputType), 24, F.title, COL.amber, { Size = UDim2.fromScale(1, 1), ZIndex = 2 })
+	textMax(kl, 24, 9)
+	kl.TextScaled = ulen(kl.Text) > 2
+	-- плашка с текстом
+	local plate = frame(root, { Size = UDim2.new(1, -66, 0, 46), Position = UDim2.fromOffset(62, 9), BackgroundColor3 = Color3.fromRGB(10, 11, 15), BackgroundTransparency = 0.18 })
+	corner(plate, 4)
+	stroke(plate, COL.line, 1, 0.8)
+	frame(plate, { Size = UDim2.new(0, 3, 1, -10), Position = UDim2.fromOffset(0, 5), BackgroundColor3 = COL.amber })
+	local act = label(plate, prompt.ActionText, 18, F.title, COL.txt, { Size = UDim2.new(1, -16, 0, 24), Position = UDim2.fromOffset(10, 3),
+		TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd })
+	stroke(act, COL.black, 1, 0.4, true)
+	local obj = label(plate, prompt.ObjectText, 12, F.mono, COL.dim, { Size = UDim2.new(1, -16, 0, 14), Position = UDim2.fromOffset(10, 27),
+		TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd })
+	local bar = frame(plate, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(0, 0, 0, 3), BackgroundColor3 = COL.amber })
+	local ui = { bb = bb, key = key, keyStroke = kst, fill = fill, keyLabel = kl, act = act, obj = obj, bar = bar, prompt = prompt, holding = false, t0 = 0, flash = 0 }
+	-- тап/клик по клавише
+	key.InputBegan:Connect(function(input)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.Touch or t == Enum.UserInputType.MouseButton1 then
+			pcall(function() prompt:InputHoldBegin() end)
+		end
+	end)
+	key.InputEnded:Connect(function(input)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.Touch or t == Enum.UserInputType.MouseButton1 then
+			pcall(function() prompt:InputHoldEnd() end)
+		end
+	end)
+	-- появление
+	root.Position = UDim2.fromOffset(0, 8)
+	tween(root, 0.15, { Position = UDim2.fromOffset(0, 0) })
+	Prompts.shown[prompt] = ui
+	Prompts.current = prompt
+end
+
+function Prompts.hide(prompt)
+	local ui = Prompts.shown[prompt]
+	if not ui then return end
+	Prompts.shown[prompt] = nil
+	ui.bb:Destroy()
+	if Prompts.current == prompt then Prompts.current = next(Prompts.shown) end
+end
+
+function Prompts.init()
+	guis.prompts = screen("AA_Prompts", 8)
+	for _, d in ipairs(workspace:GetDescendants()) do
+		if d:IsA("ProximityPrompt") then pcall(makeCustom, d) end
+	end
+	workspace.DescendantAdded:Connect(function(d)
+		if d:IsA("ProximityPrompt") then pcall(makeCustom, d) end
+	end)
+	PPS.PromptShown:Connect(function(prompt, inputType)
+		pcall(makeCustom, prompt)
+		safe("prompt show", Prompts.show, prompt, inputType)
+	end)
+	PPS.PromptHidden:Connect(function(prompt)
+		safe("prompt hide", Prompts.hide, prompt)
+	end)
+	PPS.PromptButtonHoldBegan:Connect(function(prompt)
+		local ui = Prompts.shown[prompt]
+		if ui then ui.holding = true ui.t0 = T end
+	end)
+	PPS.PromptButtonHoldEnded:Connect(function(prompt)
+		local ui = Prompts.shown[prompt]
+		if ui then ui.holding = false end
+	end)
+	PPS.PromptTriggered:Connect(function(prompt, plr)
+		if plr and plr ~= player then return end
+		local ui = Prompts.shown[prompt]
+		if ui then ui.flash = 0.25 ui.holding = false end
+		local opens = prompt:GetAttribute("Opens")
+		if type(opens) == "string" and MODAL_NAMES[opens] then
+			if opens == "Dossier" then
+				UI.open("Dossier", prompt:GetAttribute("Inmate"))
+			else
+				UI.open(opens)
+			end
+		end
+	end)
+end
+
+function Prompts.step(dt)
+	local modal = UI.anyModal()
+	for prompt, ui in pairs(Prompts.shown) do
+		if not prompt.Parent then
+			Prompts.hide(prompt)
+		else
+			ui.bb.Enabled = prompt.Enabled and not modal
+			setText(ui.act, prompt.ActionText)
+			setText(ui.obj, prompt.ObjectText)
+			local hd = prompt.HoldDuration or 0
+			local frac = 0
+			if ui.holding then
+				if hd > 0 then frac = clamp01((T - ui.t0) / hd) else frac = 1 end
+			end
+			if ui.flash > 0 then
+				ui.flash = ui.flash - dt
+				frac = 1
+			end
+			ui.fill.Size = UDim2.fromScale(1, frac)
+			ui.bar.Size = UDim2.new(frac, 0, 0, 3)
+			ui.keyLabel.TextColor3 = frac > 0.5 and COL.black or COL.amber
+			ui.keyStroke.Transparency = 0.1 + 0.25 * (0.5 + 0.5 * math.sin(T * 5))
+		end
+	end
+end
 
 -- @@SCREENS@@
 
