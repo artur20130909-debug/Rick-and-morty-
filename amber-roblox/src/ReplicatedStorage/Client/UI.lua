@@ -407,6 +407,7 @@ local hiddenIn = nil
 local deathText = nil
 local spectating = nil
 local updateMouse          -- объявлена ниже (модальные окна)
+local MODAL_NAMES = { Shop = true, Classes = true, Dossier = true, Dossiers = true, Quests = true, Codes = true }
 
 -- разделы интерфейса (каждый — свой набор функций ниже)
 local Vhs, Hud, LobbyHud, Toasts, Eas, Loading, EndScr, Death, Qte, Prompts, Signs, Flash = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
@@ -2359,8 +2360,6 @@ function UI.hideAlert()
 	if not started then return end
 	safe("alert hide", Eas.hide)
 end
-
-local MODAL_NAMES = { Shop = true, Classes = true, Dossier = true, Dossiers = true, Quests = true, Codes = true }
 
 function UI.open(name, arg)
 	if not started or not MODAL_NAMES[name] then return end

@@ -3,7 +3,7 @@
 <External>nil</External>
 <Item class="Workspace" referent="RBX00000001"><Properties><string name="Name">Workspace</string><bool name="StreamingEnabled">false</bool></Properties></Item>
 <Item class="Lighting" referent="RBX00000002"><Properties><string name="Name">Lighting</string><token name="Technology">4</token><token name="LightingStyle">0</token><bool name="PrioritizeLightingQuality">true</bool><bool name="GlobalShadows">true</bool><float name="ShadowSoftness">0.25</float><float name="EnvironmentDiffuseScale">1</float><float name="EnvironmentSpecularScale">1</float><float name="Brightness">2</float><float name="ClockTime">0.5</float><Color3 name="Ambient"><R>0.07</R><G>0.07</G><B>0.1</B></Color3><Color3 name="OutdoorAmbient"><R>0.16</R><G>0.17</G><B>0.22</B></Color3><float name="ExposureCompensation">0</float></Properties></Item>
-<Item class="ReplicatedStorage" referent="RBX00000010"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="Folder" referent="RBX00000008"><Properties><string name="Name">Client</string></Properties><Item class="ModuleScript" referent="RBX00000003"><Properties><string name="Name">Controls</string><ProtectedString name="Source"><![CDATA[-- Управление игроком на клиенте:
+<Item class="ReplicatedStorage" referent="RBX00000013"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="Folder" referent="RBX00000008"><Properties><string name="Name">Client</string></Properties><Item class="ModuleScript" referent="RBX00000003"><Properties><string name="Name">Controls</string><ProtectedString name="Source"><![CDATA[-- Управление игроком на клиенте:
 --  * камера: в доме — от первого лица (LockFirstPerson), в лобби — свободная от третьего;
 --    покачивание при ходьбе, расширение обзора (FOV) при беге, выглядывание из-за угла (Q/E);
 --  * бег (Shift) с выносливостью, присед (C / Ctrl), шаги по материалу пола;
@@ -26,7 +26,7 @@ local Action = nil
 local T = 0
 
 local BASE_FOV = 70
-local DEATH_DELAY = 2.4       -- столько длится скример, прежде чем включится наблюдение
+local DEATH_DELAY = 1.5       -- после Alive=false (сервер ставит его через 1.5 с скримера) — и только потом наблюдение
 local SPRINT_SECONDS = 6.5    -- полный запас выносливости на столько секунд бега
 local REGEN_SECONDS = 8       -- и восстанавливается за столько
 local REGEN_DELAY = 1.1       -- пауза перед восстановлением
@@ -419,6 +419,9 @@ end
 
 ---------------------------------------------------------------- предметы
 local function hotbar()
+	-- порядок слотов берём у UI (он рисует хотбар), чтобы клавиши 1–9 совпадали с картинкой
+	local fromUi = ui("hotbarKeys")
+	if type(fromUi) == "table" and #fromUi > 0 then return fromUi end
 	local list = {}
 	local inv = player:FindFirstChild("Inventory")
 	if not inv then return list end
@@ -951,7 +954,7 @@ local function setBound(name, on)
 	bound[name] = on
 	if on then
 		local b = BIND[name]
-		CAS:BindActionAtPriority(name, HANDLERS[name], true, PRIORITY, unpack(b.keys))
+		CAS:BindActionAtPriority(name, HANDLERS[name], true, PRIORITY, (table.unpack or unpack)(b.keys))
 		pcall(function() CAS:SetTitle(name, b.title) end)
 		pcall(function() CAS:SetPosition(name, b.pos) end)
 	else
@@ -1359,7 +1362,12 @@ end
 H.coin = function(amount)
 	play("Coin", nil, { Volume = 0.6 })
 	local n = tonumber(amount)
-	if n and n > 0 then popup("+$" .. tostring(math.floor(n)), rgb(255, 214, 80)) end
+	if n and n > 0 then
+		popup("+$" .. tostring(math.floor(n)), rgb(255, 214, 80))
+	elseif n and n < 0 then
+		-- покупка в магазине
+		popup("−$" .. tostring(math.floor(-n)), rgb(255, 120, 100))
+	end
 end
 
 H.apple = function(count)
@@ -1852,7 +1860,10 @@ function Hide.init(c)
 		end)
 	end)
 
-	call("World", "onScene", function() guarded("leave", leave) end)
+	call("World", "onScene", function(scene, _, prev)
+		-- повторный Scene "house" не выпускает из укрытия, настоящая смена сцены — выпускает
+		if scene ~= "house" or prev ~= "house" then guarded("leave", leave) end
+	end)
 	player.CharacterAdded:Connect(function() guarded("leave", leave) end)
 	player:GetAttributeChangedSignal("Alive"):Connect(function()
 		if player:GetAttribute("Alive") == false then guarded("leave", leave) end
@@ -2290,6 +2301,8 @@ local crosshairOn = true
 local hiddenIn = nil
 local deathText = nil
 local spectating = nil
+local updateMouse          -- объявлена ниже (модальные окна)
+local MODAL_NAMES = { Shop = true, Classes = true, Dossier = true, Dossiers = true, Quests = true, Codes = true }
 
 -- разделы интерфейса (каждый — свой набор функций ниже)
 local Vhs, Hud, LobbyHud, Toasts, Eas, Loading, EndScr, Death, Qte, Prompts, Signs, Flash = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
@@ -2906,50 +2919,820 @@ function LobbyHud.step(dt) end
 function Signs.init() end
 function Signs.step(dt) end
 
--- @@EAS@@
+-- ===================== экстренное оповещение (EAS) =====================
+-- Вступление: настроечная таблица и тон. Затем мигающая шапка, эмблема, карточка заключённого,
+-- печатная машинка с текстом, совет, бегущая строка, полоса времени. Поверх — VHS: сканлайны,
+-- зерно, мерцание, разрывы строк и цветовой сдвиг.
 Eas.visible = false
-function Eas.build() end
-function Eas.show(data) end
-function Eas.hide(instant) end
-function Eas.step(dt) end
+local GLITCH = chars("#%&@$?!░▒▓█<>/\\=+*")
+local SMPTE = { Color3.fromRGB(192, 192, 192), Color3.fromRGB(192, 192, 0), Color3.fromRGB(0, 192, 192), Color3.fromRGB(0, 192, 0),
+	Color3.fromRGB(192, 0, 192), Color3.fromRGB(192, 0, 0), Color3.fromRGB(0, 0, 192) }
 
--- @@LOADING@@
+local function spaced(s)
+	return table.concat(chars(s), " ")
+end
+
+function Eas.build()
+	local g = guis.eas
+	g.Enabled = false
+	local root = frame(g, { Name = "EAS", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(3, 4, 8), Active = true })
+	Eas.root = root
+	grad(root, Color3.fromRGB(30, 34, 60), COL.black, 90)
+
+	-- сцена 1280×720, вписанная в экран
+	local st = frame(root, { Name = "Stage", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(1280, 720), BackgroundTransparency = 1 })
+	fitScale(st, 1280, 720, 2.2, 1)
+	Eas.stage = st
+
+	-- шапка
+	local hdr = frame(st, { Name = "Header", Size = UDim2.fromOffset(1280, 118), BackgroundColor3 = Color3.fromRGB(196, 18, 26) })
+	grad(hdr, COL.white, Color3.fromRGB(150, 150, 150), 90)
+	Eas.hdr = hdr
+	Eas.hdrTitle = chromaLabel(hdr, "⚠ ЭКСТРЕННОЕ ОПОВЕЩЕНИЕ ⚠", 54, F.title, COL.white,
+		{ Size = UDim2.fromOffset(1280, 70), Position = UDim2.fromOffset(0, 10) }, 3)
+	Eas.hdrSub = label(hdr, spaced("EMERGENCY ALERT SYSTEM"), 22, F.code, COL.white, { Size = UDim2.fromOffset(1280, 28), Position = UDim2.fromOffset(0, 80) })
+	frame(st, { Size = UDim2.fromOffset(1280, 4), Position = UDim2.fromOffset(0, 118), BackgroundColor3 = COL.amber })
+
+	-- эмблема
+	local em = frame(st, { Name = "Emblem", Size = UDim2.fromOffset(250, 250), Position = UDim2.fromOffset(60, 146), BackgroundTransparency = 1 })
+	Eas.emblem = em
+	local logo = Config.Images and Config.Images.EasLogo or ""
+	if logo ~= "" then
+		local url = tostring(logo)
+		if tonumber(logo) then url = "rbxassetid://" .. tostring(logo) end
+		mk("ImageLabel", em, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = url, ScaleType = Enum.ScaleType.Fit })
+	else
+		local disc = frame(em, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(10, 12, 24) })
+		round(disc)
+		stroke(disc, COL.amber, 6, 0)
+		grad(disc, Color3.fromRGB(60, 70, 120), COL.black, 90)
+		local inner = frame(em, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.7, 0.7), BackgroundColor3 = Color3.fromRGB(150, 10, 16) })
+		round(inner)
+		stroke(inner, COL.white, 3, 0.1)
+		grad(inner, Color3.fromRGB(255, 120, 120), COL.white, 90)
+		-- треугольник гражданской обороны из трёх «лучей»
+		for i = 0, 2 do
+			frame(inner, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 8, 0.42, 0),
+				BackgroundColor3 = COL.amber, Rotation = i * 120, BackgroundTransparency = 0.25 })
+		end
+		local eas = label(inner, "EAS", 58, F.title, COL.white, { Size = UDim2.fromScale(1, 1) })
+		stroke(eas, COL.black, 3, 0.2, true)
+		label(em, "CIVIL DEFENSE", 13, F.code, COL.amber, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 0, 22) })
+		label(em, "BLACK RIDGE", 13, F.code, COL.amber, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 1, -38) })
+	end
+	-- вращающиеся риски вокруг эмблемы
+	Eas.ticks = {}
+	for i = 1, 24 do
+		local t = frame(em, { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(4, 12), BackgroundColor3 = COL.amber, BackgroundTransparency = 0.3 })
+		Eas.ticks[i] = t
+	end
+
+	-- карточка заключённого
+	local card0 = frame(st, { Name = "Inmate", Size = UDim2.fromOffset(300, 236), Position = UDim2.fromOffset(36, 404), BackgroundColor3 = Color3.fromRGB(8, 8, 12), BackgroundTransparency = 0.1 })
+	corner(card0, 4)
+	Eas.cardStroke = stroke(card0, COL.red, 2, 0)
+	frame(card0, { Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = COL.red })
+	label(card0, "РАЗЫСКИВАЕТСЯ · WANTED", 16, F.title, COL.white, { Size = UDim2.new(1, 0, 0, 30) })
+	Eas.num = label(card0, "№ 102", 40, F.code, COL.amber, { Size = UDim2.new(1, -20, 0, 46), Position = UDim2.fromOffset(10, 34), TextXAlignment = Enum.TextXAlignment.Left })
+	stroke(Eas.num, COL.amber2, 2, 0.7, true)
+	Eas.name = chromaLabel(card0, "ГЛАДИС", 38, F.title, COL.white, { Size = UDim2.new(1, -20, 0, 46), Position = UDim2.fromOffset(10, 80) }, 2)
+	Eas.name.prop("TextXAlignment", Enum.TextXAlignment.Left)
+	Eas.name.prop("TextScaled", true)
+	for _, l in ipairs(Eas.name.layers) do textMax(l, 38, 14) end
+	Eas.en = label(card0, "GLADYS", 16, F.code, COL.dim, { Size = UDim2.new(1, -20, 0, 20), Position = UDim2.fromOffset(10, 128), TextXAlignment = Enum.TextXAlignment.Left })
+	Eas.cls = label(card0, "", 15, F.bold, Color3.fromRGB(255, 120, 120), { Size = UDim2.new(1, -20, 0, 76), Position = UDim2.fromOffset(10, 152),
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = true })
+
+	-- текст оповещения (печатная машинка)
+	local box = frame(st, { Name = "Crawl", Size = UDim2.fromOffset(880, 352), Position = UDim2.fromOffset(364, 146), BackgroundColor3 = Color3.fromRGB(4, 6, 14), BackgroundTransparency = 0.15 })
+	corner(box, 4)
+	stroke(box, COL.line, 1, 0.8)
+	pad(box, 16, 20, 16, 20)
+	Eas.crawl = label(box, "", 23, F.mono, COL.txt, { Size = UDim2.fromScale(1, 1), TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top, LineHeight = 1.15 })
+	textMax(Eas.crawl, 23, 10)
+	Eas.crawl.TextScaled = true
+	stroke(Eas.crawl, Color3.fromRGB(120, 160, 255), 2, 0.85, true)
+
+	-- что делать
+	local tip = frame(st, { Name = "Tip", Size = UDim2.fromOffset(880, 100), Position = UDim2.fromOffset(364, 510), BackgroundColor3 = Color3.fromRGB(30, 20, 0), BackgroundTransparency = 0.1 })
+	corner(tip, 4)
+	stroke(tip, COL.amber, 2, 0)
+	frame(tip, { Size = UDim2.new(0, 160, 1, 0), BackgroundColor3 = COL.amber })
+	label(tip, "ЧТО\nДЕЛАТЬ", 26, F.title, COL.black, { Size = UDim2.new(0, 160, 1, 0) })
+	Eas.tip = label(tip, "", 22, F.bold, COL.amber, { Size = UDim2.new(1, -190, 0, 54), Position = UDim2.fromOffset(176, 8), TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, TextScaled = true })
+	textMax(Eas.tip, 22, 10)
+	Eas.dir = label(tip, "", 17, F.bold, Color3.fromRGB(255, 96, 96), { Size = UDim2.new(1, -190, 0, 30), Position = UDim2.fromOffset(176, 64), TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left, TextScaled = true })
+	textMax(Eas.dir, 17, 9)
+
+	-- бегущая строка и полоса времени
+	local tick0 = frame(st, { Name = "Ticker", Size = UDim2.fromOffset(1280, 34), Position = UDim2.fromOffset(0, 646), BackgroundColor3 = Color3.fromRGB(150, 8, 14), ClipsDescendants = true })
+	Eas.ticker = label(tick0, "", 20, F.title, COL.white, { Size = UDim2.fromOffset(4000, 34), TextXAlignment = Enum.TextXAlignment.Left })
+	local bar = frame(st, { Name = "Bar", Size = UDim2.fromOffset(1280, 40), Position = UDim2.fromOffset(0, 680), BackgroundColor3 = Color3.fromRGB(70, 48, 0) })
+	Eas.fill = frame(bar, { Size = UDim2.fromScale(0, 1), BackgroundColor3 = COL.amber })
+	grad(Eas.fill, COL.white, Color3.fromRGB(200, 200, 200), 90)
+	label(bar, "AMBER ALERT · BLACK RIDGE ASYLUM", 17, F.title, COL.black, { Size = UDim2.new(0.6, -20, 1, 0), Position = UDim2.fromOffset(20, 0), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 2 })
+	Eas.left = label(bar, "", 17, F.title, COL.black, { Size = UDim2.new(0.4, -20, 1, 0), Position = UDim2.fromScale(0.6, 0), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 2 })
+
+	-- экранное меню видеомагнитофона
+	Eas.osdPlay = label(st, "▶ PLAY", 26, F.osd, COL.white, { Size = UDim2.fromOffset(200, 30), Position = UDim2.fromOffset(24, 128), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 20 })
+	stroke(Eas.osdPlay, COL.black, 2, 0.3, true)
+	Eas.osdTime = label(st, "", 22, F.osd, COL.white, { Size = UDim2.fromOffset(520, 26), Position = UDim2.fromOffset(736, 616), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 20 })
+	stroke(Eas.osdTime, COL.black, 2, 0.3, true)
+
+	-- настроечная таблица (первые секунды)
+	local bars = frame(root, { Name = "Bars", Size = UDim2.fromScale(1, 1), BackgroundColor3 = COL.black, ZIndex = 30 })
+	for i, c in ipairs(SMPTE) do
+		frame(bars, { Size = UDim2.fromScale(1 / 7, 0.72), Position = UDim2.fromScale((i - 1) / 7, 0), BackgroundColor3 = c, ZIndex = 30 })
+	end
+	for i = 1, 7 do
+		local c = SMPTE[8 - i]
+		if i % 2 == 0 then c = COL.black end
+		frame(bars, { Size = UDim2.fromScale(1 / 7, 0.08), Position = UDim2.fromScale((i - 1) / 7, 0.72), BackgroundColor3 = c, ZIndex = 30 })
+	end
+	frame(bars, { Size = UDim2.fromScale(1, 0.2), Position = UDim2.fromScale(0, 0.8), BackgroundColor3 = Color3.fromRGB(12, 12, 16), ZIndex = 30 })
+	local sb = label(bars, "ВНИМАНИЕ · ВНИМАНИЕ · ВНИМАНИЕ", 30, F.title, COL.white, { Size = UDim2.fromScale(1, 0.2), Position = UDim2.fromScale(0, 0.8), ZIndex = 31, TextScaled = true })
+	textMax(sb, 34, 10)
+	Eas.bars = bars
+
+	-- VHS поверх всего
+	Eas.scan = addScanlines(root, 200, 0.82, 40)
+	Eas.grain = makeGrain(root, 60, 41)
+	Eas.roll = frame(root, { Size = UDim2.fromScale(1, 0.12), BackgroundColor3 = COL.white, ZIndex = 42 })
+	mk("UIGradient", Eas.roll, { Rotation = 90, Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.9), NumberSequenceKeypoint.new(1, 1) }) })
+	Eas.tear = frame(root, { Size = UDim2.new(1, 0, 0, 10), BackgroundColor3 = COL.white, BackgroundTransparency = 0.7, ZIndex = 43, Visible = false })
+	Eas.flick = frame(root, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = COL.white, BackgroundTransparency = 1, ZIndex = 44 })
+	addVignette(root, COL.black, 0.16, 0.2, 39)
+
+	-- скрыть (освобождает мышь)
+	local hideBtn = button(root, "СКРЫТЬ ✕", "ghost", function() Eas.hide() end, { AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -16, 0, 60), Size = UDim2.fromOffset(120, 34), TextSize = 13, ZIndex = 50, Modal = true })
+	hudScale(hideBtn)
+	Eas.hideBtn = hideBtn
+end
+
+function Eas.show(data)
+	if not Eas.root then return end
+	-- то же оповещение второй раз (двойная подписка) — пропускаем
+	if Eas.visible and Eas.data == data then return end
+	Eas.data = data
+	local def = inmateDef(data.inmate)
+	local unknown = data.unknown and true or false
+	Eas.unknown = unknown
+
+	-- текст
+	local lines = {}
+	local src = data.lines
+	if (not src or #src == 0) and unknown then src = Config.AlertUnknown end
+	if (not src or #src == 0) and def and def.alert then src = def.alert end
+	local head = Config.AlertHead or ""
+	if head ~= "" and not (src and src[1] == head) then table.insert(lines, head) end
+	for _, l in ipairs(src or {}) do table.insert(lines, tostring(l)) end
+	Eas.full = table.concat(lines, "\n\n")
+	Eas.fullLen = ulen(Eas.full)
+	Eas.typed = 0
+	Eas.crawl.Text = ""
+
+	-- карточка
+	local num = data.num or (def and def.num) or "???"
+	local name = data.name or (def and def.name) or "???"
+	local en = (def and def.en) or ""
+	local cls = data.threat or (def and def.class) or ""
+	local tip = data.tip or (def and def.tip) or ""
+	if unknown then
+		num, name, en = "???", "НЕИЗВЕСТЕН", "UNKNOWN"
+		cls = "КЛАСС УГРОЗЫ: НЕИЗВЕСТЕН. СИЛЬНАЯ ПОТЕРЯ СИГНАЛА."
+		if tip == "" then tip = "Оставайтесь в помещении. Прячьтесь и не шумите." end
+	end
+	Eas.nameChars = chars(name)
+	Eas.nameStr = name
+	setText(Eas.num, "№ " .. tostring(num))
+	Eas.name.set(name)
+	Eas.name.prop("TextColor3", COL.white)
+	Eas.name.main.TextColor3 = unknown and Color3.fromRGB(255, 70, 70) or COL.white
+	setText(Eas.en, en ~= "" and (unknown and en or ("INMATE " .. tostring(num) .. " · " .. en)) or "")
+	setText(Eas.cls, cls)
+	setText(Eas.tip, tip ~= "" and tip or "Слушайте указания и не выходите на улицу.")
+	local dir = data.directive
+	local dirText = ""
+	if type(dir) == "table" and dir.text then
+		dirText = "📺 ДИРЕКТИВА: " .. tostring(dir.text)
+	end
+	setText(Eas.dir, dirText)
+	Eas.dir.Visible = dirText ~= ""
+	local ticker = string.gsub(table.concat(lines, "   •   "), "\n", " ")
+	Eas.ticker.Text = "   •   " .. ticker .. "   •   " .. ticker
+	Eas.tickW = textWidth("   •   " .. ticker, 20, F.title, 100000)
+	Eas.ticker.Size = UDim2.fromOffset(Eas.tickW * 2 + 40, 34)
+
+	Eas.duration = math.max(4, tonumber(data.duration) or (Config.Time and Config.Time.alertSeconds) or 34)
+	Eas.t0 = T
+	Eas.sawAlert = false
+	Eas.intro = 1.3
+	-- скорость печати: весь текст — за ~55% времени
+	Eas.cps = math.max(26, Eas.fullLen / math.max(1, (Eas.duration - Eas.intro) * 0.55))
+
+	-- сводка в HUD на ночь
+	local title = "⚠ " .. tostring(name) .. " · №" .. tostring(num)
+	if unknown then title = "⚠ НЕИЗВЕСТНЫЙ СУБЪЕКТ" end
+	Hud.setAlertInfo({ title = title, tip = unknown and "Сигнал потерян. Прячься и не шуми." or tip,
+		directive = (type(dir) == "table" and dir.text) or "" })
+
+	Eas.visible = true
+	guis.eas.Enabled = true
+	Eas.bars.Visible = true
+	Eas.root.Visible = true
+	for n in pairs(openModals) do UI.close(n) end
+	if Eas.tone then pcall(function() Eas.tone:Destroy() end) end
+	Eas.tone = nil
+	if Sound and Sound.play then
+		local ok, s = pcall(Sound.play, "EasTone", nil, { Volume = 0.5 })
+		if ok then Eas.tone = s end
+	end
+	updateMouse()
+end
+
+function Eas.hide(instant)
+	if not Eas.visible then return end
+	Eas.visible = false
+	if Eas.tone then pcall(function() Eas.tone:Stop() Eas.tone:Destroy() end) end
+	Eas.tone = nil
+	if instant or not Eas.flick then
+		guis.eas.Enabled = false
+	else
+		-- «выключение» телевизора: белая вспышка и гаснет
+		Eas.flick.BackgroundTransparency = 0.2
+		tween(Eas.flick, 0.25, { BackgroundTransparency = 1 })
+		task.delay(0.22, function()
+			if not Eas.visible then guis.eas.Enabled = false end
+		end)
+	end
+	updateMouse()
+end
+
+function Eas.step(dt)
+	local el = T - Eas.t0
+	local phase = mattr("Phase", "")
+	if phase == "alert" then Eas.sawAlert = true end
+	if el > Eas.duration + 0.6 or (Eas.sawAlert and phase ~= "alert" and phase ~= "") then
+		Eas.hide()
+		return
+	end
+	-- вступление: таблица
+	Eas.bars.Visible = el < Eas.intro
+	-- шапка мигает красным/чёрным
+	local on = math.floor(el * 2) % 2 == 0
+	Eas.hdr.BackgroundColor3 = on and Color3.fromRGB(196, 18, 26) or Color3.fromRGB(8, 8, 10)
+	Eas.hdrTitle.main.TextColor3 = on and COL.white or Color3.fromRGB(255, 40, 40)
+	Eas.hdrSub.TextColor3 = on and COL.white or COL.amber
+	Eas.cardStroke.Color = on and COL.red or COL.amber
+	Eas.hdrTitle.jitter(2 + (rng:NextNumber() < 0.1 and 5 or 0))
+	Eas.name.jitter(2)
+
+	-- риски вокруг эмблемы
+	for i, t in ipairs(Eas.ticks) do
+		local a = (i / #Eas.ticks) * math.pi * 2 + el * 0.6
+		t.Position = UDim2.new(0.5, math.cos(a) * 140, 0.5, math.sin(a) * 140)
+		t.Rotation = math.deg(a) + 90
+		t.BackgroundTransparency = (i % 2 == 0) and 0.2 or 0.6
+	end
+
+	-- печатная машинка
+	if el > Eas.intro and Eas.typed < Eas.fullLen then
+		Eas.typed = math.min(Eas.fullLen, Eas.typed + Eas.cps * dt)
+	end
+	local n = math.floor(Eas.typed)
+	local s = utf8sub(Eas.full, n)
+	if n < Eas.fullLen or math.floor(T * 2.5) % 2 == 0 then s = s .. "█" end
+	setText(Eas.crawl, s)
+
+	-- «НЕИЗВЕСТЕН» — глитч
+	if Eas.unknown and rng:NextNumber() < 0.5 then
+		local cs = {}
+		for i, ch in ipairs(Eas.nameChars) do
+			if rng:NextNumber() < 0.22 then cs[i] = GLITCH[rng:NextInteger(1, #GLITCH)] else cs[i] = ch end
+		end
+		Eas.name.set(table.concat(cs))
+		Eas.name.jitter(rng:NextInteger(2, 7))
+	end
+
+	-- бегущая строка
+	local w = Eas.tickW or 1000
+	Eas.ticker.Position = UDim2.fromOffset(-((el * 110) % w), 0)
+	-- полоса времени
+	local frac = clamp01(el / Eas.duration)
+	Eas.fill.Size = UDim2.fromScale(frac, 1)
+	setText(Eas.left, "НОЧЬ НАСТУПИТ ЧЕРЕЗ " .. tostring(math.max(0, math.ceil(Eas.duration - el))) .. " С")
+	-- экранное меню
+	local secs = math.floor(el)
+	setText(Eas.osdTime, string.format("SP  0:00:%02d   OCT.31.1994  %s", secs % 60, fmtClock(mattr("Clock", 21))))
+	Eas.osdPlay.TextTransparency = (math.floor(el * 1.5) % 2 == 0) and 0 or 0.4
+
+	-- VHS: зерно, бегущая полоса, мерцание, разрывы
+	stepGrain(Eas.grain, 0.35, 4)
+	Eas.roll.Position = UDim2.fromScale(0, (el / 3.5) % 1.3 - 0.15)
+	Eas.flick.BackgroundTransparency = math.max(Eas.flick.BackgroundTransparency, 0.96 + 0.04 * rng:NextNumber())
+	if rng:NextNumber() < 0.025 then
+		Eas.tear.Visible = true
+		Eas.tear.Position = UDim2.new(0, 0, rng:NextNumber(), 0)
+		Eas.stage.Position = UDim2.new(0.5, rng:NextInteger(-14, 14), 0.5, 0)
+	elseif Eas.tear.Visible and rng:NextNumber() < 0.5 then
+		Eas.tear.Visible = false
+		Eas.stage.Position = UDim2.fromScale(0.5, 0.5)
+	end
+end
+
+-- ===================== загрузка: перемотка кассеты =====================
 Loading.visible = false
-function Loading.build() end
-function Loading.show(data) end
-function Loading.hide() end
-function Loading.step(dt) end
+local TIPS = {
+	"Днём собирай яблоки во дворе и продавай их Яблочнику в гараже.",
+	"В 21:00 включится телевизор. Слушай оповещение — оно говорит, как выжить.",
+	"Запертая дверь задержит заключённого. Держи R у двери.",
+	"Бег шумный. Присядь (C), чтобы двигаться тихо.",
+	"Шкафы спасают, но не от всех. Читай досье в лечебнице.",
+	"Фонарик садится. Запасные батарейки — в магазине.",
+	"Рассвет оживляет погибших товарищей.",
+	"Щиток в гараже. Без света в доме страшнее.",
+	"Директива из оповещения действует всю ночь. Не нарушай её.",
+}
 
--- @@END@@
+function Loading.build()
+	local root = frame(guis.full, { Name = "Loading", Size = UDim2.fromScale(1, 1), BackgroundColor3 = COL.black, Visible = false, Active = true, ZIndex = 10 })
+	Loading.root = root
+	local st = frame(root, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(1280, 720), BackgroundTransparency = 1, ZIndex = 10 })
+	fitScale(st, 1280, 720, 2, 1)
+	Loading.stage = st
+	Loading.logo = chromaLabel(st, "BLACK RIDGE", 120, F.title, COL.white, { Size = UDim2.fromOffset(1280, 140), Position = UDim2.fromOffset(0, 230), ZIndex = 12 }, 4)
+	stroke(Loading.logo.main, COL.amber, 4, 0.75, true)
+	label(st, spaced("ЛЕЧЕБНИЦА · ОКРУГ ЭМБЕР"), 22, F.code, COL.amber, { Size = UDim2.fromOffset(1280, 30), Position = UDim2.fromOffset(0, 370), ZIndex = 12 })
+	Loading.text = label(st, "", 22, F.bold, COL.txt, { Size = UDim2.fromOffset(1000, 30), Position = UDim2.fromOffset(140, 430), ZIndex = 12 })
+	Loading.dots = label(st, "", 22, F.code, COL.amber, { Size = UDim2.fromOffset(1280, 30), Position = UDim2.fromOffset(0, 466), ZIndex = 12 })
+	Loading.tip = label(st, "", 18, F.body, COL.dim, { Size = UDim2.fromOffset(1000, 50), Position = UDim2.fromOffset(140, 620), TextWrapped = true, ZIndex = 12 })
+	Loading.osd = label(st, "◀◀ REWIND", 34, F.osd, COL.white, { Size = UDim2.fromOffset(400, 40), Position = UDim2.fromOffset(40, 36), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 13 })
+	Loading.counter = label(st, "", 34, F.osd, COL.white, { Size = UDim2.fromOffset(400, 40), Position = UDim2.fromOffset(840, 36), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 13 })
+	-- полосы трекинга
+	Loading.bands = {}
+	for i = 1, 7 do
+		local b = frame(root, { Size = UDim2.new(1, 0, 0, 6), BackgroundColor3 = COL.white, BackgroundTransparency = 0.8, ZIndex = 14 })
+		grad(b, COL.white, Color3.fromRGB(120, 120, 140), 0, 0.2, 0.8)
+		Loading.bands[i] = b
+	end
+	Loading.grain = makeGrain(root, 80, 15)
+	addScanlines(root, 160, 0.75, 16)
+	addVignette(root, COL.black, 0.2, 0.1, 17)
+end
+
+function Loading.show(data)
+	if not Loading.root then return end
+	Loading.visible = true
+	Loading.root.Visible = true
+	Loading.t0 = T
+	Loading.tipI = rng:NextInteger(1, #TIPS)
+	Loading.tipT = T
+	setText(Loading.text, tostring((data and data.text) or "Едем к дому…"))
+	setText(Loading.tip, "СОВЕТ: " .. TIPS[Loading.tipI])
+end
+
+function Loading.hide()
+	if not Loading.visible then return end
+	Loading.visible = false
+	Loading.root.Visible = false
+end
+
+function Loading.step(dt)
+	local el = T - Loading.t0
+	for _, b in ipairs(Loading.bands) do
+		b.Position = UDim2.fromScale(0, rng:NextNumber())
+		b.Size = UDim2.new(1, 0, 0, rng:NextInteger(2, 26))
+		b.BackgroundTransparency = 0.6 + 0.35 * rng:NextNumber()
+	end
+	stepGrain(Loading.grain, 0.5, 4)
+	Loading.logo.jitter(3 + (rng:NextNumber() < 0.15 and 10 or 0))
+	Loading.logo.holder.Position = UDim2.fromOffset(rng:NextNumber() < 0.08 and rng:NextInteger(-20, 20) or 0, 230)
+	Loading.osd.TextTransparency = (math.floor(el * 2) % 2 == 0) and 0 or 0.6
+	local cnt = math.max(0, 5000 - el * 900)
+	setText(Loading.counter, string.format("%d:%02d:%02d", math.floor(cnt / 3600), math.floor(cnt / 60) % 60, math.floor(cnt) % 60))
+	local n = math.floor(el * 4) % 6
+	setText(Loading.dots, string.rep("▮", n) .. string.rep("▯", 5 - n))
+	if T - Loading.tipT > 4 then
+		Loading.tipT = T
+		Loading.tipI = Loading.tipI % #TIPS + 1
+		setText(Loading.tip, "СОВЕТ: " .. TIPS[Loading.tipI])
+	end
+end
+
+-- ===================== итоги матча =====================
 EndScr.visible = false
-function EndScr.build() end
-function EndScr.show(data) end
-function EndScr.hide() end
-function EndScr.step(dt) end
 
--- @@DEATH@@
-function Death.build() end
-function Death.show(text) end
-function Death.hide() end
-function Death.spectate(name) end
-function Death.step(dt) end
+function EndScr.build()
+	local root = frame(guis.full, { Name = "End", Size = UDim2.fromScale(1, 1), BackgroundColor3 = COL.black, BackgroundTransparency = 0.25, Visible = false, Active = true })
+	EndScr.root = root
+	addVignette(root, COL.black, 0.25, 0, 1)
+	local p = frame(root, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(720, 470), BackgroundColor3 = COL.panel, BackgroundTransparency = 0.05, ZIndex = 2 })
+	fitScale(p, 720, 470, 1.3, 0.94)
+	corner(p, 6)
+	EndScr.stroke = stroke(p, COL.amber, 2, 0.3)
+	EndScr.panel = p
+	label(p, "■ STOP  — КОНЕЦ ЗАПИСИ", 22, F.osd, COL.white, { Size = UDim2.new(1, -40, 0, 30), Position = UDim2.fromOffset(20, 14), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 3 })
+	EndScr.title = chromaLabel(p, "", 60, F.title, COL.white, { Size = UDim2.new(1, 0, 0, 80), Position = UDim2.fromOffset(0, 54), ZIndex = 3 }, 3)
+	EndScr.nights = label(p, "", 26, F.title, COL.txt, { Size = UDim2.new(1, 0, 0, 34), Position = UDim2.fromOffset(0, 146), ZIndex = 3 })
+	EndScr.amber = label(p, "", 40, F.title, COL.amber, { Size = UDim2.new(0.5, 0, 0, 56), Position = UDim2.fromOffset(0, 196), ZIndex = 3 })
+	stroke(EndScr.amber, COL.amber2, 3, 0.7, true)
+	EndScr.xp = label(p, "", 40, F.title, COL.cyan, { Size = UDim2.new(0.5, 0, 0, 56), Position = UDim2.fromScale(0.5, 0), ZIndex = 3 })
+	EndScr.xp.Position = UDim2.new(0.5, 0, 0, 196)
+	EndScr.text = label(p, "", 17, F.body, COL.dim, { Size = UDim2.new(1, -60, 0, 80), Position = UDim2.fromOffset(30, 262), TextWrapped = true, ZIndex = 3 })
+	EndScr.note = label(p, "В ЛОББИ — ЧЕРЕЗ НЕСКОЛЬКО СЕКУНД…", 16, F.mono, COL.dim, { Size = UDim2.new(1, 0, 0, 24), Position = UDim2.new(0, 0, 1, -50), ZIndex = 3 })
+	addScanlines(p, 90, 0.88, 4)
+end
 
--- @@QTE@@
-function Qte.build() end
-function Qte.start(onResult) return { stop = function() end } end
-function Qte.stopAll() end
-function Qte.step(dt) end
+function EndScr.show(data)
+	if not EndScr.root then return end
+	data = data or {}
+	EndScr.visible = true
+	EndScr.root.Visible = true
+	EndScr.t0 = T
+	EndScr.data = data
+	local win = data.win and true or false
+	EndScr.title.set(win and "ВЫ ВЫЖИЛИ!" or "ВСЕ ПОГИБЛИ")
+	EndScr.title.main.TextColor3 = win and COL.ok or Color3.fromRGB(255, 58, 58)
+	EndScr.stroke.Color = win and COL.ok or COL.red
+	setText(EndScr.nights, "НОЧЕЙ ПЕРЕЖИТО: " .. tostring(data.nights or 0))
+	setText(EndScr.text, tostring(data.text or ""))
+	EndScr.amber.Text = "+0 ◆"
+	EndScr.xp.Text = "+0 XP"
+	playSound(win and "Win" or "Lose")
+	local sc = EndScr.panel:FindFirstChildOfClass("UIScale")
+	if sc then
+		local target = sc.Scale
+		sc.Scale = target * 0.85
+		tween(sc, 0.35, { Scale = target }, Enum.EasingStyle.Back)
+	end
+end
 
--- @@PROMPTS@@
-function Prompts.init() end
-function Prompts.step(dt) end
+function EndScr.hide()
+	if not EndScr.visible then return end
+	EndScr.visible = false
+	EndScr.root.Visible = false
+end
+
+function EndScr.step(dt)
+	local d = EndScr.data or {}
+	local k = clamp01((T - EndScr.t0 - 0.6) / 1.6)
+	setText(EndScr.amber, "+" .. tostring(math.floor((tonumber(d.amber) or 0) * k + 0.5)) .. " ◆")
+	setText(EndScr.xp, "+" .. tostring(math.floor((tonumber(d.xp) or 0) * k + 0.5)) .. " XP")
+	EndScr.title.jitter(2 + (rng:NextNumber() < 0.06 and 6 or 0))
+	EndScr.note.TextTransparency = 0.2 + 0.4 * (0.5 + 0.5 * math.sin(T * 3))
+end
+
+-- ===================== смерть и наблюдение =====================
+function Death.build()
+	local g = guis.death
+	local root = frame(g, { Name = "Death", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(20, 0, 0), BackgroundTransparency = 0.55, Visible = false })
+	Death.root = root
+	addVignette(root, Color3.fromRGB(70, 0, 0), 0.3, 0, 1)
+	local box = frame(root, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0.26), Size = UDim2.fromOffset(900, 200), BackgroundTransparency = 1, ZIndex = 2 })
+	hudScale(box)
+	Death.title = chromaLabel(box, "ТЫ ПОГИБ", 72, F.title, Color3.fromRGB(255, 58, 58), { Size = UDim2.new(1, 0, 0, 90), ZIndex = 2 }, 3)
+	Death.sub = label(box, "", 18, F.bold, COL.txt, { Size = UDim2.new(1, -80, 0, 70), Position = UDim2.fromOffset(40, 96), TextWrapped = true, ZIndex = 2 })
+	stroke(Death.sub, COL.black, 1.5, 0.3, true)
+	Death.grain = makeGrain(root, 40, 3)
+
+	-- полоса наблюдения
+	local bar = frame(g, { Name = "Spectate", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -110), Size = UDim2.fromOffset(460, 44),
+		BackgroundColor3 = COL.black, BackgroundTransparency = 0.3, Visible = false })
+	hudScale(bar)
+	corner(bar, 4)
+	stroke(bar, COL.red, 1.5, 0.3)
+	Death.recDot = frame(bar, { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 14, 0.5, 0), Size = UDim2.fromOffset(12, 12), BackgroundColor3 = COL.red })
+	round(Death.recDot)
+	label(bar, "REC", 18, F.osd, COL.red, { Size = UDim2.fromOffset(50, 44), Position = UDim2.fromOffset(32, 0), TextXAlignment = Enum.TextXAlignment.Left })
+	Death.specName = label(bar, "", 18, F.title, COL.txt, { Size = UDim2.new(1, -100, 1, 0), Position = UDim2.fromOffset(86, 0), TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd })
+	Death.bar = bar
+end
+
+function Death.show(text)
+	if not Death.root then return end
+	deathText = text
+	Death.title.set("ТЫ ПОГИБ")
+	setText(Death.sub, tostring(text or "Наблюдаешь за товарищами. Оживление — на рассвете или дефибриллятором."))
+	if not Death.root.Visible then
+		Death.root.Visible = true
+		Death.root.BackgroundTransparency = 0
+		tween(Death.root, 1.2, { BackgroundTransparency = 0.55 })
+	end
+end
+
+function Death.hide()
+	deathText = nil
+	if Death.root then Death.root.Visible = false end
+	Death.spectate(nil)
+end
+
+function Death.spectate(name)
+	spectating = name
+	if not Death.bar then return end
+	Death.bar.Visible = name ~= nil and name ~= ""
+	if Death.bar.Visible then setText(Death.specName, "НАБЛЮДЕНИЕ: " .. tostring(name)) end
+end
+
+function Death.step(dt)
+	if Death.bar and Death.bar.Visible then
+		Death.recDot.BackgroundTransparency = (math.floor(T * 2) % 2 == 0) and 0 or 0.8
+	end
+	if Death.root and Death.root.Visible then
+		Death.title.jitter(3)
+		stepGrain(Death.grain, 0.25, 3)
+		-- в режиме наблюдения надпись уезжает вверх и бледнеет, чтобы не мешать смотреть
+		local spec = spectating ~= nil
+		Death.title.holder.Parent.Position = UDim2.fromScale(0.5, spec and 0.08 or 0.26)
+		Death.root.BackgroundTransparency = math.max(Death.root.BackgroundTransparency, spec and 0.85 or 0)
+	end
+end
+
+-- ===================== концентрация в укрытии (QTE) =====================
+-- стрелка бегает по полосе; нажми E/Пробел/тап, когда она в янтарной зоне
+function Qte.build()
+	local g = guis.qte
+	local p = mk("TextButton", g, { Name = "QTE", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.66), Size = UDim2.fromOffset(540, 160),
+		BackgroundColor3 = Color3.fromRGB(10, 6, 6), BackgroundTransparency = 0.15, Text = "", Visible = false })
+	hudScale(p, 1.05)
+	corner(p, 6)
+	Qte.stroke = stroke(p, COL.red, 2, 0.2)
+	Qte.panel = p
+	Qte.title = chromaLabel(p, "СОСРЕДОТОЧЬСЯ!", 30, F.title, Color3.fromRGB(255, 74, 74), { Size = UDim2.new(1, 0, 0, 40), Position = UDim2.fromOffset(0, 8) }, 2)
+	local track = frame(p, { Size = UDim2.fromOffset(480, 30), Position = UDim2.fromOffset(30, 60), BackgroundColor3 = COL.black, BackgroundTransparency = 0.2 })
+	corner(track, 3)
+	stroke(track, COL.line, 1, 0.7)
+	Qte.track = track
+	Qte.zone = frame(track, { Size = UDim2.fromScale(0.2, 1), Position = UDim2.fromScale(0.4, 0), BackgroundColor3 = COL.amber, BackgroundTransparency = 0.15 })
+	grad(Qte.zone, COL.white, Color3.fromRGB(200, 200, 200), 90)
+	Qte.needle = frame(track, { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.new(0, 5, 1, 12), Position = UDim2.fromScale(0, 0.5), BackgroundColor3 = COL.white, ZIndex = 3 })
+	stroke(Qte.needle, COL.black, 1, 0.3)
+	Qte.timer = frame(p, { Size = UDim2.fromOffset(480, 4), Position = UDim2.fromOffset(30, 96), BackgroundColor3 = COL.red })
+	Qte.hint = label(p, "", 15, F.mono, COL.dim, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 108) })
+	Qte.fb = label(p, "", 18, F.title, COL.ok, { Size = UDim2.new(1, 0, 0, 22), Position = UDim2.fromOffset(0, 130) })
+	p.Activated:Connect(function() Qte.press() end)
+	Qte.active = nil
+end
+
+function Qte.newRound(q)
+	q.zoneW = math.clamp(0.24 - q.hits * 0.02, 0.1, 0.24)
+	q.zoneX = rng:NextNumber() * (1 - q.zoneW)
+	q.roundT = 0
+	q.win = math.max(1.8, 3.4 - q.hits * 0.2)
+	Qte.zone.Size = UDim2.fromScale(q.zoneW, 1)
+	Qte.zone.Position = UDim2.fromScale(q.zoneX, 0)
+	Qte.zone.BackgroundColor3 = COL.amber
+end
+
+function Qte.result(ok)
+	local q = Qte.active
+	if not q then return end
+	if ok then
+		q.hits = q.hits + 1
+		q.speed = math.min(2.6, q.speed * 1.12)
+		Qte.fb.Text = "ЕСТЬ!"
+		Qte.fb.TextColor3 = COL.ok
+		Qte.zone.BackgroundColor3 = COL.ok
+	else
+		q.speed = math.max(0.8, q.speed * 0.92)
+		Qte.fb.Text = "МИМО"
+		Qte.fb.TextColor3 = COL.red
+		Qte.zone.BackgroundColor3 = COL.red
+		Qte.stroke.Transparency = 0
+	end
+	Qte.fb.TextTransparency = 0
+	q.cool = 0.35
+	if q.onResult then
+		local cb = q.onResult
+		task.spawn(function() safe("qte callback", cb, ok) end)
+	end
+end
+
+function Qte.press()
+	local q = Qte.active
+	if not q or q.cool > 0 then return end
+	local x = q.pos
+	Qte.result(x >= q.zoneX and x <= q.zoneX + q.zoneW)
+end
+
+function Qte.start(onResult)
+	Qte.stopAll()
+	local q = { onResult = onResult, hits = 0, speed = 1, pos = 0, dir = 1, cool = 0.6, roundT = 0, win = 3 }
+	Qte.active = q
+	Qte.newRound(q)
+	Qte.panel.Visible = true
+	Qte.fb.Text = ""
+	Qte.hint.Text = isTouch and "ТАПНИ, когда стрелка в янтарной зоне" or "[E] / [ПРОБЕЛ] — когда стрелка в янтарной зоне"
+	pcall(function()
+		CAS:BindActionAtPriority("AA_QTE", function(_, state)
+			if state == Enum.UserInputState.Begin then Qte.press() end
+			return Enum.ContextActionResult.Sink
+		end, false, Enum.ContextActionPriority.High.Value + 50, Enum.KeyCode.E, Enum.KeyCode.Space, Enum.KeyCode.ButtonA, Enum.KeyCode.ButtonR2)
+	end)
+	local handle = {}
+	function handle.stop()
+		if Qte.active == q then Qte.stopAll() end
+	end
+	handle.Stop = handle.stop
+	return handle
+end
+
+function Qte.stopAll()
+	if not Qte.active then return end
+	Qte.active = nil
+	if Qte.panel then Qte.panel.Visible = false end
+	pcall(function() CAS:UnbindAction("AA_QTE") end)
+end
+
+function Qte.step(dt)
+	local q = Qte.active
+	if not q then return end
+	-- стрелка «пинг-понг»
+	q.pos = q.pos + q.dir * dt * 0.75 * q.speed
+	if q.pos > 1 then q.pos, q.dir = 1, -1 end
+	if q.pos < 0 then q.pos, q.dir = 0, 1 end
+	Qte.needle.Position = UDim2.fromScale(q.pos, 0.5)
+	Qte.title.jitter(2)
+	Qte.stroke.Transparency = math.min(0.6, Qte.stroke.Transparency + dt)
+	if q.cool > 0 then
+		q.cool = q.cool - dt
+		Qte.fb.TextTransparency = 1 - math.max(0, q.cool) / 0.35
+		if q.cool <= 0 then Qte.newRound(q) end
+		return
+	end
+	q.roundT = q.roundT + dt
+	Qte.timer.Size = UDim2.fromOffset(480 * (1 - clamp01(q.roundT / q.win)), 4)
+	if q.roundT >= q.win then Qte.result(false) end
+end
+
+-- ===================== свой вид ProximityPrompt =====================
+-- билборд: клавиша (заполняется при удержании), действие, объект, полоска удержания.
+-- На сенсорном экране клавиша — кнопка: тап = InputHoldBegin/InputHoldEnd.
+Prompts.shown = {}          -- prompt -> ui
+Prompts.current = nil
+
+local function promptAdornee(prompt)
+	local p = prompt.Parent
+	if not p then return nil end
+	if p:IsA("BasePart") or p:IsA("Attachment") then return p end
+	if p:IsA("Model") then return p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart", true) end
+	return nil
+end
+
+local function keyName(prompt, inputType)
+	if inputType == Enum.ProximityPromptInputType.Touch then return "👆" end
+	if inputType == Enum.ProximityPromptInputType.Gamepad then
+		local n = prompt.GamepadKeyCode.Name
+		return (string.gsub(n, "^Button", ""))
+	end
+	local n = prompt.KeyboardKeyCode.Name
+	local map = { One = "1", Two = "2", Three = "3", Four = "4", Five = "5", LeftShift = "SHIFT", Space = "SPACE", Return = "ENTER" }
+	return map[n] or n
+end
+
+local function makeCustom(d)
+	if d:IsA("ProximityPrompt") and d.Style ~= Enum.ProximityPromptStyle.Custom then
+		d.Style = Enum.ProximityPromptStyle.Custom
+	end
+end
+
+function Prompts.show(prompt, inputType)
+	Prompts.hide(prompt)
+	local ad = promptAdornee(prompt)
+	if not ad then return end
+	local touch = inputType == Enum.ProximityPromptInputType.Touch
+	local s = touch and 1.25 or 1
+	local bb = mk("BillboardGui", guis.prompts, { Name = "Prompt", Adornee = ad, AlwaysOnTop = true, LightInfluence = 0, Active = true,
+		Size = UDim2.fromOffset(math.floor(270 * s), math.floor(64 * s)), StudsOffset = Vector3.new(0, 0.4, 0), ResetOnSpawn = false,
+		MaxDistance = (prompt.MaxActivationDistance or 10) + 8, ClipsDescendants = false })
+	local root = frame(bb, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 })
+	mk("UIScale", root, { Scale = s })
+	root.Size = UDim2.fromScale(1 / s, 1 / s)
+	-- клавиша
+	local key = mk("TextButton", root, { Size = UDim2.fromOffset(52, 52), Position = UDim2.fromOffset(4, 6), BackgroundColor3 = Color3.fromRGB(12, 12, 16),
+		BackgroundTransparency = 0.1, Text = "", ClipsDescendants = true })
+	corner(key, 6)
+	local kst = stroke(key, COL.amber, 2, 0.1)
+	local fill = frame(key, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.fromScale(1, 0), BackgroundColor3 = COL.amber })
+	local kl = label(key, keyName(prompt, inputType), 24, F.title, COL.amber, { Size = UDim2.fromScale(1, 1), ZIndex = 2 })
+	textMax(kl, 24, 9)
+	kl.TextScaled = ulen(kl.Text) > 2
+	-- плашка с текстом
+	local plate = frame(root, { Size = UDim2.new(1, -66, 0, 46), Position = UDim2.fromOffset(62, 9), BackgroundColor3 = Color3.fromRGB(10, 11, 15), BackgroundTransparency = 0.18 })
+	corner(plate, 4)
+	stroke(plate, COL.line, 1, 0.8)
+	frame(plate, { Size = UDim2.new(0, 3, 1, -10), Position = UDim2.fromOffset(0, 5), BackgroundColor3 = COL.amber })
+	local act = label(plate, prompt.ActionText, 18, F.title, COL.txt, { Size = UDim2.new(1, -16, 0, 24), Position = UDim2.fromOffset(10, 3),
+		TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd })
+	stroke(act, COL.black, 1, 0.4, true)
+	local obj = label(plate, prompt.ObjectText, 12, F.mono, COL.dim, { Size = UDim2.new(1, -16, 0, 14), Position = UDim2.fromOffset(10, 27),
+		TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd })
+	local bar = frame(plate, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(0, 0, 0, 3), BackgroundColor3 = COL.amber })
+	local ui = { bb = bb, key = key, keyStroke = kst, fill = fill, keyLabel = kl, act = act, obj = obj, bar = bar, prompt = prompt, holding = false, t0 = 0, flash = 0 }
+	-- тап/клик по клавише
+	key.InputBegan:Connect(function(input)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.Touch or t == Enum.UserInputType.MouseButton1 then
+			pcall(function() prompt:InputHoldBegin() end)
+		end
+	end)
+	key.InputEnded:Connect(function(input)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.Touch or t == Enum.UserInputType.MouseButton1 then
+			pcall(function() prompt:InputHoldEnd() end)
+		end
+	end)
+	-- появление
+	root.Position = UDim2.fromOffset(0, 8)
+	tween(root, 0.15, { Position = UDim2.fromOffset(0, 0) })
+	Prompts.shown[prompt] = ui
+	Prompts.current = prompt
+end
+
+function Prompts.hide(prompt)
+	local ui = Prompts.shown[prompt]
+	if not ui then return end
+	Prompts.shown[prompt] = nil
+	ui.bb:Destroy()
+	if Prompts.current == prompt then Prompts.current = next(Prompts.shown) end
+end
+
+function Prompts.init()
+	guis.prompts = screen("AA_Prompts", 8)
+	for _, d in ipairs(workspace:GetDescendants()) do
+		if d:IsA("ProximityPrompt") then pcall(makeCustom, d) end
+	end
+	workspace.DescendantAdded:Connect(function(d)
+		if d:IsA("ProximityPrompt") then pcall(makeCustom, d) end
+	end)
+	PPS.PromptShown:Connect(function(prompt, inputType)
+		pcall(makeCustom, prompt)
+		safe("prompt show", Prompts.show, prompt, inputType)
+	end)
+	PPS.PromptHidden:Connect(function(prompt)
+		safe("prompt hide", Prompts.hide, prompt)
+	end)
+	PPS.PromptButtonHoldBegan:Connect(function(prompt)
+		local ui = Prompts.shown[prompt]
+		if ui then ui.holding = true ui.t0 = T end
+	end)
+	PPS.PromptButtonHoldEnded:Connect(function(prompt)
+		local ui = Prompts.shown[prompt]
+		if ui then ui.holding = false end
+	end)
+	PPS.PromptTriggered:Connect(function(prompt, plr)
+		if plr and plr ~= player then return end
+		local ui = Prompts.shown[prompt]
+		if ui then ui.flash = 0.25 ui.holding = false end
+		local opens = prompt:GetAttribute("Opens")
+		if type(opens) == "string" and MODAL_NAMES[opens] then
+			if opens == "Dossier" then
+				UI.open("Dossier", prompt:GetAttribute("Inmate"))
+			else
+				UI.open(opens)
+			end
+		end
+	end)
+end
+
+function Prompts.step(dt)
+	local modal = UI.anyModal()
+	for prompt, ui in pairs(Prompts.shown) do
+		if not prompt.Parent then
+			Prompts.hide(prompt)
+		else
+			ui.bb.Enabled = prompt.Enabled and not modal
+			setText(ui.act, prompt.ActionText)
+			setText(ui.obj, prompt.ObjectText)
+			local hd = prompt.HoldDuration or 0
+			local frac = 0
+			if ui.holding then
+				if hd > 0 then frac = clamp01((T - ui.t0) / hd) else frac = 1 end
+			end
+			if ui.flash > 0 then
+				ui.flash = ui.flash - dt
+				frac = 1
+			end
+			ui.fill.Size = UDim2.fromScale(1, frac)
+			ui.bar.Size = UDim2.new(frac, 0, 0, 3)
+			ui.keyLabel.TextColor3 = frac > 0.5 and COL.black or COL.amber
+			ui.keyStroke.Transparency = 0.1 + 0.25 * (0.5 + 0.5 * math.sin(T * 5))
+		end
+	end
+end
 
 -- @@SCREENS@@
 
 -- ===================== модальные окна: общий каркас =====================
 local mouseIconBefore = nil
 
-local function updateMouse()
+updateMouse = function()
 	if UI.anyModal() then
 		if mouseIconBefore == nil then mouseIconBefore = UIS.MouseIconEnabled end
 		UIS.MouseIconEnabled = true
@@ -3008,6 +3791,423 @@ local function card(parent, order, accent)
 	return c, s
 end
 
+-- ===================== магазин в гараже =====================
+-- сетка предметов Config.Items + полоса продажи яблок по цене сложности матча
+local function resultToast(res, fallback)
+	if type(res) == "table" then
+		UI.toast(tostring(res.msg or (res.ok and "Готово" or "Не получилось")), res.ok and COL.ok or COL.red)
+	else
+		UI.toast(fallback or "Нет связи с сервером", COL.red)
+	end
+end
+
+Screens.Shop = function()
+	local sh = modalShell("Shop", "🍎 ЯБЛОЧНИК · МАГАЗИН", "ГАРАЖ // КАССА №0021 · ОПЛАТА НАЛИЧНЫМИ", 940, 620)
+	local body = sh.body
+	local busy = false
+
+	-- верхняя полоса: кошелёк и продажа яблок
+	local top = frame(body, { Size = UDim2.new(1, 0, 0, 56), BackgroundColor3 = COL.black, BackgroundTransparency = 0.45 })
+	corner(top, 5)
+	stroke(top, COL.line, 1, 0.85)
+	local money = label(top, "", 24, F.title, COL.amber, { Size = UDim2.fromOffset(170, 56), Position = UDim2.fromOffset(16, 0), TextXAlignment = Enum.TextXAlignment.Left })
+	stroke(money, COL.amber2, 2, 0.75, true)
+	local apples = label(top, "", 18, F.bold, COL.txt, { Size = UDim2.fromOffset(140, 56), Position = UDim2.fromOffset(180, 0), TextXAlignment = Enum.TextXAlignment.Left })
+	local sell = button(top, "", "green", nil, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(470, 42), TextSize = 16 })
+	local closed = label(body, "МАГАЗИН ЗАКРЫТ ДО УТРА", 20, F.title, COL.red, { Size = UDim2.new(1, 0, 0, 26), Position = UDim2.fromOffset(0, 62), Visible = false })
+
+	local gridHolder = frame(body, { Size = UDim2.new(1, 0, 1, -66), Position = UDim2.fromOffset(0, 66), BackgroundTransparency = 1 })
+	local grid = scrollGrid(gridHolder, 208, 212, 10)
+
+	local cards = {}
+	local function price()
+		local d = diffDef()
+		return d.applePrice or 20
+	end
+
+	local function refresh()
+		local m = pattr("Money", 0)
+		local a = pattr("Apples", 0)
+		local inv = inventory()
+		local open = mattr("Phase", "day") == "day"
+		setText(money, "$ " .. tostring(m))
+		setText(apples, "🍎 " .. tostring(a) .. " шт.")
+		local p = price()
+		sell.Text = "🍎 ПРОДАТЬ ЯБЛОКИ  " .. tostring(a) .. " × $" .. tostring(p) .. " = $" .. tostring(a * p)
+		setEnabled(sell, open and a > 0 and not busy)
+		closed.Visible = not open
+		gridHolder.Position = UDim2.fromOffset(0, open and 66 or 92)
+		gridHolder.Size = UDim2.new(1, 0, 1, open and -66 or -92)
+		for k, c in pairs(cards) do
+			local it = Config.Items[k]
+			local have = inv[k] or 0
+			if it.gives then have = inv[it.gives] or 0 end
+			c.owned.Text = have > 0 and ("У ТЕБЯ: " .. tostring(have)) or ""
+			local can = open and m >= (it.price or 0) and not busy
+			setEnabled(c.buy, can)
+			c.price.TextColor3 = m >= (it.price or 0) and COL.amber or Color3.fromRGB(150, 110, 60)
+		end
+	end
+
+	local function run(kind, key)
+		if busy then return end
+		busy = true
+		refresh()
+		local res = invoke("Shop", kind, key)
+		busy = false
+		resultToast(res)
+		if res and res.ok then
+			if kind == "sell" then playSound("Coin") end
+		end
+		if sh.root.Parent then refresh() end
+	end
+	sell.Activated:Connect(function() task.spawn(run, "sell") end)
+
+	for i, k in ipairs(sortedKeys(Config.Items)) do
+		local it = Config.Items[k]
+		local c = card(grid, i)
+		pad(c, 10, 12, 10, 12)
+		local icon = label(c, it.icon or "❔", 38, F.body, COL.white, { Size = UDim2.fromOffset(48, 48) })
+		local pr = label(c, "$" .. tostring(it.price or 0), 22, F.title, COL.amber, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 4),
+			Size = UDim2.fromOffset(110, 28), TextXAlignment = Enum.TextXAlignment.Right })
+		local owned = label(c, "", 11, F.mono, COL.ok, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 32), Size = UDim2.fromOffset(110, 14),
+			TextXAlignment = Enum.TextXAlignment.Right })
+		label(c, it.name or k, 16, F.title, COL.txt, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 54), TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd })
+		label(c, it.desc or "", 12, F.body, COL.dim, { Size = UDim2.new(1, 0, 0, 62), Position = UDim2.fromOffset(0, 78), TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top })
+		local buy = button(c, "КУПИТЬ", "amber", function() run("buy", k) end, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1),
+			Size = UDim2.new(1, 0, 0, 36), TextSize = 15 })
+		cards[k] = { buy = buy, owned = owned, price = pr, icon = icon }
+	end
+
+	local acc = 0
+	sh.tick = function(dt)
+		acc = acc + dt
+		if acc > 0.25 then
+			acc = 0
+			refresh()
+		end
+	end
+	refresh()
+	return sh
+end
+
+-- ===================== классы (киоск лобби) =====================
+local profile = nil
+
+local function profileFromAttrs()
+	local cls = pattr("Class", "novice")
+	local owned = { novice = true }
+	owned[cls] = true
+	local xp = pattr("XP", 0)
+	local lvl = pattr("Level", (Config.levelOf and Config.levelOf(xp)) or 1)
+	return { amber = pattr("Amber", 0), xp = xp, level = lvl, rank = pattr("Rank", (Config.rankOf and Config.rankOf(lvl)) or ""), class = cls, owned = owned, partial = true }
+end
+
+local function loadProfile()
+	local res = invoke("Profile")
+	if type(res) == "table" then
+		res.owned = res.owned or {}
+		profile = res
+	end
+	return profile
+end
+
+Screens.Classes = function()
+	local sh = modalShell("Classes", "КЛАССЫ", "ОТДЕЛ КАДРОВ // ДОПУСК К СМЕНЕ", 940, 600)
+	local body = sh.body
+	local busy = false
+	local prof = profile or profileFromAttrs()
+
+	local top = frame(body, { Size = UDim2.new(1, 0, 0, 50), BackgroundColor3 = COL.black, BackgroundTransparency = 0.45 })
+	corner(top, 5)
+	stroke(top, COL.line, 1, 0.85)
+	local amber = label(top, "", 22, F.title, COL.amber, { Size = UDim2.fromOffset(260, 50), Position = UDim2.fromOffset(16, 0), TextXAlignment = Enum.TextXAlignment.Left })
+	stroke(amber, COL.amber2, 2, 0.75, true)
+	local lvl = label(top, "", 15, F.bold, COL.txt, { Size = UDim2.new(1, -300, 1, 0), Position = UDim2.fromOffset(280, 0), TextXAlignment = Enum.TextXAlignment.Right })
+
+	local holder = frame(body, { Size = UDim2.new(1, 0, 1, -60), Position = UDim2.fromOffset(0, 60), BackgroundTransparency = 1 })
+	local grid = scrollGrid(holder, 280, 200, 12)
+
+	local function render()
+		clear(grid, { UIGridLayout = true, UIPadding = true })
+		setText(amber, "◆ " .. tostring(prof.amber or 0) .. " AMBER")
+		local cdef = Config.Classes[prof.class or ""]
+		setText(lvl, "УР. " .. tostring(prof.level or 1) .. " · " .. tostring(prof.rank or "") .. "   ·   КЛАСС: " .. ((cdef and cdef.name) or "—"))
+		for i, k in ipairs(sortedKeys(Config.Classes)) do
+			local C = Config.Classes[k]
+			local own = (prof.owned and prof.owned[k]) or (C.price or 0) == 0
+			local eq = prof.class == k
+			local c, st = card(grid, i, eq and COL.amber or nil)
+			if eq then c.BackgroundColor3 = Color3.fromRGB(50, 38, 8) end
+			pad(c, 10, 12, 10, 12)
+			label(c, C.icon or "🙂", 34, F.body, COL.white, { Size = UDim2.fromOffset(44, 44) })
+			label(c, C.name or k, 20, F.title, eq and COL.amber or COL.txt, { Size = UDim2.new(1, -54, 0, 24), Position = UDim2.fromOffset(52, 2), TextXAlignment = Enum.TextXAlignment.Left })
+			local stateText = own and "ЕСТЬ" or ("◆ " .. tostring(C.price or 0))
+			if eq then stateText = "● ВЫБРАН" end
+			label(c, stateText, 13, F.mono, own and COL.ok or COL.amber, { Size = UDim2.new(1, -54, 0, 16), Position = UDim2.fromOffset(52, 26), TextXAlignment = Enum.TextXAlignment.Left })
+			label(c, C.desc or "", 13, F.body, COL.dim, { Size = UDim2.new(1, 0, 0, 64), Position = UDim2.fromOffset(0, 54), TextWrapped = true,
+				TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top })
+			local txt, style, kind = "ВЫБРАТЬ", "dark", "setClass"
+			if eq then txt, style, kind = "ВЫБРАН", "green", nil
+			elseif not own then txt, style, kind = "КУПИТЬ · ◆" .. tostring(C.price or 0), "amber", "buyClass" end
+			local b = button(c, txt, style, nil, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 36), TextSize = 14 })
+			if not kind or busy or (kind == "buyClass" and (prof.amber or 0) < (C.price or 0)) then setEnabled(b, false) end
+			if kind then
+				b.Activated:Connect(function()
+					if busy or b:GetAttribute("Off") then return end
+					busy = true
+					local res = invoke("Lobby", kind, k)
+					busy = false
+					resultToast(res)
+					if type(res) == "table" and type(res.profile) == "table" then
+						res.profile.owned = res.profile.owned or {}
+						profile = res.profile
+						prof = profile
+					elseif type(res) == "table" and res.ok then
+						if kind == "buyClass" then prof.owned[k] = true end
+						if kind == "setClass" then prof.class = k end
+					end
+					if sh.root.Parent then render() end
+				end)
+			end
+		end
+	end
+	render()
+	task.spawn(function()
+		local p = loadProfile()
+		if p and sh.root.Parent then
+			prof = p
+			render()
+		end
+	end)
+	return sh
+end
+
+-- ===================== досье заключённого =====================
+-- секретная папка: фото (вращающаяся 3D-модель во ViewportFrame), штамп, поля дела
+local function typedLine(parent, caption, value, order, color)
+	local row = frame(parent, { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = order })
+	vlist(row, 1)
+	label(row, caption, 12, F.mono, Color3.fromRGB(110, 98, 80), { Size = UDim2.new(1, 0, 0, 14), TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 1 })
+	local v = label(row, value, 16, F.mono, color or COL.ink, { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 2 })
+	return v, row
+end
+
+local function buildPreview(sh, photo, def)
+	local vf = mk("ViewportFrame", photo, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(26, 28, 32),
+		Ambient = Color3.fromRGB(150, 150, 160), LightColor = Color3.fromRGB(255, 232, 200), LightDirection = Vector3.new(-0.6, -1, -0.8) })
+	grad(vf, COL.white, Color3.fromRGB(120, 120, 130), 90)
+	local cam = mk("Camera", vf, { FieldOfView = 34 })
+	vf.CurrentCamera = cam
+	local wm = mk("WorldModel", vf)
+	local note = label(photo, "ФОТО\nОТСУТСТВУЕТ", 16, F.mono, COL.dim, { Size = UDim2.fromScale(1, 1), ZIndex = 3 })
+	if type(def.build) ~= "function" then return end
+	task.spawn(function()
+		local ok, model = pcall(def.build, ctx)
+		if not ok or typeof(model) ~= "Instance" then
+			if not ok then warnOnce("dossier build", model) end
+			return
+		end
+		if not sh.root.Parent then model:Destroy() return end
+		-- скрипты и звуки во ViewportFrame не нужны
+		for _, d in ipairs(model:GetDescendants()) do
+			if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("Sound") or d:IsA("ProximityPrompt") then d:Destroy() end
+		end
+		if model:IsA("Model") and model.PrimaryPart then model.PrimaryPart.Anchored = true end
+		model.Parent = wm
+		local cf, size = model:GetBoundingBox()
+		local base = model:GetPivot()
+		local h = math.max(size.Y, size.X * 0.8, 2)
+		local center = cf.Position
+		local dist = (h * 0.62) / math.tan(math.rad(17))
+		cam.CFrame = CFrame.lookAt(center + Vector3.new(0, h * 0.08, dist), center)
+		note.Visible = false
+		sh.preview = { model = model, base = base, center = center, animOk = type(def.animate) == "function" }
+	end)
+end
+
+Screens.Dossier = function(key)
+	local def = inmateDef(key)
+	local sh = modalShell("Dossier", "ДОСЬЕ · BLACK RIDGE", "ЛЕЧЕБНИЦА BLACK RIDGE // ОТДЕЛ СОДЕРЖАНИЯ // ДСП", 960, 620)
+	local body = sh.body
+	if not def then
+		label(body, "ДЕЛО НЕ НАЙДЕНО", 26, F.title, COL.red, { Size = UDim2.fromScale(1, 0.5) })
+		button(body, "← К СПИСКУ", "dark", function() UI.open("Dossiers") end, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0.6) })
+		return sh
+	end
+	-- папка и лист бумаги
+	local folder = frame(body, { Size = UDim2.new(1, 0, 1, -6), Position = UDim2.fromOffset(0, 6), BackgroundColor3 = COL.manila })
+	corner(folder, 6)
+	frame(folder, { Size = UDim2.fromOffset(180, 22), Position = UDim2.fromOffset(24, -14), BackgroundColor3 = COL.manila })
+	local paper = frame(folder, { Size = UDim2.new(1, -28, 1, -24), Position = UDim2.fromOffset(14, 12), BackgroundColor3 = COL.paper })
+	corner(paper, 2)
+	grad(paper, COL.white, Color3.fromRGB(225, 215, 190), 120)
+	stroke(paper, Color3.fromRGB(150, 130, 90), 1, 0.5)
+
+	-- фото
+	local polaroid = frame(paper, { Size = UDim2.fromOffset(280, 330), Position = UDim2.fromOffset(22, 22), BackgroundColor3 = Color3.fromRGB(246, 244, 238) })
+	stroke(polaroid, Color3.fromRGB(150, 140, 120), 1, 0.4)
+	local photo = frame(polaroid, { Size = UDim2.fromOffset(256, 270), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Color3.fromRGB(20, 22, 26), ClipsDescendants = true })
+	buildPreview(sh, photo, def)
+	label(polaroid, "INMATE № " .. tostring(def.num or "???"), 18, F.code, COL.ink, { Size = UDim2.new(1, 0, 0, 40), Position = UDim2.new(0, 0, 1, -44) })
+	-- скрепка
+	local clip = frame(paper, { Size = UDim2.fromOffset(16, 56), Position = UDim2.fromOffset(150, 6), BackgroundTransparency = 1 })
+	stroke(clip, Color3.fromRGB(150, 155, 165), 3, 0)
+	corner(clip, 8)
+	-- полоска цвета заключённого
+	local cbar = frame(paper, { Size = UDim2.fromOffset(280, 8), Position = UDim2.fromOffset(22, 362), BackgroundColor3 = (typeof(def.color) == "Color3" and def.color) or COL.red })
+	corner(cbar, 2)
+
+	-- поля дела
+	local sf = mk("ScrollingFrame", paper, { Size = UDim2.new(1, -350, 1, -100), Position = UDim2.fromOffset(326, 22), BackgroundTransparency = 1,
+		ScrollBarThickness = 5, ScrollBarImageColor3 = Color3.fromRGB(120, 100, 60), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y })
+	vlist(sf, 10)
+	pad(sf, 0, 10, 10, 0)
+	local nm = label(sf, tostring(def.name or "???"), 34, F.title, COL.ink, { Size = UDim2.new(1, 0, 0, 38), TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 1 })
+	textMax(nm, 34, 14)
+	nm.TextScaled = true
+	label(sf, tostring(def.en or ""), 16, F.code, Color3.fromRGB(110, 98, 80), { Size = UDim2.new(1, 0, 0, 18), TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 2 })
+	frame(sf, { Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = Color3.fromRGB(120, 100, 70), BackgroundTransparency = 0.4, LayoutOrder = 3 })
+	typedLine(sf, "ДЕЛО №", tostring(def.num or "???"), 4)
+	typedLine(sf, "КЛАССИФИКАЦИЯ", tostring(def.class or "НЕ УСТАНОВЛЕНА"), 5, Color3.fromRGB(150, 20, 24))
+	local lines = {}
+	for _, l in ipairs(def.alert or {}) do table.insert(lines, tostring(l)) end
+	typedLine(sf, "ИЗ ТЕКСТА ОПОВЕЩЕНИЯ", #lines > 0 and table.concat(lines, " ") or "[ДАННЫЕ ИЗЪЯТЫ]", 6)
+	local tipV, tipRow = typedLine(sf, "РЕКОМЕНДАЦИЯ ДЛЯ ГРАЖДАН", tostring(def.tip or "—"), 7, Color3.fromRGB(60, 40, 0))
+	-- выделение маркером
+	local hl = frame(tipRow, { Size = UDim2.new(1, 0, 1, -14), Position = UDim2.fromOffset(0, 15), BackgroundColor3 = Color3.fromRGB(255, 214, 60), BackgroundTransparency = 0.55, ZIndex = 0 })
+	hl.ZIndex = tipV.ZIndex - 1
+	-- зачёркнутые строки
+	local red = frame(sf, { Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1, LayoutOrder = 8 })
+	for i = 0, 2 do
+		frame(red, { Size = UDim2.new(0.35 + 0.2 * ((i * 37) % 3) / 2, 0, 0, 10), Position = UDim2.fromOffset(0, i * 15), BackgroundColor3 = COL.ink })
+	end
+
+	-- штамп
+	local stamp = label(paper, "СОВЕРШЕННО\nСЕКРЕТНО", 26, F.title, COL.stamp, { Size = UDim2.fromOffset(250, 76), Position = UDim2.fromOffset(40, 380),
+		Rotation = -9, TextTransparency = 0.15 })
+	stroke(stamp, COL.stamp, 3, 0.2)
+	-- низ листа
+	label(paper, "BLACK RIDGE ASYLUM · ЭКЗ. 1 ИЗ 1 · ВЫНОС ЗАПРЕЩЁН", 12, F.mono, Color3.fromRGB(120, 108, 90), { AnchorPoint = Vector2.new(0, 1),
+		Size = UDim2.new(1, -350, 0, 16), Position = UDim2.new(0, 326, 1, -14), TextXAlignment = Enum.TextXAlignment.Left })
+	button(paper, "← ВСЕ ДЕЛА", "dark", function() UI.open("Dossiers") end, { AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -18, 1, -40),
+		Size = UDim2.fromOffset(150, 38), TextSize = 14 })
+
+	local animErr = false
+	sh.tick = function(dt)
+		local p = sh.preview
+		if not p or not p.model.Parent then return end
+		local a = T * 0.7
+		local rot = p.base - p.base.Position
+		p.model:PivotTo(CFrame.new(p.base.Position) * CFrame.Angles(0, a, 0) * rot)
+		if p.animOk and not animErr then
+			local ok, err = pcall(def.animate, p.model, dt, T, ctx)
+			if not ok then
+				animErr = true
+				warnOnce("dossier animate " .. tostring(key), err)
+			end
+		end
+	end
+	sh.onClose = function()
+		if sh.preview and sh.preview.model then pcall(function() sh.preview.model:Destroy() end) end
+	end
+	return sh
+end
+
+-- ===================== список досье =====================
+Screens.Dossiers = function()
+	local sh = modalShell("Dossiers", "АРХИВ ДЕЛ", "BLACK RIDGE // КАРТОТЕКА ЗАКЛЮЧЁННЫХ", 760, 600)
+	local list = allInmates()
+	if #list == 0 then
+		label(sh.body, "АРХИВ ПУСТ", 24, F.title, COL.dim, { Size = UDim2.fromScale(1, 1) })
+		return sh
+	end
+	local sf = mk("ScrollingFrame", sh.body, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScrollBarThickness = 6,
+		ScrollBarImageColor3 = COL.amber, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y })
+	vlist(sf, 6)
+	pad(sf, 2, 12, 8, 2)
+	for i, e in ipairs(list) do
+		local d = e.def
+		local row = mk("TextButton", sf, { Size = UDim2.new(1, 0, 0, 62), BackgroundColor3 = COL.panel2, BackgroundTransparency = 0.15, LayoutOrder = i, Text = "" })
+		corner(row, 4)
+		local st = stroke(row, COL.line, 1, 0.85)
+		frame(row, { Size = UDim2.new(0, 6, 1, 0), BackgroundColor3 = (typeof(d.color) == "Color3" and d.color) or COL.amber })
+		label(row, tostring(d.num or "???"), 30, F.code, COL.amber, { Size = UDim2.fromOffset(90, 62), Position = UDim2.fromOffset(16, 0) })
+		label(row, tostring(d.name or e.key), 20, F.title, COL.txt, { Size = UDim2.new(1, -260, 0, 26), Position = UDim2.fromOffset(112, 7), TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd })
+		label(row, tostring(d.class or ""), 12, F.body, COL.dim, { Size = UDim2.new(1, -260, 0, 18), Position = UDim2.fromOffset(112, 35), TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd })
+		label(row, tostring(d.en or "") .. "  ›", 14, F.code, COL.dim, { AnchorPoint = Vector2.new(1, 0), Size = UDim2.fromOffset(140, 62), Position = UDim2.new(1, -14, 0, 0),
+			TextXAlignment = Enum.TextXAlignment.Right })
+		row.MouseEnter:Connect(function() st.Color = COL.amber st.Transparency = 0.2 end)
+		row.MouseLeave:Connect(function() st.Color = COL.line st.Transparency = 0.85 end)
+		row.Activated:Connect(function()
+			playSound("UiClick", { Volume = 0.35 })
+			UI.open("Dossier", e.key)
+		end)
+	end
+	return sh
+end
+
+-- ===================== задания (заглушка) =====================
+local QUESTS = {
+	{ name = "Собери 30 яблок", goal = 30, reward = 25, icon = "🍎" },
+	{ name = "Переживи 3 ночи", goal = 3, reward = 40, icon = "🌙" },
+	{ name = "Обезвредь заключённого", goal = 1, reward = 60, icon = "🎯" },
+}
+
+Screens.Quests = function()
+	local sh = modalShell("Quests", "ЗАДАНИЯ ДНЯ", "BLACK RIDGE // ЕЖЕДНЕВНЫЙ НАРЯД", 640, 440)
+	local box = frame(sh.body, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 })
+	vlist(box, 10)
+	for i, q in ipairs(QUESTS) do
+		local c = card(box, i)
+		c.Size = UDim2.new(1, 0, 0, 86)
+		pad(c, 10, 14, 10, 14)
+		label(c, q.icon, 30, F.body, COL.white, { Size = UDim2.fromOffset(40, 40) })
+		label(c, q.name, 18, F.title, COL.txt, { Size = UDim2.new(1, -170, 0, 22), Position = UDim2.fromOffset(52, 2), TextXAlignment = Enum.TextXAlignment.Left })
+		label(c, "◆ " .. tostring(q.reward), 18, F.title, COL.amber, { AnchorPoint = Vector2.new(1, 0), Size = UDim2.fromOffset(110, 22), Position = UDim2.new(1, 0, 0, 2),
+			TextXAlignment = Enum.TextXAlignment.Right })
+		local track = frame(c, { Size = UDim2.new(1, -52, 0, 10), Position = UDim2.fromOffset(52, 34), BackgroundColor3 = COL.black, BackgroundTransparency = 0.3 })
+		corner(track, 3)
+		frame(track, { Size = UDim2.fromScale(0, 1), BackgroundColor3 = COL.amber })
+		label(c, "0 / " .. tostring(q.goal), 12, F.mono, COL.dim, { Size = UDim2.new(1, -52, 0, 14), Position = UDim2.fromOffset(52, 50), TextXAlignment = Enum.TextXAlignment.Left })
+	end
+	local t = os.time()
+	local left = 86400 - (t % 86400)
+	label(box, string.format("Новые задания через %02d:%02d", math.floor(left / 3600), math.floor((left % 3600) / 60)), 13, F.mono, COL.dim,
+		{ Size = UDim2.new(1, 0, 0, 20), LayoutOrder = 10 })
+	return sh
+end
+
+-- ===================== коды (заглушка) =====================
+Screens.Codes = function()
+	local sh = modalShell("Codes", "КОДЫ", "BLACK RIDGE // ТЕРМИНАЛ ДОСТУПА", 560, 320)
+	local body = sh.body
+	label(body, "Введи код из сообщества игры:", 15, F.body, COL.dim, { Size = UDim2.new(1, 0, 0, 22), TextXAlignment = Enum.TextXAlignment.Left })
+	local tb = mk("TextBox", body, { Size = UDim2.new(1, 0, 0, 56), Position = UDim2.fromOffset(0, 30), BackgroundTransparency = 0.1, BackgroundColor3 = Color3.fromRGB(10, 12, 16),
+		Font = F.code, TextSize = 28, TextColor3 = COL.amber, PlaceholderText = "ВВЕДИ КОД", PlaceholderColor3 = Color3.fromRGB(110, 90, 40),
+		ClearTextOnFocus = false, Text = "" })
+	corner(tb, 5)
+	stroke(tb, COL.amber, 1.5, 0.4)
+	local function submit()
+		local code = string.gsub(tb.Text or "", "^%s+", "")
+		if code == "" then
+			UI.toast("Сначала введи код", COL.amber)
+			return
+		end
+		UI.toast("Код не найден", COL.red)
+		tb.Text = ""
+	end
+	tb.FocusLost:Connect(function(enter) if enter then submit() end end)
+	button(body, "ВВЕСТИ ✓", "green", submit, { Size = UDim2.new(1, 0, 0, 46), Position = UDim2.fromOffset(0, 100), TextSize = 17 })
+	label(body, "Подсказка: коды выходят вместе с обновлениями.", 12, F.mono, COL.dim, { Size = UDim2.new(1, 0, 0, 18), Position = UDim2.fromOffset(0, 160) })
+	return sh
+end
+
 -- ===================== публичный API =====================
 function UI.toast(text, color)
 	if not started then return end
@@ -3055,8 +4255,6 @@ function UI.hideAlert()
 	if not started then return end
 	safe("alert hide", Eas.hide)
 end
-
-local MODAL_NAMES = { Shop = true, Classes = true, Dossier = true, Dossiers = true, Quests = true, Codes = true }
 
 function UI.open(name, arg)
 	if not started or not MODAL_NAMES[name] then return end
@@ -3152,6 +4350,9 @@ local function onFrame(dt)
 	safe("qte step", Qte.step, dt)
 	safe("flash step", Flash.step, dt)
 	safe("prompts step", Prompts.step, dt)
+	for name, m in pairs(openModals) do
+		if m.tick then safe("tick " .. name, m.tick, dt) end
+	end
 end
 
 -- ===================== инициализация =====================
@@ -3568,6 +4769,8 @@ local function setupLighting()
 	setp(L.sky, "MoonAngularSize", 14)
 	setp(L.sky, "SunAngularSize", 16)
 	setp(Lighting, "GlobalShadows", true)
+	-- стиль освещения задан в файле места; с клиента пробуем молча (обычно не разрешено)
+	pcall(function() Lighting.LightingStyle = Enum.LightingStyle.Realistic end)
 	-- облака живут в Terrain
 	guarded("clouds", function()
 		local terrain = workspace:FindFirstChildOfClass("Terrain")
@@ -4871,7 +6074,1447 @@ function World.init(c)
 end
 
 return World
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX00000009"><Properties><string name="Name">Inmates</string></Properties></Item><Item class="Folder" referent="RBX0000000F"><Properties><string name="Name">Shared</string></Properties><Item class="ModuleScript" referent="RBX0000000A"><Properties><string name="Name">Build</string><ProtectedString name="Source"><![CDATA[-- Помощники постройки (сервер и клиент): детали, клинья, цилиндры, стены с проёмами,
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX0000000C"><Properties><string name="Name">Inmates</string></Properties><Item class="ModuleScript" referent="RBX00000009"><Properties><string name="Name">Gladys</string><ProtectedString name="Source"><![CDATA[-- Заключённая 330: ГЛЭДИС — незваная гостья.
+-- Старушка в мешковатом полосатом цирковом комбинезоне, седые кудри, румяна, очки и широкая накрашенная улыбка.
+-- Приезжает к крыльцу с крошечным велосипедом: звонок, смех, стук и мольбы («Я ЗАБЛУДИЛАСЬ, ДОРОГУША…»).
+-- Открыли входную дверь — врывается и охотится на того, кто ближе к двери. Не открыли — через ~35 с
+-- выбивает окно первого этажа. Внутри свет в доме зеленеет; каждые ~15 с он мигает и на 4 с становится
+-- КРАСНЫМ: кто ДВИЖЕТСЯ у неё на виду — цель погони. В зелёной фазе замечает только шевеление рядом и бег.
+-- Касание — смерть; укрытия спасают (из шкафа не вытаскивает).
+-- Атрибуты модели: Phase (0 снаружи | 1 зелёный | 2 предупреждение | 3 красный), Anim.
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Rig = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("Rig"))
+
+local PORCH_T, RED_EVERY, WARN, RED_DUR, RED_GRACE, FIRST_RED = 35, 15, 0.9, 4, 0.6, 11
+local V_ROAM, V_CHASE = 10.5, 16
+local GREEN = Color3.fromRGB(109, 255, 140)
+local RED = Color3.fromRGB(255, 42, 42)
+local SAY = Color3.fromRGB(150, 255, 160)
+
+local PLEAS = {
+	"Я ЗАБЛУДИЛАСЬ, ДОРОГУША… ВПУСТИ МЕНЯ?",
+	"ТУК-ТУК! ЕСТЬ КТО ДОМА? Я ЖЕ СЛЫШУ, ЧТО ЕСТЬ…",
+	"НА УЛИЦЕ ТАК ХОЛОДНО… ОТКРОЙ БАБУЛЕ ДВЕРЬ!",
+	"Я ПРИНЕСЛА ВАМ ПЕЧЕНЬЕ, СОЛНЫШКО. ХИ-ХИ-ХИ!",
+	"НУ ЖЕ, ДОРОГУША… Я ВСЕГО ЛИШЬ СТАРУШКА.",
+	"КАК ЖЕ МНЕ НАЙТИ ДОРОГУ ДОМОЙ?.. ПУСТИ ПОГРЕТЬСЯ!",
+}
+local PLEA_LIT = "У ВАС ТАК УЮТНО ГОРИТ СВЕТ… ВПУСТИ МЕНЯ, ДОРОГУША!"
+local PLEA_FINAL = "НЕ ХОЧЕШЬ ОТКРЫВАТЬ?.. НИЧЕГО, БАБУЛЯ ЗАЙДЁТ САМА!"
+local OPENED = "ОЙ, СПАСИБО, ДОРОГУША! ХИ-ХИ-ХИ-ХИ!"
+local SPOTTED = { "ВИЖУ ТЕБЯ, ДОРОГУША!", "КТО ЭТО ТАМ ШЕВЕЛИТСЯ?", "НЕ УБЕГАЙ ОТ БАБУЛИ!", "ПОПАЛСЯ, СОЛНЫШКО!" }
+local SEQ = { "bell", "knock", "say", "laugh", "knock", "say", "bell", "say", "laugh", "knock", "say" }
+
+local Gladys = {
+	key = "Gladys", num = "330", name = "ГЛЭДИС", en = "GLADYS", class = "Класс угрозы: незваная гостья",
+	color = Color3.fromRGB(77, 216, 112), hp = 400, speed = V_ROAM, chase = V_CHASE,
+	difficulty = 1, minNight = 1, oneShot = true, pulls = false, reach = 4.2, cooldown = 1.0,
+	sight = 70, dark = 20, inspect = 0.15,
+	alert = {
+		"ОЧЕВИДЦЫ ОПИСЫВАЮТ ПОЖИЛУЮ ЖЕНЩИНУ В МЕШКОВАТОМ ЦИРКОВОМ КОСТЮМЕ, БРОДЯЩУЮ ПО ЗАДНИМ ДВОРАМ, — ЗАКЛЮЧЁННАЯ 330.",
+		"ЕСЛИ ВЫ СЛЫШИТЕ ВЕЛОСИПЕДНЫЙ ЗВОНОК ИЛИ ПРОНЗИТЕЛЬНЫЙ СМЕХ У СВОЕГО КРЫЛЬЦА — ПОГАСИТЕ ВЕСЬ СВЕТ И СПРЯЧЬТЕСЬ.",
+		"НЕ ОТКРЫВАЙТЕ ДВЕРЬ ТОМУ, КТО ГОВОРИТ, ЧТО ЗАБЛУДИЛСЯ.",
+	},
+	tip = "Не открывай ей дверь. Свет стал красным — замри: она видит только тех, кто двигается.",
+	directive = { code = "no_door", text = "НЕ ОТКРЫВАЙТЕ ДВЕРЬ" },
+	steps = { key = "Squish", fallback = "Footstep", pitch = 0.55, volume = 0.55 },
+	ambient = { key = "Laugh", fallback = "Whisper", every = 11 },
+	scare = Color3.fromRGB(60, 255, 110),
+}
+
+---------------------------------------------------------------- модель
+local CREAM, STRIPE = "#efe2c4", "#b8283c"
+local FAB = Enum.Material.Fabric
+
+-- вертикальные полоски по граням бруска (w × h × d)
+local function stripes(R, limb, w, h, d, n, sides)
+	for i = 1, n do
+		local x = -w / 2 + (i - 0.5) * w / n
+		for _, z in ipairs({ -d / 2 - 0.02, d / 2 + 0.02 }) do
+			local p = Rig.add(R, limb, "Stripe", Vector3.new(w / n * 0.42, h * 0.98, 0.04), CFrame.new(x, 0, z), STRIPE, FAB)
+			p.CastShadow = false
+		end
+	end
+	for i = 1, sides or 1 do
+		local z = -d / 2 + (i - 0.5) * d / (sides or 1)
+		for _, x in ipairs({ -w / 2 - 0.02, w / 2 + 0.02 }) do
+			local p = Rig.add(R, limb, "Stripe", Vector3.new(0.04, h * 0.98, d / (sides or 1) * 0.42), CFrame.new(x, 0, z), STRIPE, FAB)
+			p.CastShadow = false
+		end
+	end
+end
+
+local function disc(R, limb, name, d, th, cf, color, mat)
+	return Rig.cyl(R, limb, name, th, d, cf * CFrame.Angles(0, math.rad(90), 0), color, mat)
+end
+
+local function ring(R, limb, name, d, th, cf, color, mat)
+	return Rig.cyl(R, limb, name, th, d, cf * CFrame.Angles(0, 0, math.rad(90)), color, mat)
+end
+
+-- крошечный детский велосипед у правого бока (приварен к корню, атрибут Bike)
+local function bike(R)
+	local x = 1.95
+	local blue, tire, chrome = "#2f8fd8", "#161616", "#c8ccd2"
+	local list = {}
+	local function keep(p) p:SetAttribute("Bike", true); table.insert(list, p); return p end
+	for _, z in ipairs({ -1.35, 1.1 }) do
+		keep(Rig.addAt(R, "HumanoidRootPart", "Wheel", Vector3.new(0.22, 1.4, 1.4), CFrame.new(x, 0.72, z), tire, Rig.mat("Rubber", Enum.Material.SmoothPlastic), { Shape = Enum.PartType.Cylinder }))
+		keep(Rig.addAt(R, "HumanoidRootPart", "Hub", Vector3.new(0.26, 0.5, 0.5), CFrame.new(x, 0.72, z), chrome, Enum.Material.Metal, { Shape = Enum.PartType.Cylinder }))
+		for k = 0, 2 do
+			keep(Rig.addAt(R, "HumanoidRootPart", "Spoke", Vector3.new(0.04, 1.2, 0.04), CFrame.new(x, 0.72, z) * CFrame.Angles(math.rad(k * 60), 0, 0), chrome, Enum.Material.Metal))
+		end
+	end
+	local M = Enum.Material.Metal
+	keep(Rig.bar(R, "HumanoidRootPart", "Frame", Vector3.new(x, 1.55, -0.85), Vector3.new(x, 1.5, 0.75), 0.16, blue, M))
+	keep(Rig.bar(R, "HumanoidRootPart", "Frame", Vector3.new(x, 1.5, -0.85), Vector3.new(x, 0.8, 0.15), 0.16, blue, M))
+	keep(Rig.bar(R, "HumanoidRootPart", "Frame", Vector3.new(x, 0.8, 0.15), Vector3.new(x, 0.72, 1.1), 0.12, blue, M))
+	keep(Rig.bar(R, "HumanoidRootPart", "Frame", Vector3.new(x, 1.5, 0.75), Vector3.new(x, 0.72, 1.1), 0.12, blue, M))
+	keep(Rig.bar(R, "HumanoidRootPart", "Fork", Vector3.new(x, 2.25, -1.0), Vector3.new(x, 0.72, -1.35), 0.14, blue, M))
+	keep(Rig.bar(R, "HumanoidRootPart", "Post", Vector3.new(x, 1.5, 0.75), Vector3.new(x, 1.85, 0.85), 0.12, chrome, M))
+	keep(Rig.addAt(R, "HumanoidRootPart", "Seat", Vector3.new(0.38, 0.16, 0.62), CFrame.new(x, 1.92, 0.88), "#6a1a2a", Rig.mat("Leather", FAB)))
+	keep(Rig.addAt(R, "HumanoidRootPart", "Bar", Vector3.new(1.3, 0.1, 0.1), CFrame.new(x - 0.05, 2.3, -1.0), chrome, M, { Shape = Enum.PartType.Cylinder }))
+	keep(Rig.addAt(R, "HumanoidRootPart", "Bell", Vector3.new(0.12, 0.24, 0.24), CFrame.new(x + 0.35, 2.42, -1.0) * CFrame.Angles(0, 0, math.rad(90)), "#e8c64a", M, { Shape = Enum.PartType.Cylinder }))
+	keep(Rig.addAt(R, "HumanoidRootPart", "Basket", Vector3.new(0.9, 0.55, 0.62), CFrame.new(x, 1.95, -1.6), "#cdb98e", Enum.Material.WoodPlanks))
+	keep(Rig.addAt(R, "HumanoidRootPart", "Cookies", Vector3.new(0.7, 0.12, 0.5), CFrame.new(x, 2.24, -1.6), "#8a5a2a", Enum.Material.Sand))
+	for i, c in ipairs({ "#ff7ab8", "#ffffff", "#7ad0ff" }) do
+		keep(Rig.addAt(R, "HumanoidRootPart", "Streamer", Vector3.new(0.05, 0.6, 0.05), CFrame.new(x + 0.62, 2.0, -1.0 + (i - 2) * 0.05), c, FAB))
+		keep(Rig.addAt(R, "HumanoidRootPart", "Streamer", Vector3.new(0.05, 0.6, 0.05), CFrame.new(x - 0.7, 2.0, -1.0 + (i - 2) * 0.05), c, FAB))
+	end
+	return list
+end
+
+function Gladys.build(ctx)
+	local R = Rig.build({
+		name = "Gladys", footH = 0.45, footL = 1.7, legW = 0.95, hipX = 0.52, legU = 1.0, legL = 0.95,
+		ltH = 1.0, utH = 1.25, torsoW = 2.3, torsoD = 1.45, armW = 0.62, armU = 1.0, armL = 0.95, hand = 0.55,
+		neck = 0.12, head = Vector3.new(1.45, 1.45, 1.4), hunch = 0.12,
+		skin = "#ecd0b8", shirt = CREAM, pants = CREAM, shoes = "#b01e2a", hands = "#f4f4f0", stride = 5,
+	})
+	local P = R.parts
+	-- полоски комбинезона
+	stripes(R, "UpperTorso", 2.3, 1.25, 1.45, 4, 2)
+	stripes(R, "LowerTorso", 2.3 * 0.92, 1.0, 1.45 * 0.95, 4, 2)
+	for _, side in ipairs({ "Left", "Right" }) do
+		stripes(R, side .. "UpperLeg", 0.95, 1.0, 0.95, 2, 1)
+		stripes(R, side .. "LowerLeg", 0.95 * 0.92, 0.95, 0.95 * 0.92, 2, 1)
+		stripes(R, side .. "UpperArm", 0.62, 1.0, 0.62, 2, 1)
+		stripes(R, side .. "LowerArm", 0.62 * 0.9, 0.95, 0.62 * 0.9, 1, 1)
+		-- огромные клоунские туфли с круглым носом и белой подошвой
+		Rig.ball(R, side .. "Foot", "Toe", 1.05, CFrame.new(0, 0.12, -0.72), "#b01e2a", Enum.Material.SmoothPlastic)
+		Rig.add(R, side .. "Foot", "Sole", Vector3.new(1.0, 0.1, 1.75), CFrame.new(0, -0.2, -0.05), "#f2efe6")
+		-- рюш на штанине и манжета перчатки
+		ring(R, side .. "LowerLeg", "Frill", 1.25, 0.18, CFrame.new(0, -0.42, 0), "#f2b8c8", FAB)
+		ring(R, side .. "Hand", "Cuff", 0.78, 0.2, CFrame.new(0, 0.24, 0), "#ffffff", FAB)
+		-- засохшие бурые пятна на перчатках
+		Rig.add(R, side .. "Hand", "Stain", Vector3.new(0.25, 0.18, 0.04), CFrame.new(0.08, -0.08, -0.22), "#5a1a10")
+	end
+	-- животик, помпоны-пуговицы, жабо
+	Rig.add(R, "LowerTorso", "Belly", Vector3.new(2.1, 0.8, 0.35), CFrame.new(0, 0.05, -0.8), CREAM, FAB)
+	for i = 1, 4 do
+		local p = Rig.add(R, "LowerTorso", "Stripe", Vector3.new(0.22, 0.78, 0.04), CFrame.new(-0.79 + (i - 1) * 0.53, 0.05, -0.99), STRIPE, FAB)
+		p.CastShadow = false
+	end
+	Rig.ball(R, "UpperTorso", "Pompom", 0.36, CFrame.new(0, 0.3, -0.78), "#ffd23a", FAB)
+	Rig.ball(R, "UpperTorso", "Pompom", 0.36, CFrame.new(0, -0.22, -0.78), "#3a8aff", FAB)
+	Rig.ball(R, "LowerTorso", "Pompom", 0.36, CFrame.new(0, 0.2, -1.0), "#3ac85a", FAB)
+	Rig.add(R, "UpperTorso", "Stain", Vector3.new(0.4, 0.3, 0.04), CFrame.new(0.55, -0.35, -0.75), "#4a140c")
+	ring(R, "UpperTorso", "Ruff", 2.8, 0.3, CFrame.new(0, 0.66, 0), "#f6f2ea", FAB)
+	ring(R, "UpperTorso", "Ruff2", 2.25, 0.26, CFrame.new(0, 0.86, 0), "#f2b8c8", FAB)
+	for i = 0, 9 do
+		local a = i / 10 * math.pi * 2
+		Rig.ball(R, "UpperTorso", "Frill", 0.42, CFrame.new(math.cos(a) * 1.35, 0.62, math.sin(a) * 1.35), "#ffffff", FAB)
+	end
+	-- голова
+	local H = "Head"
+	local hz = -0.7
+	Rig.add(R, H, "Jaw", Vector3.new(1.3, 0.35, 1.25), CFrame.new(0, -0.75, 0.02), "#e6c6ac")
+	Rig.add(R, H, "Nose", Vector3.new(0.24, 0.34, 0.28), CFrame.new(0, -0.02, hz - 0.12), "#dcb49a")
+	Rig.ball(R, H, "NoseTip", 0.26, CFrame.new(0, -0.17, hz - 0.22), "#e2a48a")
+	for _, sx in ipairs({ -1, 1 }) do
+		disc(R, H, "Cheek", 0.42, 0.05, CFrame.new(sx * 0.47, -0.2, hz - 0.01), "#ee5472")
+		disc(R, H, "EyeWhite", 0.4, 0.06, CFrame.new(sx * 0.3, 0.2, hz - 0.01), "#fbfbf4")
+		Rig.add(R, H, "Bag", Vector3.new(0.38, 0.08, 0.04), CFrame.new(sx * 0.3, -0.02, hz - 0.01), "#8a5a6a")
+		-- очки: оправа из четырёх планок и мутное стекло
+		local c = CFrame.new(sx * 0.3, 0.2, hz - 0.1)
+		Rig.add(R, H, "Rim", Vector3.new(0.56, 0.06, 0.05), c * CFrame.new(0, 0.27, 0), "#3a2a1a")
+		Rig.add(R, H, "Rim", Vector3.new(0.56, 0.06, 0.05), c * CFrame.new(0, -0.24, 0), "#3a2a1a")
+		Rig.add(R, H, "Rim", Vector3.new(0.06, 0.5, 0.05), c * CFrame.new(-0.25, 0.01, 0), "#3a2a1a")
+		Rig.add(R, H, "Rim", Vector3.new(0.06, 0.5, 0.05), c * CFrame.new(0.25, 0.01, 0), "#3a2a1a")
+		Rig.add(R, H, "Lens", Vector3.new(0.46, 0.44, 0.02), c, "#cfe8d0", Enum.Material.Glass, { Transparency = 0.65 })
+		Rig.add(R, H, "Temple", Vector3.new(0.05, 0.05, 0.75), CFrame.new(sx * 0.74, 0.4, -0.35), "#3a2a1a")
+		Rig.add(R, H, "Brow", Vector3.new(0.42, 0.08, 0.06), CFrame.new(sx * 0.3, 0.55, hz - 0.02) * CFrame.Angles(0, 0, -sx * 0.25), "#9a9a96")
+		Rig.ball(R, H, "Earring", 0.18, CFrame.new(sx * 0.76, -0.3, 0.05), "#e8c64a", Enum.Material.Metal)
+	end
+	Rig.add(R, H, "Bridge", Vector3.new(0.14, 0.05, 0.05), CFrame.new(0, 0.32, hz - 0.1), "#3a2a1a")
+	-- зрачки светятся бледно-зелёным
+	Rig.eyes(R, H, CFrame.new(0, 0.2, hz - 0.05), 0.6, 0.13, "#b4ffb0", { range = 6, brightness = 0.8 })
+	-- широкая накрашенная улыбка дугой и зубы
+	local c = 1.25
+	for i = -3, 3 do
+		local x = i * 0.12
+		Rig.add(R, H, "Lip", Vector3.new(0.15, 0.075, 0.05), CFrame.new(x, -0.42 + c * x * x, hz - 0.01) * CFrame.Angles(0, 0, math.atan(2 * c * x)), "#8a0c1e")
+	end
+	Rig.add(R, H, "Teeth", Vector3.new(0.52, 0.09, 0.04), CFrame.new(0, -0.37, hz - 0.005), "#f4efe0")
+	for _, y in ipairs({ 0.62, 0.52 }) do
+		Rig.add(R, H, "Wrinkle", Vector3.new(0.6, 0.025, 0.03), CFrame.new(0, y + 0.04, hz - 0.005), "#c9a890")
+	end
+	-- седые кудри
+	local curls = {
+		{ 0, 0.85, 0.05, 0.85 }, { -0.55, 0.7, 0.05, 0.62 }, { 0.55, 0.7, 0.05, 0.62 }, { -0.75, 0.3, 0.15, 0.56 },
+		{ 0.75, 0.3, 0.15, 0.56 }, { 0, 0.6, 0.55, 0.78 }, { -0.45, 0.85, 0.4, 0.56 }, { 0.45, 0.85, 0.4, 0.56 },
+		{ -0.7, -0.05, 0.35, 0.5 }, { 0.7, -0.05, 0.35, 0.5 }, { 0, 0.2, 0.75, 0.72 }, { -0.3, 0.95, -0.35, 0.46 },
+		{ 0.3, 0.95, -0.35, 0.46 }, { 0, 1.05, -0.15, 0.5 },
+	}
+	for i, q in ipairs(curls) do
+		Rig.ball(R, H, "Curl", q[4], CFrame.new(q[1], q[2], q[3]), (i % 2 == 0) and "#a9a9a2" or "#c9c9c2", FAB)
+	end
+	bike(R)
+	Rig.finish(R)
+	return R.model
+end
+
+---------------------------------------------------------------- поведение (сервер)
+local function door(inm)
+	return inm.mem.gl.door
+end
+
+local function park(inm)
+	local G = inm.mem.gl
+	if G.parked then return end
+	G.parked = true
+	for _, p in ipairs(inm.model:GetDescendants()) do
+		if p:IsA("BasePart") and p:GetAttribute("Bike") then
+			local w = p:FindFirstChild("Weld")
+			if w then w:Destroy() end
+			p.Anchored = true
+			p:SetAttribute("Fixed", true)
+		end
+	end
+end
+
+local function startChase(inm, p, lock, text)
+	local G = inm.mem.gl
+	G.lock = os.clock() + (lock or 0)
+	park(inm)
+	inm:startChase(p)
+	if text then inm:say(text, SAY, true) end
+end
+
+-- кто-то открыл (или выбил) входную дверь — врывается к ближайшему к двери
+local function rush(inm)
+	local G = inm.mem.gl
+	local d = door(inm)
+	local at = d and d:FindFirstChild("In") and d.In.Position or inm:pos()
+	local best = nil
+	for _, p in ipairs(inm:players()) do
+		if not p.hidden then
+			local dd = (p.pos - at).Magnitude
+			if not best or dd < best.d then best = { p = p, d = dd } end
+		end
+	end
+	G.rushed = true
+	park(inm)
+	if best then
+		startChase(inm, best.p, 9, OPENED)
+	else
+		inm:say(OPENED, SAY, true)
+		inm.entry = d
+		inm.mem.enter = nil
+		inm:setState("enter")
+	end
+end
+
+local function seenOutside(inm)
+	local best = nil
+	for _, p in ipairs(inm:players()) do
+		if not p.hidden and not inm:indoors(p.pos) and inm:canSee(p, { sight = 50 }) then
+			if not best or p.dist < best.dist then best = p end
+		end
+	end
+	return best
+end
+
+local function anyLit(inm)
+	for _, L in ipairs(inm.H.lamps) do
+		if L.light.Parent and L.light.Enabled then return true end
+	end
+	return false
+end
+
+local function porch(inm, dt)
+	local G = inm.mem.gl
+	local d = door(inm)
+	if d and d:FindFirstChild("In") then inm:face(d.In.Position) end
+	inm:stop()
+	inm:setAnim("porch")
+	if G.t >= G.next and G.t < PORCH_T - 5 then
+		G.k = G.k + 1
+		local ev = SEQ[(G.k - 1) % #SEQ + 1]
+		G.next = G.t + 2.6 + math.random() * 1.8
+		local panel = d and d:FindFirstChild("Leaf") and d.Leaf:FindFirstChild("Panel")
+		if ev == "bell" then
+			inm:setAnim("bell", 1.1)
+			inm:sound("BikeBell", inm.root, { Volume = 0.8 })
+		elseif ev == "knock" then
+			inm:setAnim("knock", 1.1)
+			for i = 0, 2 do
+				task.delay(i * 0.28, function()
+					if not inm.gone then inm:sound("DoorBash", panel or inm.root, { Volume = 0.35, PlaybackSpeed = 1.6 }) end
+				end)
+			end
+		elseif ev == "laugh" then
+			inm:setAnim("laugh", 1.4)
+			inm:sound("Laugh", inm.root, { Volume = 0.9 }, "Whisper")
+		else
+			local text = PLEAS[(G.pi % #PLEAS) + 1]
+			G.pi = G.pi + 1
+			if not G.litSaid and G.k > 3 and inm.match.power ~= false and anyLit(inm) then
+				G.litSaid = true
+				text = PLEA_LIT
+			end
+			inm:say(text, SAY, true)
+			G.next = G.next + 1.6
+		end
+	end
+	if G.t > PORCH_T - 4 and not G.fin then
+		G.fin = true
+		inm:say(PLEA_FINAL, SAY, true)
+		inm:setAnim("laugh", 1.8)
+		inm:sound("Laugh", inm.root, { Volume = 1 }, "Whisper")
+	end
+	if G.t > PORCH_T then
+		park(inm)
+		inm.entry = inm:pickEntry("Window", inm:pos())
+		inm.mem.enter = nil
+		inm:setState("toWin")
+	end
+end
+
+-- цикл света внутри: зелёный → предупреждение → КРАСНЫЙ 4 с → зелёный
+local function cycle(inm, dt)
+	local G = inm.mem.gl
+	if G.ph == 0 then
+		if inm:indoors() then
+			G.ph, G.cyc, G.green = 1, 0, FIRST_RED
+			inm:attr("Phase", 1)
+			inm:sound("Laugh", inm.root, { Volume = 1 }, "Whisper")
+		end
+		return
+	end
+	G.cyc = G.cyc + dt
+	local ph = G.ph
+	if ph == 1 and G.cyc > G.green - WARN then ph = 2 end
+	if ph == 2 and G.cyc > G.green then
+		ph = 3
+		G.cyc = 0
+	end
+	if ph == 3 and G.cyc > RED_DUR then
+		ph = 1
+		G.cyc = 0
+		G.green = RED_EVERY
+	end
+	if ph ~= G.ph then
+		G.ph = ph
+		inm:attr("Phase", ph)
+	end
+end
+
+local function inside(inm, dt)
+	local G = inm.mem.gl
+	local now = os.clock()
+	cycle(inm, dt)
+	local red = G.ph == 3
+	if red and G.cyc > RED_GRACE then
+		local best = nil
+		for _, p in ipairs(inm:players()) do
+			if not p.hidden and p.speed > 1.5 and inm:canSee(p, { wide = true, dark = 45 }) then
+				if not best or p.dist < best.dist then best = p end
+			end
+		end
+		if best and not (inm.state == "chase" and inm.target == best.plr) then
+			local cur = inm.state == "chase" and inm.target and inm:find(inm.target)
+			if not cur or cur.hidden or cur.dist > best.dist then
+				startChase(inm, best, 2, SPOTTED[math.random(#SPOTTED)])
+			end
+		end
+	elseif inm.state ~= "chase" then
+		for _, p in ipairs(inm:players()) do
+			if not p.hidden then
+				local close = (p.speed > 1.5 and p.dist < 19) or p.dist < 8
+				if close and inm:canSee(p, { sight = 20, near = 8 }) then
+					startChase(inm, p, 0, nil)
+					break
+				end
+				if inm.state ~= "search" and inm:hears(p) then inm:investigate(p.feet) end
+			end
+		end
+	end
+	if inm.state == "chase" then
+		if now < G.lock and inm.target then
+			local p = inm:find(inm.target)
+			if p and not p.hidden then
+				inm.lastSeenT = now
+				inm.lastKnown = p.feet
+			end
+		end
+		inm:chase(dt, { chase = V_CHASE * ((now < G.lock) and 1.08 or 1), pulls = false, lose = 5 })
+	elseif red then
+		inm:stop()
+		inm:setAnim("redlook")
+		local look = inm.root.CFrame.LookVector
+		local a = dt * 1.2
+		local nx = look.X * math.cos(a) - look.Z * math.sin(a)
+		local nz = look.X * math.sin(a) + look.Z * math.cos(a)
+		inm:face(inm:pos() + Vector3.new(nx, 0, nz))
+	elseif inm.state == "search" then
+		inm:search(dt, { speed = V_ROAM })
+	elseif inm.state == "inspect" then
+		inm:inspect(dt, {})
+	else
+		inm:setState("roam")
+		inm:roam(dt, { speed = V_ROAM })
+	end
+	for _, p in ipairs(inm:players()) do
+		if not p.hidden and p.flat < 3.6 then
+			inm:tryAttack(p)
+			break
+		end
+	end
+end
+
+Gladys.server = {
+	spawn = function(inm)
+		local d = inm:frontDoor()
+		inm.mem.gl = { t = 0, k = 0, pi = 0, next = 0.5, ph = 0, cyc = 0, green = FIRST_RED, lock = 0, door = d }
+		inm:attr("Phase", 0)
+		if d then
+			inm:setState("arrive")
+		else
+			park(inm)
+			inm:setState("enter")
+		end
+	end,
+	tick = function(inm, dt)
+		local G = inm.mem.gl
+		G.t = G.t + dt
+		local S = inm.state
+		if S == "arrive" or S == "porch" or S == "toWin" then
+			local d = door(inm)
+			if d and (d:GetAttribute("Open") == true or d:GetAttribute("Broken") == true) and not G.rushed then
+				rush(inm)
+				return
+			end
+			local o = seenOutside(inm)
+			if o then
+				startChase(inm, o, 2, "КТО ЭТО ТУТ ГУЛЯЕТ ПО НОЧАМ?..")
+				return
+			end
+			if S == "arrive" then
+				inm:setAnim("bike")
+				local r = inm:goTo(d.Out.Position, 8, { near = 2.2 })
+				if r == "arrived" or inm:since() > 40 then
+					inm:setState("porch")
+					G.t, G.next = 0, 0.4
+				end
+			elseif S == "porch" then
+				porch(inm, dt)
+			else
+				local m = inm.mem.enter
+				if m and m.phase == "break" and not G.brSaid then
+					G.brSaid = true
+					inm:say("ХИ-ХИ… БАБУЛЯ УЖЕ ИДЁТ!", SAY, true)
+					inm:sound("Laugh", inm.root, { Volume = 1 }, "Whisper")
+				end
+				if inm:enter(dt, { speed = V_ROAM }) then inm:setState("roam") end
+			end
+			return
+		end
+		if S == "enter" then
+			if inm:enter(dt, { speed = V_ROAM }) then inm:setState("roam") end
+			cycle(inm, dt)
+			return
+		end
+		inside(inm, dt)
+	end,
+}
+
+---------------------------------------------------------------- анимация и свет (клиент)
+local function houseOf(model)
+	local houses = workspace:FindFirstChild("Houses")
+	return houses and houses:FindFirstChild("House_" .. tostring(model:GetAttribute("MatchId")))
+end
+
+-- перекрасить лампы дома (только у себя); col = nil — вернуть как было
+local function tint(A, model, col)
+	local D = A.data
+	if D.col == col then return end
+	D.col = col
+	D.saved = D.saved or {}
+	if col then
+		local house = houseOf(model)
+		local lf = house and house:FindFirstChild("Lights", true)
+		if not lf then return end
+		for _, d in ipairs(lf:GetDescendants()) do
+			if d:IsA("Light") then
+				if not D.saved[d] then D.saved[d] = d.Color end
+				d.Color = col
+			elseif d:IsA("BasePart") and d:GetAttribute("Glow") then
+				if not D.saved[d] then D.saved[d] = d.Color end
+				d.Color = col
+			end
+		end
+	else
+		for inst, c in pairs(D.saved) do
+			if inst.Parent then inst.Color = c end
+		end
+		D.saved = {}
+	end
+end
+
+local function overlay(A, k)
+	local D = A.data
+	if k <= 0 and not D.gui then return end
+	if not D.gui then
+		local pl = Players.LocalPlayer
+		local pg = pl and pl:FindFirstChild("PlayerGui")
+		if not pg then return end
+		local g = Instance.new("ScreenGui")
+		g.Name = "GladysRed"
+		g.IgnoreGuiInset = true
+		g.ResetOnSpawn = false
+		g.DisplayOrder = 3
+		local f = Instance.new("Frame")
+		f.Size = UDim2.fromScale(1, 1)
+		f.BackgroundColor3 = Color3.fromRGB(255, 10, 10)
+		f.BackgroundTransparency = 1
+		f.BorderSizePixel = 0
+		f.Parent = g
+		g.Parent = pg
+		D.gui, D.frame = g, f
+	end
+	D.frame.BackgroundTransparency = 1 - 0.16 * k
+end
+
+function Gladys.animate(model, dt, t, ctx)
+	local A = Rig.state(model)
+	local D = A.data
+	-- фаза света: только у игроков этого матча
+	local ph = model:GetAttribute("Phase") or 0
+	local pl = Players.LocalPlayer
+	if not pl or pl:GetAttribute("MatchId") ~= model:GetAttribute("MatchId") or A.anim == "dead" then ph = 0 end
+	local col = nil
+	if ph == 1 then col = GREEN end
+	if ph == 2 then col = (math.floor(t * 9) % 2 == 0) and RED or GREEN end
+	if ph == 3 then col = RED end
+	tint(A, model, col)
+	overlay(A, (ph == 3) and 1 or ((ph == 2) and 0.4 or 0))
+	if ph ~= (D.ph or 0) then
+		if ph == 3 and ctx then
+			if ctx.UI then pcall(ctx.UI.flash, RED, 0.55, 0.5) end
+			if ctx.Sound then pcall(ctx.Sound.play, "Stinger", nil, { Volume = 0.45, PlaybackSpeed = 0.75 }) end
+		elseif ph == 2 and ctx and ctx.Sound then
+			pcall(ctx.Sound.play, "Static", nil, { Volume = 0.3 })
+		end
+		D.ph = ph
+	end
+	-- поза
+	Rig.begin(A)
+	local anim = Rig.basic(A, { walkRef = 9, walk = { leg = 0.5, arm = 0.3, bob = 0.14, sway = 0.1 } })
+	local mv = math.clamp(A.speed / 9, 0, 1.2)
+	-- переваливается с ноги на ногу, голова клонится
+	Rig.rot(A, "Root", 0, 0, math.sin(A.phase) * 0.07 * mv)
+	Rig.rot(A, "Neck", 0, 0, math.sin(t * 1.6) * 0.1)
+	if anim == "bike" or anim == "porch" or anim == "bell" or anim == "knock" then
+		Rig.rot(A, "RightShoulder", 0.55, 0, 0.05)
+		Rig.rot(A, "RightElbow", 0.35, 0, 0)
+	end
+	if anim == "chase" then
+		Rig.rot(A, "Root", -0.18, 0, 0)
+		Rig.rot(A, "LeftShoulder", 1.45, 0, 0.12)
+		Rig.rot(A, "RightShoulder", 1.45, 0, -0.12)
+		Rig.rot(A, "Neck", 0.15, 0, math.sin(t * 9) * 0.14)
+		Rig.twitch(A, 0.5, { "Neck", "LeftWrist", "RightWrist" }, 0.5)
+	elseif anim == "porch" then
+		Rig.rot(A, "Neck", 0, 0, 0.25 + math.sin(t * 1.2) * 0.1)
+		Rig.rot(A, "LeftShoulder", 0.2, 0, 0.1)
+	elseif anim == "knock" then
+		local k = math.abs(math.sin(A.animT * 10))
+		Rig.rot(A, "LeftShoulder", 1.6 - k * 0.3, 0, 0.25)
+		Rig.rot(A, "LeftElbow", 0.5 + k * 0.6, 0, 0)
+		Rig.rot(A, "Neck", 0.05, 0, 0.15)
+	elseif anim == "laugh" then
+		Rig.rot(A, "Neck", 0.45 + math.sin(t * 22) * 0.06, 0, math.sin(t * 11) * 0.1)
+		Rig.move(A, "Root", 0, math.abs(math.sin(t * 22)) * 0.08, 0)
+		Rig.rot(A, "LeftShoulder", 0.9, 0, 0.5)
+		Rig.rot(A, "LeftElbow", 1.4, 0, 0)
+	elseif anim == "bell" then
+		Rig.rot(A, "RightWrist", 0, 0, math.sin(t * 30) * 0.25)
+		Rig.rot(A, "Neck", -0.1, 0, 0.2)
+	elseif anim == "redlook" then
+		Rig.rot(A, "Neck", -0.05, math.sin(t * 1.8) * 0.9, 0)
+		Rig.rot(A, "LeftShoulder", 0.15, 0, -0.1)
+		Rig.rot(A, "RightShoulder", 0.15, 0, 0.1)
+	end
+	Rig.apply(A)
+	-- глаза: тлеют, в красной фазе — алые
+	if ph == 3 or anim == "chase" then
+		Rig.glow(A, 1.2, RED)
+	else
+		Rig.glow(A, 0.6 + math.sin(t * 2) * 0.15)
+	end
+end
+
+function Gladys.cleanup(model, ctx)
+	local A = Rig.state(model)
+	tint(A, model, nil)
+	if A.data.gui then
+		A.data.gui:Destroy()
+		A.data.gui = nil
+	end
+end
+
+return Gladys
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000A"><Properties><string name="Name">Hanger</string><ProtectedString name="Source"><![CDATA[-- Заключённый 388: ВИСЯЩИЙ (The Hanger) — дремлющий потолочный хищник.
+-- Истощённая жёлто-серая фигура с паучьими конечностями и чёрными волосами, свисающими почти до пола.
+-- Пробирается в дом (чаще через окно), заползает на потолок и ползёт к засаде: у дверных проёмов,
+-- в коридорах, на кухне, на втором этаже. Там ждёт: дышит, скрипит, волосы свисают вниз.
+-- Кто ИДЁТ в полный рост прямо под ним — падение сверху и смерть. Пригнувшись можно проскользнуть.
+-- Луч фонаря на нём ~0.35 с → шипит и уползает к другой засаде. Выстрел → срывается, визжит
+-- и удирает из дома до конца ночи. Промахнулся при падении — 4 с бросается на ближайшего, потом снова наверх.
+-- Корень (HumanoidRootPart) всегда на полу; тело поднимается к потолку суставом Root (атрибут Lift).
+-- Anim: walk, climb, ceiling (ползёт по потолку), ceilwait (засада), hiss, drop, floor, lunge, fall, flee.
+local Players = game:GetService("Players")
+local Rig = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("Rig"))
+
+local V_WALK, V_CRAWL, V_FAST = 9, 8.5, 19
+local UNDER, LAND_R, T_DROP, T_TORCH = 3.3, 4.6, 0.32, 0.35
+local CEIL = { climb = true, ceiling = true, ceilwait = true, hiss = true }
+local PREF = { Hall = 3, Upstairs = 3, Kitchen = 2, Dining = 2, LivingRoom = 1 }
+
+local Hanger = {
+	key = "Hanger", num = "388", name = "ВИСЯЩИЙ", en = "THE HANGER", class = "Класс угрозы: дремлющий",
+	color = Color3.fromRGB(189, 182, 140), hp = 300, speed = V_WALK, chase = V_FAST,
+	difficulty = 1, minNight = 3, oneShot = true, reach = 4.2, hear = false, sight = 45, dark = 16,
+	entry = "Window",
+	alert = {
+		"ПЕРСОНАЛ ЛЕЧЕБНИЦЫ СООБЩАЕТ: ЗАКЛЮЧЁННЫЙ 388 СНОВА И СНОВА ПИСАЛ НА СТЕНЕ КАМЕРЫ ОДНУ ФРАЗУ — «ПОЛ НЕБЕЗОПАСЕН».",
+		"СУБЪЕКТ ЦЕПЛЯЕТСЯ ЗА ПОТОЛОК В КОРИДОРАХ И НА ЛЕСТНИЦАХ. ЕСЛИ ВЫ СЛЫШИТЕ НАД ГОЛОВОЙ КАПАНЬЕ ИЛИ СКРИП — ОСТАНОВИТЕСЬ.",
+		"НЕ ПРОХОДИТЕ ПОД ТЕМ, ЧЕГО НЕ МОЖЕТЕ ЧЁТКО РАЗГЛЯДЕТЬ. ДЕРЖИТЕ СВЕТ ВКЛЮЧЁННЫМ. СМОТРИТЕ ВВЕРХ.",
+	},
+	tip = "Капает и скрипит сверху — посвети фонарём на потолок или обойди. Пригнувшись можно проскользнуть. Выстрел сгоняет его до утра.",
+	directive = { code = "lights_on", text = "НЕ ВЫКЛЮЧАЙТЕ СВЕТ" },
+	steps = { key = "Creak", fallback = "Footstep", pitch = 1.6, volume = 0.25 },
+	ambient = { key = "Drip", fallback = "Breath", every = 5 },
+	scare = Color3.fromRGB(230, 220, 150),
+}
+
+---------------------------------------------------------------- модель
+local SKIN, SKIN2, BONE, HAIR = "#bdb68c", "#a39c74", "#8c8564", "#141212"
+
+function Hanger.build(ctx)
+	local R = Rig.build({
+		name = "Hanger", footH = 0.25, footL = 0.95, legW = 0.42, hipX = 0.32, legU = 2.0, legL = 2.0,
+		ltH = 0.55, utH = 1.7, torsoW = 1.15, torsoD = 0.6, armW = 0.32, armU = 2.1, armL = 2.1, hand = 0.7,
+		neck = 0.55, head = Vector3.new(0.85, 1.0, 0.9), hunch = 0.3,
+		skin = SKIN, shirt = SKIN, sleeve = SKIN2, forearm = SKIN, pants = SKIN2, shin = SKIN, belt = "#5a5244",
+		shoes = SKIN2, hands = SKIN2, skinMat = Enum.Material.SmoothPlastic, cloth = Enum.Material.SmoothPlastic,
+		stride = 8,
+	})
+	local P = R.parts
+	-- рёбра, позвоночник, ключицы — истощённое тело
+	for i = 0, 4 do
+		Rig.add(R, "UpperTorso", "Rib", Vector3.new(1.0 - i * 0.06, 0.07, 0.06), CFrame.new(0, 0.45 - i * 0.24, -0.31), BONE)
+	end
+	for i = 0, 5 do
+		Rig.ball(R, "UpperTorso", "Spine", 0.18, CFrame.new(0, 0.7 - i * 0.28, 0.3), BONE)
+	end
+	for _, sx in ipairs({ -1, 1 }) do
+		Rig.add(R, "UpperTorso", "Collar", Vector3.new(0.5, 0.08, 0.08), CFrame.new(sx * 0.28, 0.78, -0.3) * CFrame.Angles(0, 0, sx * 0.25), BONE)
+		Rig.ball(R, "LowerTorso", "HipBone", 0.3, CFrame.new(sx * 0.48, 0.15, -0.2), BONE)
+		-- узловатые суставы, когти на руках и ногах
+		Rig.ball(R, P[(sx < 0 and "Left" or "Right") .. "LowerArm"], "Joint", 0.42, CFrame.new(0, 1.05, 0), BONE)
+		Rig.ball(R, P[(sx < 0 and "Left" or "Right") .. "LowerLeg"], "Joint", 0.5, CFrame.new(0, 1.0, 0), BONE)
+		local hand = (sx < 0 and "Left" or "Right") .. "Hand"
+		for i = -1, 1 do
+			Rig.add(R, hand, "Claw", Vector3.new(0.06, 0.75, 0.06), CFrame.new(i * 0.09, -0.65, -0.03) * CFrame.Angles(0.25, 0, i * 0.15), BONE)
+		end
+		local foot = (sx < 0 and "Left" or "Right") .. "Foot"
+		for i = -1, 1 do
+			Rig.add(R, foot, "Toe", Vector3.new(0.07, 0.07, 0.35), CFrame.new(i * 0.12, -0.05, -0.6), BONE)
+		end
+	end
+	-- грязная повязка на бёдрах с рваными полосами
+	Rig.add(R, "LowerTorso", "Wrap", Vector3.new(1.12, 0.4, 0.66), CFrame.new(0, -0.05, 0), "#5a5244", Enum.Material.Fabric)
+	for i = -1, 1 do
+		Rig.add(R, "LowerTorso", "Rag", Vector3.new(0.22, 0.6, 0.05), CFrame.new(i * 0.32, -0.45, -0.34) * CFrame.Angles(0, 0, i * 0.1), "#4a4236", Enum.Material.Fabric)
+	end
+	-- голова: впалые глазницы, бледные глаза, разинутый чёрный рот
+	local H, hz = "Head", -0.45
+	Rig.sockets(R, H, CFrame.new(0, 0.12, hz - 0.01), 0.36, Vector3.new(0.3, 0.22, 0.05), "#1a140c")
+	Rig.eyes(R, H, CFrame.new(0, 0.12, hz - 0.04), 0.36, 0.09, "#f2ecc0", { range = 6, brightness = 0.7 })
+	Rig.add(R, H, "Mouth", Vector3.new(0.3, 0.48, 0.05), CFrame.new(0, -0.22, hz - 0.01), "#0a0404")
+	for i = -1, 1 do
+		Rig.add(R, H, "Tooth", Vector3.new(0.05, 0.1, 0.06), CFrame.new(i * 0.09, 0.0, hz - 0.03), "#c8c0a0")
+	end
+	Rig.add(R, H, "Cheek", Vector3.new(0.9, 0.18, 0.86), CFrame.new(0, -0.08, 0.02), SKIN2)
+	Rig.add(R, H, "Scalp", Vector3.new(0.9, 0.3, 0.95), CFrame.new(0, 0.42, 0.02), HAIR)
+	-- волосы: свой сустав HairJoint, клиент держит их вертикально вниз при любом наклоне тела
+	local head = P.Head
+	local scalpAt = head.Position + Vector3.new(0, 0.35, 0)
+	local hair = Rig.part(R, "Hair", Vector3.new(0.6, 0.2, 0.6), CFrame.new(scalpAt), HAIR)
+	Rig.joint(R, "HairJoint", head, hair, scalpAt)
+	for i = 0, 13 do
+		local a = i / 14 * math.pi * 2
+		local L = 2.6 + ((i * 37) % 10) / 9
+		local r = 0.42
+		local w = 0.1 + (i % 3) * 0.035
+		Rig.addAt(R, hair, "Strand", Vector3.new(w, L, 0.08), CFrame.new(scalpAt + Vector3.new(math.sin(a) * r, -L / 2 + 0.1, math.cos(a) * r)) * CFrame.Angles(0, a, 0), (i % 2 == 0) and HAIR or "#221e1c")
+	end
+	Rig.finish(R)
+	return R.model
+end
+
+---------------------------------------------------------------- поведение (сервер)
+local function rootMotor(inm)
+	local lt = inm.model:FindFirstChild("LowerTorso")
+	return lt and lt:FindFirstChild("Root")
+end
+
+-- тело к потолку и на сервере (чтобы выстрел попадал туда, где его видят)
+local function setLift(inm, lift)
+	local G = inm.mem.hg
+	lift = math.max(0, lift)
+	if math.abs(lift - (G.lift or -1)) < 0.4 then return end
+	G.lift = lift
+	inm:attr("Lift", lift)
+	local m = rootMotor(inm)
+	if m then
+		local base = m:GetAttribute("BaseC0") or m.C0
+		if lift > 0.5 then
+			m.C0 = CFrame.new(base.Position + Vector3.new(0, lift, 0)) * CFrame.Angles(-math.pi / 2, 0, 0) * (base - base.Position)
+		else
+			m.C0 = base
+		end
+	end
+end
+
+local function liftHere(inm)
+	local feet = inm:feet()
+	local c = inm:ceilingAt(feet, 22)
+	if not c then return 0 end
+	local hipY = inm.model:GetAttribute("HipY") or 4
+	return math.clamp(c - feet.Y - hipY - 0.45, 0, 12)
+end
+
+local function anchors(inm)
+	local G = inm.mem.hg
+	if G.anchors then return G.anchors end
+	local list = {}
+	for _, room in ipairs(inm.H.rooms) do
+		local w = PREF[room.Name] or 1
+		for _ = 1, w do table.insert(list, inm:roomPoint(room)) end
+	end
+	-- у межкомнатных дверных проёмов: под косяком проходят все
+	for _, d in ipairs(inm.house.doors or {}) do
+		local leaf = d:FindFirstChild("Leaf")
+		local panel = leaf and leaf:FindFirstChild("Panel")
+		if panel and d:GetAttribute("Exterior") ~= true then
+			local side = (math.random() < 0.5) and 1 or -1
+			local p = panel.Position + panel.CFrame.LookVector * 2.6 * side
+			local fy = inm:floorAt(p, 12)
+			if fy then table.insert(list, Vector3.new(p.X, fy, p.Z)) end
+		end
+	end
+	G.anchors = list
+	return list
+end
+
+local function pickAnchor(inm, not_)
+	local list = anchors(inm)
+	if #list == 0 then return inm:randomRoomPoint() end
+	local pls = inm:players()
+	local cand = {}
+	for _, a in ipairs(list) do
+		local ok = a ~= not_
+		for _, p in ipairs(pls) do
+			if (p.feet - a).Magnitude < 10 then ok = false end
+		end
+		if ok then table.insert(cand, a) end
+	end
+	if #cand == 0 then cand = list end
+	-- в половине случаев — засада ближе к случайному игроку
+	if #pls > 0 and math.random() < 0.5 then
+		local p = pls[math.random(#pls)]
+		table.sort(cand, function(a, b) return (a - p.feet).Magnitude < (b - p.feet).Magnitude end)
+		return cand[math.random(math.min(2, #cand))]
+	end
+	return cand[math.random(#cand)]
+end
+
+local function goAnchor(inm, fast)
+	local G = inm.mem.hg
+	G.anchor = pickAnchor(inm, G.anchor)
+	G.fast = fast
+	G.torch = 0
+	inm.root.Anchored = false
+	inm.root.CanCollide = false
+	pcall(function() inm.root:SetNetworkOwner(nil) end)
+	inm:setState("crawl")
+end
+
+local function climb(inm)
+	inm.root.CanCollide = false
+	inm:setState("climb")
+	inm:setAnim("climb", 1.2)
+end
+
+-- кто-то светит на него фонарём (смотрит в его сторону, свет включён, линия видимости)
+local function torched(inm)
+	local body = inm:feet() + Vector3.new(0, (inm.model:GetAttribute("HipY") or 4) + (inm.mem.hg.lift or 0), 0)
+	for _, p in ipairs(inm:players()) do
+		if p.flash and not p.hidden then
+			local to = body - p.head
+			local d = to.Magnitude
+			if d < 38 and d > 0.5 then
+				local look = p.root.CFrame.LookVector
+				local fl = Vector3.new(to.X, 0, to.Z)
+				local facing = fl.Magnitude < 3 or Vector3.new(look.X, 0, look.Z).Unit:Dot(fl.Unit) > 0.75
+				if facing and inm:los(p.head, body) then return true end
+			end
+		end
+	end
+	return false
+end
+
+local function walkerBelow(inm)
+	for _, p in ipairs(inm:players()) do
+		if not p.hidden and not p.crouch and p.speed > 3 and p.flat < UNDER and math.abs(p.dy) < 4 then return p end
+	end
+	return nil
+end
+
+local function startDrop(inm, p)
+	local G = inm.mem.hg
+	inm.root.Anchored = false
+	inm.root.CanCollide = true
+	pcall(function() inm.root:SetNetworkOwner(nil) end)
+	setLift(inm, 0)
+	G.ft = 0
+	inm:face(p.pos)
+	inm:setState("drop")
+	inm:setAnim("drop", 0.5)
+	inm:sound("Shriek", inm.root, { Volume = 1 }, "Stinger")
+end
+
+local function land(inm)
+	local hit = false
+	inm:sound("DoorBash", inm.root, { Volume = 0.8, PlaybackSpeed = 0.6 })
+	inm:shakeNear(1.2, 0.4, 22)
+	for _, p in ipairs(inm:players()) do
+		if not p.hidden and p.flat < LAND_R and math.abs(p.dy) < 4 then
+			inm:kill(p.plr)
+			hit = true
+		end
+	end
+	if hit then
+		inm:setState("floor")
+		inm:setAnim("floor", 1.4)
+	else
+		inm:setState("lunge")
+		inm.mem.hg.tgt = nil
+	end
+end
+
+local function startFall(inm)
+	local G = inm.mem.hg
+	G.fled = true
+	inm.root.Anchored = false
+	inm.root.CanCollide = true
+	pcall(function() inm.root:SetNetworkOwner(nil) end)
+	setLift(inm, 0)
+	inm:setState("fall")
+	inm:setAnim("fall", 0.9)
+	inm:sound("Shriek", inm.root, { Volume = 1 }, "Stinger")
+end
+
+local function flee(inm, dt)
+	local G = inm.mem.hg
+	inm:setAnim("flee")
+	if not G.exit then
+		G.exit = inm:pickEntry(nil, inm:pos())
+		G.exitPhase = "in"
+		G.fleeT = 0
+	end
+	G.fleeT = G.fleeT + dt
+	local e = G.exit
+	if not e or G.fleeT > 16 then
+		inm:say("ВИСЯЩИЙ сорвался с потолка и сбежал из дома!", nil, true)
+		inm:despawn(0.6)
+		return
+	end
+	if G.exitPhase == "in" then
+		local r = inm:goTo(e.In.Position, V_FAST, { near = 2.5 })
+		if r == "arrived" then
+			if e:GetAttribute("Kind") == "Window" then
+				local HL = inm.ctx and inm.ctx.HouseLogic
+				if e:GetAttribute("Broken") ~= true and HL then pcall(HL.breakWindow, e) end
+				inm:vault(e.In.Position, e.Out.Position, 0.6)
+				G.exitPhase = "vault"
+			else
+				G.exitPhase = "out"
+			end
+		end
+	elseif G.exitPhase == "vault" then
+		if not inm.vaulting then G.fleeT = 99 end
+	else
+		local r = inm:goTo(e.Out.Position, V_FAST, { near = 2.5 })
+		if r == "arrived" then G.fleeT = 99 end
+	end
+end
+
+Hanger.server = {
+	spawn = function(inm)
+		inm.mem.hg = { lift = 0, torch = 0, idle = 0, idleMax = 50, ft = 0 }
+		inm:attr("Lift", 0)
+		inm.entry = (math.random() < 0.7) and inm:pickEntry("Window") or inm:pickEntry("Door")
+	end,
+	tick = function(inm, dt)
+		local G = inm.mem.hg
+		local S = inm.state
+		if S == "fall" then
+			if inm:since() > 0.9 then inm:setState("flee") end
+			return
+		end
+		if S == "flee" then
+			flee(inm, dt)
+			return
+		end
+		if S == "enter" then
+			if inm:enter(dt, { speed = V_WALK }) then climb(inm) end
+			for _, p in ipairs(inm:players()) do
+				if not p.hidden and p.flat < 3.5 then inm:tryAttack(p) end
+			end
+			return
+		end
+		if S == "climb" then
+			inm:stop()
+			setLift(inm, liftHere(inm))
+			if inm:since() > 1.2 then goAnchor(inm, false) end
+			return
+		end
+		if S == "crawl" then
+			inm:setAnim("ceiling")
+			setLift(inm, liftHere(inm))
+			local r = inm:goTo(G.anchor, G.fast and V_CRAWL * 1.45 or V_CRAWL, { near = 1.6 })
+			if r == "arrived" or inm:since() > 40 then
+				inm:stop()
+				inm.root.Anchored = true
+				setLift(inm, liftHere(inm))
+				inm:setState("wait")
+				G.idle, G.torch = 0, 0
+				G.idleMax = 45 + math.random() * 30
+			end
+			return
+		end
+		if S == "wait" then
+			inm:setAnim("ceilwait")
+			if torched(inm) then G.torch = G.torch + dt else G.torch = math.max(0, G.torch - dt * 0.5) end
+			if G.torch > T_TORCH then
+				inm:setState("hiss")
+				inm:setAnim("hiss", 0.8)
+				inm:sound("Hiss", inm.root, { Volume = 1 }, "Whisper")
+				return
+			end
+			if inm:since() < 1.5 then return end
+			local p = walkerBelow(inm)
+			if p then
+				startDrop(inm, p)
+				return
+			end
+			G.idle = G.idle + dt
+			if G.idle > G.idleMax then goAnchor(inm, false) end
+			return
+		end
+		if S == "hiss" then
+			if inm:since() > 0.8 then goAnchor(inm, true) end
+			return
+		end
+		if S == "drop" then
+			if inm:since() >= T_DROP then land(inm) end
+			return
+		end
+		if S == "floor" then
+			inm:stop()
+			if inm:since() > 1.4 then climb(inm) end
+			return
+		end
+		if S == "lunge" then
+			inm:setAnim("lunge")
+			if inm:since() < 0.45 then
+				inm:stop()
+				return
+			end
+			local p = G.tgt and inm:find(G.tgt)
+			if not p or p.hidden then
+				p = inm:look({ wide = true, sight = 45 })
+			end
+			if not p or inm:since() > 4.5 then
+				climb(inm)
+				return
+			end
+			G.tgt = p.plr
+			inm:goTo(p.feet, V_FAST, { repath = 0.8, direct = p.flat < 16 and math.abs(p.dy) < 3, near = 1.2 })
+			inm:tryAttack(p, { cooldown = 0.6 })
+			return
+		end
+		climb(inm)
+	end,
+	-- выстрел: срывается с потолка и удирает из дома до утра
+	onDamage = function(inm, amount, by)
+		local G = inm.mem.hg
+		if G and not G.fled then startFall(inm) end
+	end,
+	onStun = function(inm, s)
+		local G = inm.mem.hg
+		if G and G.fled then return false end
+		if inm.state == "wait" or inm.state == "crawl" then
+			-- оглушённый на потолке — падает и снова лезет наверх
+			inm.root.Anchored = false
+			inm.root.CanCollide = true
+			setLift(inm, 0)
+			inm:setState("floor")
+		end
+	end,
+	cleanup = function(inm)
+		setLift(inm, 0)
+	end,
+}
+
+---------------------------------------------------------------- анимация (клиент)
+local function hairDown(A, model)
+	local j = A.j.HairJoint
+	local head = model:FindFirstChild("Head")
+	if not j or not head or not A.root then return end
+	A.manual.HairJoint = true
+	local at = (head.CFrame * j.pos).Position
+	local yaw = A.root.CFrame - A.root.CFrame.Position
+	local sway = CFrame.Angles(math.sin(A.t * 1.3) * 0.04, 0, math.sin(A.t * 0.9) * 0.05)
+	j.m.C0 = head.CFrame:ToObjectSpace(CFrame.new(at) * yaw * sway)
+end
+
+function Hanger.animate(model, dt, t, ctx)
+	local A = Rig.state(model)
+	local D = A.data
+	local anim = A.anim
+	local lift = model:GetAttribute("Lift") or 0
+	local want = (CEIL[anim] and lift > 0.5) and 1 or 0
+	local rate = (want > (D.k or 0)) and 2.2 or 9
+	D.k = (D.k or 0) + (want - (D.k or 0)) * math.min(1, dt * rate)
+	D.lift = (D.lift or 0) + (lift - (D.lift or 0)) * math.min(1, dt * 4)
+	local k = D.k
+	Rig.begin(A)
+	if k > 0.02 then
+		-- распластан на потолке лицом вниз, паучьи лапы в стороны, суставы к потолку
+		local mv = math.clamp(A.speed / 6, 0, 1)
+		local s = math.sin(A.phase * 1.4) * mv
+		local tw = (anim == "hiss") and math.sin(t * 40) * 0.12 or 0
+		Rig.move(A, "Root", 0, D.lift * k, 0)
+		Rig.rot(A, "Root", -math.pi / 2 * k + tw * 0.3, 0, s * 0.05 * k)
+		Rig.rot(A, "Waist", 0.3 * k, 0, 0)
+		Rig.rot(A, "LeftShoulder", 0, 0, (-2.2 + s * 0.35) * k)
+		Rig.rot(A, "RightShoulder", 0, 0, (2.2 + s * 0.35) * k)
+		Rig.rot(A, "LeftElbow", -1.1 * k, 0, 0)
+		Rig.rot(A, "RightElbow", -1.1 * k, 0, 0)
+		Rig.rot(A, "LeftHip", 0, 0, (-0.8 - s * 0.3) * k)
+		Rig.rot(A, "RightHip", 0, 0, (0.8 - s * 0.3) * k)
+		Rig.rot(A, "LeftKnee", -1.2 * k, 0, 0)
+		Rig.rot(A, "RightKnee", -1.2 * k, 0, 0)
+		if anim == "hiss" then
+			Rig.rot(A, "Neck", 1.5 * k + tw, 0, tw)
+		elseif anim == "ceilwait" then
+			Rig.rot(A, "Neck", (0.8 + math.sin(t * 0.7) * 0.12) * k, math.sin(t * 0.45) * 0.5 * k, 0)
+			Rig.twitch(A, 0.5, { "Neck", "LeftWrist", "RightWrist", "LeftElbow" }, 1.4)
+		else
+			Rig.rot(A, "Neck", 0.9 * k, 0, 0)
+		end
+	end
+	if k < 0.98 then
+		local f = 1 - k
+		if anim == "dead" then
+			Rig.dead(A, math.min(1, A.animT * 2.5))
+		elseif anim == "stunned" or A.stunned then
+			Rig.stagger(A, f)
+			Rig.twitch(A, 0.8, { "Neck", "LeftShoulder", "RightShoulder" }, 0.15)
+		elseif anim == "lunge" or anim == "flee" or anim == "floor" then
+			-- почти на четвереньках, длинные руки загребают пол
+			Rig.crawl(A, f, { tilt = 1.15, gait = 0.7 })
+			if anim == "floor" then Rig.move(A, "Root", 0, -0.6 * f, 0) end
+			Rig.twitch(A, 0.6, { "Neck", "Waist" }, 0.3)
+		elseif anim == "drop" or anim == "fall" then
+			local fl = math.sin(t * 30) * 0.5
+			Rig.rot(A, "LeftShoulder", (2.5 + fl) * f, 0, -0.6 * f)
+			Rig.rot(A, "RightShoulder", (2.5 - fl) * f, 0, 0.6 * f)
+			Rig.rot(A, "Neck", 0.5 * f, 0, fl * 0.3)
+		elseif anim == "attack" then
+			Rig.crawl(A, f * 0.6, { tilt = 0.9 })
+			Rig.lunge(A, Rig.strike(A.animT) * f)
+		else
+			local mv = math.clamp(A.speed / 9, 0, 1.2)
+			if mv > 0.06 then Rig.walk(A, mv * f, { leg = 0.5, arm = 0.25, bob = 0.25 }) else Rig.idle(A, f, { look = 0.4 }) end
+			Rig.rot(A, "LeftShoulder", 0.15 * f, 0, -0.12 * f)
+			Rig.rot(A, "RightShoulder", 0.15 * f, 0, 0.12 * f)
+			Rig.rot(A, "LeftElbow", 0.3 * f, 0, 0)
+			Rig.rot(A, "RightElbow", 0.3 * f, 0, 0)
+			if anim == "break" then Rig.pound(A, f) end
+			if anim == "vault" then Rig.crawl(A, f, { tilt = 1.0 }) end
+			if anim == "climb" then
+				Rig.rot(A, "LeftShoulder", 2.6 * f, 0, -0.3 * f)
+				Rig.rot(A, "RightShoulder", 2.6 * f, 0, 0.3 * f)
+			end
+			Rig.twitch(A, 0.4, { "Neck", "LeftWrist", "RightWrist" }, 0.9)
+		end
+	end
+	Rig.apply(A)
+	hairDown(A, model)
+	-- глаза тлеют в темноте; в засаде еле видны
+	local cam = workspace.CurrentCamera
+	local near = 0
+	if cam and A.root then near = math.clamp(1 - (cam.CFrame.Position - A.root.Position).Magnitude / 30, 0, 1) end
+	if anim == "hiss" or anim == "drop" or anim == "lunge" then
+		Rig.glow(A, 1.2)
+	else
+		Rig.glow(A, 0.25 + near * 0.6)
+	end
+end
+
+return Hanger
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000B"><Properties><string name="Name">Squatter</string><ProtectedString name="Source"><![CDATA[-- Заключённый 077: ЖИЛЕЦ (The Squatter) — дремлющий.
+-- Небритый мужчина в грязной майке и клетчатых пижамных штанах, длинные сальные волосы, руки до колен.
+-- ФАЗА 1 (до 2:00): сидит в одном случайном укрытии. Снаружи видны только два глаза в щели дверцы:
+--   ярко вспыхивают в луче фонаря, тускло — вблизи. Неуязвим. Кто залезет в ЕГО шкаф — мгновенная смерть.
+--   С 1:30 шкаф скребётся и дребезжит, дыхание тяжелеет (предупреждение).
+-- ФАЗА 2 (2:00): вырывается («ЭТО МОЙ ДОМ!») и становится быстрым охотником, которого можно застрелить.
+-- Атрибуты модели: Lurk (сидит в шкафу), Warn (скоро вырвется), Anim.
+local Players = game:GetService("Players")
+local Rig = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("Rig"))
+
+local SPEED, CHASE, BURST, WARN = 11, 17.5, 26, 25.5
+local SAY = Color3.fromRGB(230, 210, 150)
+
+local Squatter = {
+	key = "Squatter", num = "077", name = "ЖИЛЕЦ", en = "THE SQUATTER", class = "Класс угрозы: дремлющий",
+	color = Color3.fromRGB(200, 184, 144), hp = 450, speed = SPEED, chase = CHASE,
+	difficulty = 2, minNight = 3, oneShot = true, reach = 4.5, cooldown = 1.1, sight = 70, dark = 26,
+	inspect = 0.35, findChance = 0.2,
+	alert = {
+		"ПОСТУПАЮТ СООБЩЕНИЯ О НЕЗНАКОМЦЕ, КОТОРЫЙ ПРОНИКАЕТ В ДОМА И ПРЯЧЕТСЯ В ШКАФАХ И КЛАДОВЫХ. НЕБРИТЫЙ, В ГРЯЗНОЙ МАЙКЕ И ПИЖАМНЫХ ШТАНАХ.",
+		"КОГДА ЖИЛЬЦЫ ЧУВСТВУЮТ СЕБЯ В БЕЗОПАСНОСТИ, КОГДА ОНИ ЧУВСТВУЮТ СЕБЯ ЗАЩИЩЁННЫМИ, — ОН ПОКИДАЕТ СВОЁ УКРЫТИЕ И НАПАДАЕТ.",
+		"ПРОВЕРЯЙТЕ КАЖДОЕ УКРЫТИЕ, ПРЕЖДЕ ЧЕМ ВОЙТИ.",
+	},
+	tip = "Перед тем как спрятаться, посвети фонарём в щель шкафа: если блеснули глаза — там Жилец, туда нельзя. В 2:00 он вырвется наружу и погонится — прячься в другой шкаф или стреляй.",
+	directive = { code = "check_hides", text = "ПРОВЕРЯЙТЕ УКРЫТИЯ" },
+	steps = { key = "Footstep", pitch = 0.75, volume = 0.5 },
+	ambient = { key = "Breath", every = 6 },
+	scare = Color3.fromRGB(255, 200, 90),
+}
+
+---------------------------------------------------------------- модель
+local SKIN, SKIN_D = "#c6ab92", "#a3876f"
+local PLAID, PLAID_R, PLAID_W = "#3c4c82", "#962834", "#e8dcc0"
+local HAIR = "#251c12"
+local FAB = Enum.Material.Fabric
+
+-- клетка на штанине: поперечные полосы-обручи и продольные полоски
+local function plaid(R, limb, w, h, d)
+	for _, y in ipairs({ -h * 0.28, h * 0.22 }) do
+		Rig.add(R, limb, "Plaid", Vector3.new(w + 0.04, h * 0.14, d + 0.04), CFrame.new(0, y, 0), PLAID_R, FAB)
+		Rig.add(R, limb, "Plaid", Vector3.new(w + 0.06, h * 0.03, d + 0.06), CFrame.new(0, y + h * 0.12, 0), PLAID_W, FAB)
+	end
+	for _, x in ipairs({ -w * 0.22, w * 0.25 }) do
+		for _, z in ipairs({ -d / 2 - 0.025, d / 2 + 0.025 }) do
+			local p = Rig.add(R, limb, "Plaid", Vector3.new(w * 0.14, h * 0.98, 0.04), CFrame.new(x, 0, z), PLAID_R, FAB)
+			p.CastShadow = false
+		end
+	end
+end
+
+function Squatter.build(ctx)
+	local R = Rig.build({
+		name = "Squatter", footH = 0.3, footL = 1.0, legW = 0.6, hipX = 0.38, legU = 1.45, legL = 1.4,
+		ltH = 0.55, utH = 1.55, torsoW = 1.6, torsoD = 0.85, armW = 0.4, armU = 1.5, armL = 1.45, hand = 0.62,
+		neck = 0.3, head = Vector3.new(1.15, 1.3, 1.15), hunch = 0.32,
+		skin = SKIN, shirt = "#ddd4b8", sleeve = SKIN, forearm = SKIN, pants = PLAID, belt = PLAID,
+		shoes = SKIN, hands = SKIN_D, stride = 6.5,
+	})
+	-- майка: голые плечи, вырез, пятна
+	for _, sx in ipairs({ -1, 1 }) do
+		Rig.add(R, "UpperTorso", "Shoulder", Vector3.new(0.42, 0.3, 0.8), CFrame.new(sx * 0.6, 0.66, 0), SKIN)
+		Rig.add(R, "UpperTorso", "Strap", Vector3.new(0.16, 0.32, 0.88), CFrame.new(sx * 0.3, 0.66, 0), "#cfc5a6", FAB)
+	end
+	Rig.add(R, "UpperTorso", "Neckline", Vector3.new(0.5, 0.3, 0.06), CFrame.new(0, 0.62, -0.43), SKIN)
+	Rig.add(R, "UpperTorso", "Stain", Vector3.new(0.5, 0.42, 0.04), CFrame.new(-0.3, 0.05, -0.44), "#a68d58")
+	Rig.add(R, "UpperTorso", "Stain", Vector3.new(0.3, 0.55, 0.04), CFrame.new(0.38, -0.3, -0.44), "#86683f")
+	Rig.add(R, "UpperTorso", "Stain", Vector3.new(0.25, 0.2, 0.04), CFrame.new(0.1, -0.6, -0.44), "#5a3a1a")
+	Rig.add(R, "UpperTorso", "Stain", Vector3.new(0.6, 0.5, 0.04), CFrame.new(0, -0.2, 0.44), "#9a8250")
+	Rig.add(R, "LowerTorso", "Waistband", Vector3.new(1.55, 0.18, 0.86), CFrame.new(0, 0.2, 0), PLAID_W, FAB)
+	-- клетчатые пижамные штаны
+	for _, side in ipairs({ "Left", "Right" }) do
+		plaid(R, side .. "UpperLeg", 0.6, 1.45, 0.6)
+		plaid(R, side .. "LowerLeg", 0.55, 1.4, 0.55)
+		-- босые ступни с грязными ногтями, костлявые пальцы рук
+		for i = -1, 1 do
+			Rig.add(R, side .. "Foot", "Nail", Vector3.new(0.12, 0.06, 0.08), CFrame.new(i * 0.17, 0.1, -0.5), "#6e5c48")
+		end
+		Rig.add(R, side .. "Foot", "Dirt", Vector3.new(0.58, 0.05, 0.9), CFrame.new(0, -0.14, 0), "#4a3a2a")
+		for i = -1, 1 do
+			Rig.add(R, side .. "Hand", "Finger", Vector3.new(0.09, 0.55, 0.09), CFrame.new(i * 0.12, -0.5, -0.04) * CFrame.Angles(0.15, 0, i * 0.08), SKIN_D)
+			Rig.add(R, side .. "Hand", "Nail", Vector3.new(0.09, 0.08, 0.1), CFrame.new(i * 0.12 + i * 0.02, -0.78, -0.08), "#4e3c28")
+		end
+		Rig.ball(R, side .. "LowerArm", "Elbow", 0.42, CFrame.new(0, 0.72, 0), SKIN)
+		Rig.ball(R, side .. "LowerLeg", "Knee", 0.6, CFrame.new(0, 0.7, -0.05), PLAID_R, FAB)
+	end
+	-- голова: щетина, выпученные глаза, кривая жёлтая ухмылка, сальные патлы
+	local H, hz = "Head", -0.58
+	Rig.add(R, H, "Stubble", Vector3.new(1.18, 0.5, 1.18), CFrame.new(0, -0.42, 0.0), "#6c625a", Enum.Material.Sand)
+	Rig.add(R, H, "Nose", Vector3.new(0.2, 0.36, 0.24), CFrame.new(0.02, 0.0, hz - 0.1) * CFrame.Angles(0, 0, 0.08), SKIN_D)
+	for _, sx in ipairs({ -1, 1 }) do
+		Rig.add(R, H, "EyeWhite", Vector3.new(0.32, 0.22, 0.05), CFrame.new(sx * 0.28, 0.2, hz - 0.01), "#efe4c8")
+		Rig.add(R, H, "Lid", Vector3.new(0.34, 0.07, 0.05), CFrame.new(sx * 0.28, 0.07, hz - 0.015), "#86625a")
+		Rig.add(R, H, "Brow", Vector3.new(0.36, 0.1, 0.06), CFrame.new(sx * 0.28, 0.4, hz - 0.02) * CFrame.Angles(0, 0, sx * 0.22), HAIR)
+		Rig.add(R, H, "Ear", Vector3.new(0.12, 0.32, 0.22), CFrame.new(sx * 0.62, 0.05, 0.05), SKIN_D)
+		-- сальные пряди: по бокам до плеч и пара прядей на лице
+		Rig.add(R, H, "Hair", Vector3.new(0.16, 1.6, 0.95), CFrame.new(sx * 0.62, -0.25, 0.1), HAIR, Enum.Material.SmoothPlastic, { Reflectance = 0.05 })
+		Rig.add(R, H, "Strand", Vector3.new(0.1, 1.0, 0.05), CFrame.new(sx * 0.42, 0.05, hz - 0.03) * CFrame.Angles(0, 0, sx * 0.06), HAIR)
+	end
+	Rig.add(R, H, "Pupil", Vector3.new(0.1, 0.12, 0.04), CFrame.new(-0.27, 0.19, hz - 0.04), "#140e0c")
+	Rig.add(R, H, "Pupil", Vector3.new(0.1, 0.12, 0.04), CFrame.new(0.3, 0.21, hz - 0.04), "#140e0c")
+	-- блики в глазах: именно их видно в щели шкафа
+	Rig.eyes(R, H, CFrame.new(0.01, 0.22, hz - 0.07), 0.56, 0.07, "#f2ffb0", { range = 5, brightness = 0.6 })
+	Rig.add(R, H, "Mouth", Vector3.new(0.55, 0.11, 0.04), CFrame.new(0.05, -0.32, hz - 0.01) * CFrame.Angles(0, 0, 0.09), "#3a1a14")
+	Rig.add(R, H, "Teeth", Vector3.new(0.42, 0.06, 0.045), CFrame.new(0.05, -0.29, hz - 0.015) * CFrame.Angles(0, 0, 0.09), "#d6c46e")
+	Rig.add(R, H, "Tooth", Vector3.new(0.06, 0.1, 0.045), CFrame.new(-0.12, -0.34, hz - 0.016), "#b8a050")
+	Rig.add(R, H, "HairTop", Vector3.new(1.2, 0.25, 1.2), CFrame.new(0, 0.62, 0.02), HAIR)
+	Rig.add(R, H, "HairBack", Vector3.new(1.2, 1.9, 0.25), CFrame.new(0, -0.15, 0.62), HAIR)
+	Rig.add(R, H, "Fringe", Vector3.new(1.1, 0.22, 0.12), CFrame.new(0, 0.5, hz - 0.03) * CFrame.Angles(0, 0, -0.06), HAIR)
+	Rig.finish(R)
+	return R.model
+end
+
+---------------------------------------------------------------- поведение (сервер)
+local function lurkAt(inm, hide)
+	local inside = hide:FindFirstChild("Inside")
+	local root = inm.root
+	root.Anchored = true
+	root.CanCollide = false
+	if inside then
+		local cf = inside.CFrame
+		local p = cf.Position + Vector3.new(0, inm.rootH - 3, 0)
+		root.CFrame = CFrame.lookAt(p, p + Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z))
+	end
+	inm:attr("Lurk", true)
+	inm:setAnim("lurk")
+end
+
+local function burst(inm)
+	local S = inm.mem.sq
+	local hide = S.hide
+	S.ph = 2
+	S.bt = 0
+	inm:attr("Lurk", false)
+	inm:attr("Warn", false)
+	local root = inm.root
+	local exit = hide and hide:FindFirstChild("Exit")
+	local inside = hide and hide:FindFirstChild("Inside")
+	if exit then
+		local look = inside and (exit.Position - inside.Position) or root.CFrame.LookVector
+		inm:teleport(exit.Position, look)
+	end
+	root.Anchored = false
+	root.CanCollide = true
+	pcall(function() root:SetNetworkOwner(nil) end)
+	inm:setState("burst")
+	inm:setAnim("burst", 1.3)
+	local at = inside or root
+	inm:sound("DoorBash", at, { Volume = 1, PlaybackSpeed = 0.8 })
+	inm:sound("DoorBreak", at, { Volume = 0.8 })
+	inm:sound("Growl", root, { Volume = 1 }, "Stinger")
+	inm:say("ЭТО МОЙ ДОМ!", SAY, true)
+	inm:shakeNear(1.3, 0.5, 40)
+end
+
+local function lurkTick(inm, dt)
+	local S = inm.mem.sq
+	local hide = S.hide
+	inm:stop()
+	inm.stunUntil = 0
+	if not hide or not hide.Parent then
+		burst(inm)
+		return
+	end
+	-- залез в ЕГО шкаф
+	local HL = inm.ctx and inm.ctx.HouseLogic
+	local ok, occ = pcall(HL.occupant, hide)
+	if ok and occ then
+		inm:sound("DoorBash", hide:FindFirstChild("Inside") or inm.root, { Volume = 1 })
+		inm:kill(occ)
+		S.k = S.k + 1
+	end
+	local clock = inm.match.clock or 21
+	local inside = hide:FindFirstChild("Inside") or inm.root
+	S.br = S.br - dt
+	if S.br <= 0 then
+		S.br = S.warn and (1.7 + math.random() * 0.5) or (3.3 + math.random() * 1.2)
+		inm:sound("Breath", inside, { Volume = S.warn and 0.55 or 0.3, PlaybackSpeed = S.warn and 0.85 or 0.95, RollOffMaxDistance = 30 })
+	end
+	if S.warn then
+		S.rt = S.rt - dt
+		if S.rt <= 0 then
+			S.rt = 1.3 + math.random() * 1.6
+			inm:sound("DoorBash", inside, { Volume = 0.25, PlaybackSpeed = 1.7, RollOffMaxDistance = 45 })
+		end
+	end
+	if clock >= BURST then
+		burst(inm)
+	elseif clock >= WARN and not S.warn then
+		S.warn = true
+		inm:attr("Warn", true)
+		inm:say("Где-то в доме кто-то тяжело дышит и скребётся изнутри шкафа…", SAY, true)
+	end
+end
+
+Squatter.server = {
+	spawn = function(inm)
+		local HL = inm.ctx and inm.ctx.HouseLogic
+		local free = {}
+		for _, h in ipairs(inm.house.hides or {}) do
+			local ok, occ = pcall(HL.occupant, h)
+			if h:FindFirstChild("Inside") and not (ok and occ) then table.insert(free, h) end
+		end
+		inm.mem.sq = { ph = 1, k = 0, br = 1 + math.random() * 2, rt = 1, bt = 0 }
+		if #free == 0 then
+			inm.mem.sq.ph = 2
+			return
+		end
+		local hide = free[math.random(#free)]
+		inm.mem.sq.hide = hide
+		inm.mem.lastHide = hide
+		inm:setState("lurk")
+		lurkAt(inm, hide)
+	end,
+	tick = function(inm, dt)
+		local S = inm.mem.sq
+		if S.ph == 1 then
+			lurkTick(inm, dt)
+			return
+		end
+		if inm.state == "burst" then
+			S.bt = S.bt + dt
+			inm:stop()
+			if S.bt > 0.45 then
+				for _, p in ipairs(inm:players()) do
+					if not p.hidden and p.flat < 5 and math.abs(p.dy) < 4 then inm:kill(p.plr) end
+				end
+			end
+			if S.bt > 1.3 then
+				local p = inm:nearest(function(q) return not q.hidden end)
+				if p then inm:investigate(p.feet) else inm:setState("roam") end
+			end
+			return
+		end
+		inm:hunt(dt, { speed = SPEED, chase = CHASE })
+	end,
+	-- в шкафу неуязвим
+	onDamage = function(inm, amount, by)
+		if inm.mem.sq and inm.mem.sq.ph == 1 then return false end
+	end,
+	onStun = function(inm, s)
+		if inm.mem.sq and inm.mem.sq.ph == 1 then return false end
+	end,
+}
+
+---------------------------------------------------------------- анимация (клиент)
+local function keepEye(p)
+	return p.Name == "Eye"
+end
+
+-- насколько луч фонаря игрока попадает в точку (0..1)
+local function beam(pos)
+	local pl = Players.LocalPlayer
+	local cam = workspace.CurrentCamera
+	if not pl or not cam or pl:GetAttribute("Flashlight") ~= true then return 0 end
+	local to = pos - cam.CFrame.Position
+	local d = to.Magnitude
+	if d > 45 or d < 0.1 then return 0 end
+	local c = to.Unit:Dot(cam.CFrame.LookVector)
+	if c < 0.9 then return 0 end
+	return math.clamp((c - 0.9) / 0.07, 0, 1) * (1 - d / 60)
+end
+
+function Squatter.animate(model, dt, t, ctx)
+	local A = Rig.state(model)
+	local D = A.data
+	local lurk = model:GetAttribute("Lurk") == true
+	if lurk then
+		-- видно только глаза в щели; вспыхивают в луче фонаря, моргают
+		Rig.fade(A, 1, keepEye)
+		local head = model:FindFirstChild("Head")
+		local k = 0.12
+		if head then
+			k = math.max(k, 1.3 * beam(head.Position))
+			local cam = workspace.CurrentCamera
+			if cam then
+				local d = (cam.CFrame.Position - head.Position).Magnitude
+				if d < 9 then k = math.max(k, 0.25 + 0.35 * (1 - d / 9)) end
+			end
+		end
+		D.k = (D.k or 0) + (k - (D.k or 0)) * math.min(1, dt * 12)
+		D.blink = (D.blink or 3) - dt
+		if D.blink < -0.13 then D.blink = 2.5 + math.random() * 4 end
+		Rig.glow(A, (D.blink < 0) and 0 or D.k)
+		Rig.begin(A)
+		Rig.idle(A, model:GetAttribute("Warn") and 2.5 or 1, { rate = model:GetAttribute("Warn") and 4 or 1.6, look = 0.2 })
+		Rig.rot(A, "Neck", 0.1, 0, 0.18)
+		Rig.apply(A)
+		return
+	end
+	if A.fadeA == 1 then Rig.fade(A, 0) end
+	Rig.begin(A)
+	local anim = Rig.basic(A, { walkRef = 11, walk = { leg = 0.55, arm = 0.35, bob = 0.1, lean = 0.1 } })
+	local mv = math.clamp(A.speed / 11, 0, 1.3)
+	if anim == "burst" then
+		Rig.move(A, "Root", 0, -0.6, 0)
+		Rig.rot(A, "Waist", -0.35, 0, 0)
+		Rig.rot(A, "Neck", 0.35, 0, 0.1)
+		Rig.rot(A, "LeftShoulder", 1.7, 0, -0.45)
+		Rig.rot(A, "RightShoulder", 1.7, 0, 0.45)
+		Rig.rot(A, "LeftHip", 0.55, 0, 0)
+		Rig.rot(A, "RightHip", -0.35, 0, 0)
+		Rig.rot(A, "LeftKnee", -0.7, 0, 0)
+		Rig.twitch(A, 1, { "Neck", "LeftShoulder", "RightShoulder", "Waist" }, 0.15)
+	elseif anim == "chase" then
+		-- размашистый бег на полусогнутых, руки болтаются
+		local s = math.sin(A.phase)
+		Rig.rot(A, "Waist", -0.2, 0, 0)
+		Rig.rot(A, "LeftShoulder", 0.4 - s * 0.6, 0, -0.25)
+		Rig.rot(A, "RightShoulder", 0.4 + s * 0.6, 0, 0.25)
+		Rig.rot(A, "Neck", 0.3, 0, math.sin(t * 7) * 0.12)
+		Rig.twitch(A, 0.6, { "Neck", "LeftElbow", "RightElbow" }, 0.4)
+	else
+		-- шаркающая походка, руки висят, голова подёргивается
+		Rig.rot(A, "LeftShoulder", 0.2, 0, -0.05)
+		Rig.rot(A, "RightShoulder", 0.2, 0, 0.05)
+		Rig.rot(A, "Neck", 0, 0, math.sin(t * 0.9) * 0.15 + ((math.sin(t * 2.7) > 0.95) and 0.25 or 0))
+		Rig.twitch(A, 0.35, { "Neck", "LeftWrist", "RightWrist" }, 1.2)
+	end
+	Rig.rot(A, "Root", 0, 0, math.sin(A.phase) * 0.04 * mv)
+	Rig.apply(A)
+	Rig.glow(A, (anim == "chase" or anim == "burst") and 1 or 0.35)
+end
+
+return Squatter
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX00000012"><Properties><string name="Name">Shared</string></Properties><Item class="ModuleScript" referent="RBX0000000D"><Properties><string name="Name">Build</string><ProtectedString name="Source"><![CDATA[-- Помощники постройки (сервер и клиент): детали, клинья, цилиндры, стены с проёмами,
 -- свет, подсказки ProximityPrompt, надписи, текстуры. Все детали по умолчанию закреплены (Anchored).
 local B = {}
 
@@ -5105,7 +7748,7 @@ function B.at(x, y, z, yawDeg)
 end
 
 return B
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000B"><Properties><string name="Name">Config</string><ProtectedString name="Source"><![CDATA[-- Настройки и данные игры (общие для сервера и клиента).
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000E"><Properties><string name="Name">Config</string><ProtectedString name="Source"><![CDATA[-- Настройки и данные игры (общие для сервера и клиента).
 -- Звуки и картинки: вставь ID из Roblox (только цифры). Пустая строка — звук/картинка просто не используется.
 local Config = {}
 
@@ -5206,7 +7849,7 @@ Config.Images = {
 }
 
 return Config
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000C"><Properties><string name="Name">Net</string><ProtectedString name="Source"><![CDATA[-- Удалённые события и функции. Сервер создаёт их (Net.init), клиент ждёт.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000F"><Properties><string name="Name">Net</string><ProtectedString name="Source"><![CDATA[-- Удалённые события и функции. Сервер создаёт их (Net.init), клиент ждёт.
 local RunService = game:GetService("RunService")
 local RS = game:GetService("ReplicatedStorage")
 
@@ -5253,7 +7896,7 @@ function Net.init()
 end
 
 return Net
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000D"><Properties><string name="Name">Rig</string><ProtectedString name="Source"><![CDATA[-- Риг заключённого: модель из деталей (Part) с суставами Motor6D в стиле R15,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000010"><Properties><string name="Name">Rig</string><ProtectedString name="Source"><![CDATA[-- Риг заключённого: модель из деталей (Part) с суставами Motor6D в стиле R15,
 -- Humanoid с правильным HipHeight (стоит на полу и ходит через Humanoid:MoveTo) и Animator.
 -- Плюс помощники процедурной анимации для клиента: суставы двигаются через Motor6D.C0.
 --
@@ -5273,6 +7916,7 @@ return Net
 local Build = require(script.Parent:WaitForChild("Build"))
 
 local Rig = {}
+Rig.mat = Build.mat     -- материал по имени с запасным (Rubber, Leather … есть не везде)
 local EMPTY = {}
 local ID = CFrame.new()
 
@@ -5338,6 +7982,21 @@ function Rig.add(R, limb, name, size, offset, color, material, props, class)
 	setProps(p, props)
 	weld(base, p)
 	return p
+end
+
+-- то же, но cf задан в мире позы постройки (ноги на y = 0)
+function Rig.addAt(R, limb, name, size, cf, color, material, props, class)
+	local base = limbOf(R, limb)
+	return Rig.add(R, base, name, size, base.CFrame:Inverse() * cf, color, material, props, class)
+end
+
+-- брусок от точки a до точки b (мир позы постройки), толщина th
+function Rig.bar(R, limb, name, a, b, th, color, material, props)
+	local len = (b - a).Magnitude
+	if len < 0.01 then len = 0.01 end
+	local up = math.abs((b - a).Unit.Y) > 0.95 and Vector3.new(0, 0, 1) or Vector3.new(0, 1, 0)
+	local cf = CFrame.lookAt((a + b) / 2, b, up)
+	return Rig.addAt(R, limb, name, Vector3.new(th, th, len), cf, color, material, props)
 end
 
 function Rig.ball(R, limb, name, d, offset, color, material, props)
@@ -5942,7 +8601,7 @@ function Rig.glow(A, k, color)
 end
 
 return Rig
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000E"><Properties><string name="Name">Sound</string><ProtectedString name="Source"><![CDATA[-- Звуки по ключу из Config.Sounds. Пустой ID — тишина (без ошибок).
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000011"><Properties><string name="Name">Sound</string><ProtectedString name="Source"><![CDATA[-- Звуки по ключу из Config.Sounds. Пустой ID — тишина (без ошибок).
 local Debris = game:GetService("Debris")
 local SoundService = game:GetService("SoundService")
 local Config = require(script.Parent.Config)
@@ -5994,7 +8653,7 @@ end
 
 return Sound
 ]]></ProtectedString></Properties></Item></Item></Item>
-<Item class="ServerScriptService" referent="RBX0000001A"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="Script" referent="RBX00000011"><Properties><string name="Name">Main</string><ProtectedString name="Source"><![CDATA[-- Точка входа сервера Amber Alert: удалённые события, служебные папки и запуск модулей по порядку.
+<Item class="ServerScriptService" referent="RBX0000001D"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="Script" referent="RBX00000014"><Properties><string name="Name">Main</string><ProtectedString name="Source"><![CDATA[-- Точка входа сервера Amber Alert: удалённые события, служебные папки и запуск модулей по порядку.
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 
@@ -6046,7 +8705,7 @@ for _, name in ipairs(order) do
 	end
 end
 print("[AA] Сервер Amber Alert запущен")
-]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX00000019"><Properties><string name="Name">Server</string></Properties><Item class="ModuleScript" referent="RBX00000012"><Properties><string name="Name">Data</string><ProtectedString name="Source"><![CDATA[-- Профиль игрока: Amber (валюта лобби), опыт, уровень, ранг, купленные классы.
+]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX0000001C"><Properties><string name="Name">Server</string></Properties><Item class="ModuleScript" referent="RBX00000015"><Properties><string name="Name">Data</string><ProtectedString name="Source"><![CDATA[-- Профиль игрока: Amber (валюта лобби), опыт, уровень, ранг, купленные классы.
 -- Хранится в DataStore (в несохранённом месте Studio просто живёт в памяти).
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
@@ -6207,7 +8866,7 @@ function Data.init(c)
 end
 
 return Data
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000013"><Properties><string name="Name">HouseLogic</string><ProtectedString name="Source"><![CDATA[-- Логика дома: двери (открыть / закрыть / запереть / выбить), окна, укрытия,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000016"><Properties><string name="Name">HouseLogic</string><ProtectedString name="Source"><![CDATA[-- Логика дома: двери (открыть / закрыть / запереть / выбить), окна, укрытия,
 -- яблони, электрощиток и свет. Работает с моделью дома из HouseMap (контракт — ARCHITECTURE.md §6).
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -6739,7 +9398,7 @@ function HouseLogic.init(c)
 end
 
 return HouseLogic
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000014"><Properties><string name="Name">InmateAI</string><ProtectedString name="Source"><![CDATA[-- ИИ заключённых (сервер): выбор на ночь, появление, навигация (PathfindingService), двери и окна,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000017"><Properties><string name="Name">InmateAI</string><ProtectedString name="Source"><![CDATA[-- ИИ заключённых (сервер): выбор на ночь, появление, навигация (PathfindingService), двери и окна,
 -- зрение и слух, состояния enter → roam → chase → search → roam, проверка укрытий, удары, оглушение, урон.
 -- Один цикл Heartbeat (~15 Гц) тикает всех заключённых в pcall: def.server.tick(inm, dt) или inm:hunt(dt).
 --
@@ -6976,6 +9635,12 @@ local function roomPoints(house, room)
 	if #pts == 0 then table.insert(pts, Vector3.new(room.Position.X, bottom + 0.1, room.Position.Z)) end
 	cache[room] = pts
 	return pts
+end
+
+-- случайная точка пола в данной комнате
+function Inmate:roomPoint(room)
+	local pts = roomPoints(self.house, room)
+	return pts[math.random(#pts)]
 end
 
 -- случайная точка в комнате дома (Indoor=true); except — не та же комната
@@ -8161,7 +10826,7 @@ function InmateAI.init(c)
 end
 
 return InmateAI
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000015"><Properties><string name="Name">Items</string><ProtectedString name="Source"><![CDATA[-- Предметы и действия игрока: инвентарь, магазин в гараже (купить/продать яблоки),
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000018"><Properties><string name="Name">Items</string><ProtectedString name="Source"><![CDATA[-- Предметы и действия игрока: инвентарь, магазин в гараже (купить/продать яблоки),
 -- использование предметов (дробовик, баллончик, шокер, капкан, лампа, аптечка, батарейки, дефибриллятор),
 -- фонарик, бег/присед для слуха заключённых, выход из укрытия и концентрация.
 local Players = game:GetService("Players")
@@ -8547,7 +11212,7 @@ function Items.init(c)
 end
 
 return Items
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000016"><Properties><string name="Name">Lobby</string><ProtectedString name="Source"><![CDATA[-- Лобби: постройка (LobbyMap, а если он упал — простое запасное лобби), появление игроков,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000019"><Properties><string name="Name">Lobby</string><ProtectedString name="Source"><![CDATA[-- Лобби: постройка (LobbyMap, а если он упал — простое запасное лобби), появление игроков,
 -- кабинки: кто стоит в зоне кабинки, тот через Config.BoothCountdown секунд уезжает в дом.
 local Players = game:GetService("Players")
 
@@ -8685,7 +11350,7 @@ function Lobby.init(c)
 end
 
 return Lobby
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000017"><Properties><string name="Name">LobbyMap</string><ProtectedString name="Source"><![CDATA[-- Карта лобби: холодная туманная ночная площадь у ворот лечебницы Black Ridge.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000001A"><Properties><string name="Name">LobbyMap</string><ProtectedString name="Source"><![CDATA[-- Карта лобби: холодная туманная ночная площадь у ворот лечебницы Black Ridge.
 -- Строит Model "Lobby" в начале координат (контракт §7 ARCHITECTURE.md):
 -- точка появления, 4 кабинки (по одной на сложность), 4 киоска, большой экран EAS,
 -- лечебница с рядом камер (по камере на каждый модуль ReplicatedStorage.Inmates),
@@ -8846,9 +11511,9 @@ local function buildSpawn(root)
 	}, root)
 	-- нарисованная стрелка «к кабинкам»
 	local acf = CF(x, 0.81, z + 2.2)
-	P(f, "Arrow", V3(0.6, 0.02, 3.4), acf, 0, 0, -1.2, C.amber, M.SmoothPlastic)
-	P(f, "Arrow", V3(0.6, 0.02, 2.6), acf * ANG(0, rad(40), 0), -0.75, 0, 0.4, C.amber, M.SmoothPlastic)
-	P(f, "Arrow", V3(0.6, 0.02, 2.6), acf * ANG(0, rad(-40), 0), 0.75, 0, 0.4, C.amber, M.SmoothPlastic)
+	P(f, "Arrow", V3(0.6, 0.02, 3.6), acf, 0, 0, -0.4, C.amber, M.SmoothPlastic)
+	B.part(f, "Arrow", V3(0.6, 0.02, 2.2), acf * CF(-0.707, 0, 0.757) * ANG(0, rad(40), 0), C.amber, M.SmoothPlastic)
+	B.part(f, "Arrow", V3(0.6, 0.02, 2.2), acf * CF(0.707, 0, 0.757) * ANG(0, rad(-40), 0), C.amber, M.SmoothPlastic)
 	return sp
 end
 
@@ -8872,7 +11537,7 @@ local function buildBooth(parent, i, diffKey, bx)
 	-- порог с полосами «зебра»
 	P(geo, "Threshold", V3(5.4, 0.08, 0.9), cf, 0, 0.52, 0.5, C.amber, M.SmoothPlastic)
 	for k = -2, 2 do
-		P(geo, "Stripe", V3(0.35, 0.09, 1.1), cf * ANG(0, rad(35), 0), k * 1.05, 0.53, 0.5 + k * 0.1, rgb(20, 20, 22), M.SmoothPlastic)
+		B.part(geo, "Stripe", V3(0.35, 0.09, 1.0), cf * CF(k * 1.05, 0.53, 0.5) * ANG(0, rad(35), 0), rgb(20, 20, 22), M.SmoothPlastic)
 	end
 	-- задняя стена со стальной «шлюзовой» дверью
 	P(geo, "BackWall", V3(W + 1.2, H, 0.8), cf, 0, H / 2 + 0.4, D + 0.4, rgb(66, 70, 76), M.Metal)
@@ -8966,8 +11631,9 @@ local function buildKiosk(parent, def)
 	P(m, "CounterStripe", V3(8.05, 0.5, 0.1), cf, 0, 3.0, -3.02, col, M.SmoothPlastic)
 	-- монитор на прилавке
 	P(m, "MonitorStand", V3(0.3, 0.8, 0.3), cf, 1.8, 4.2, -2.0, C.steelDark, M.Metal)
-	P(m, "Monitor", V3(2.4, 1.6, 0.3), cf * ANG(rad(-12), 0, 0), 1.8, 5.2, -2.0, rgb(24, 24, 28), M.SmoothPlastic)
-	local scr = P(m, "Screen", V3(2.1, 1.3, 0.05), cf * ANG(rad(-12), 0, 0), 1.8, 5.2, -2.18, C.screen, M.SmoothPlastic)
+	local mcf = cf * CF(1.8, 5.2, -2.0) * ANG(rad(12), 0, 0)
+	P(m, "Monitor", V3(2.4, 1.6, 0.3), mcf, 0, 0, 0, rgb(24, 24, 28), M.SmoothPlastic)
+	local scr = P(m, "Screen", V3(2.1, 1.3, 0.05), mcf, 0, 0, -0.18, C.screen, M.SmoothPlastic)
 	label(scr, NF.Front, def.title, col, { BackgroundTransparency = 0, BackgroundColor3 = rgb(8, 10, 14) }, { LightInfluence = 0 })
 	-- полка с коробками позади прилавка
 	P(m, "Shelf", V3(6, 3, 1.2), cf, 0, 1.9, 2.4, rgb(60, 50, 40), M.WoodPlanks)
@@ -8983,7 +11649,7 @@ local function buildKiosk(parent, def)
 	label(fascia, NF.Front, def.title, col)
 	for k = 0, 5 do
 		local stripe = (k % 2 == 0) and col or rgb(232, 228, 216)
-		P(m, "Awning", V3(1.6, 0.15, 2.4), cf * ANG(rad(-22), 0, 0), -4.0 + k * 1.6, 8.0, -4.6, stripe, M.Fabric)
+		B.part(m, "Awning", V3(1.6, 0.15, 2.4), cf * CF(-4.0 + k * 1.6, 8.6, -5.4) * ANG(rad(-22), 0, 0), stripe, M.Fabric)
 	end
 	-- тёплая лампа под крышей
 	local lamp = P(m, "Lamp", V3(3, 0.2, 0.6), cf, 0, 9.3, -1.2, rgb(255, 214, 160), M.Neon)
@@ -9045,7 +11711,7 @@ local function buildBillboard(root)
 		B.part(f, "Strut", V3(W + 2, 0.4, 0.4), CF(x, by, z + 2.0), C.steelDark, M.Metal)
 	end
 	-- служебный мостик под экраном с перилами
-	local wy = y - H / 2 - 1.2
+	local wy = y - H / 2 - 3.6
 	B.part(f, "Walkway", V3(W + 2, 0.25, 2.2), CF(x, wy, z - 1.2), rgb(70, 72, 76), M.DiamondPlate)
 	B.part(f, "WalkwayEdge", V3(W + 2, 0.7, 0.15), CF(x, wy - 0.3, z - 2.3), rgb(30, 32, 36), M.Metal)
 	local plate = B.part(f, "Plate", V3(16, 0.7, 0.1), CF(x, wy - 0.3, z - 2.4), rgb(16, 16, 18), M.SmoothPlastic)
@@ -9172,7 +11838,7 @@ local function buildCell(parent, name, cf, W, e)
 	label(plate, NF.Front, e and e.num or "—", e and C.amber or rgb(110, 110, 110), { Font = Enum.Font.Code })
 	-- внутренности: пол, потолок, стены (внутри — бледная «больничная» краска)
 	local paint = vary(C.paintGreen, 0.05)
-	P(m, "Floor", V3(W, 0.5, CELL_D + 0.75), cf, 0, -0.25, (CELL_D - 0.75) / 2, rgb(96, 98, 94), M.Concrete)
+	P(m, "Floor", V3(W, 0.5, CELL_D + 1.5), cf, 0, -0.25, (CELL_D + 1.5) / 2 - 0.75, rgb(96, 98, 94), M.Concrete)
 	P(m, "Ceiling", V3(W, 0.9, CELL_D), cf, 0, H - 0.55, CELL_D / 2 + 0.75, rgb(118, 120, 116), M.Concrete)
 	P(m, "WallA", V3(0.5, H - 1, CELL_D), cf, hw - 0.25, (H - 1) / 2, CELL_D / 2 + 0.75, paint, B.mat("Plaster", M.Concrete))
 	P(m, "WallB", V3(0.5, H - 1, CELL_D), cf, -hw + 0.25, (H - 1) / 2, CELL_D / 2 + 0.75, paint, B.mat("Plaster", M.Concrete))
@@ -9326,11 +11992,13 @@ local function buildAsylum(root, cellsFolder, inmates)
 		B.part(ent, "PushBar", V3(2.8, 0.3, 0.3), CF(s * 2, L1 + 4, FZ + 0.15), rgb(140, 140, 136), M.Metal)
 	end
 	B.part(ent, "DoorFrame", V3(8.8, 0.5, 0.8), CF(0, L1 + 10.75, FZ + 0.4), rgb(36, 38, 40), M.Metal)
-	local blockSign = B.part(ent, "BlockSign", V3(7, 1.1, 0.2), CF(0, L1 + 11.8, FACE_Z + 0.1), rgb(16, 18, 18), M.SmoothPlastic)
+	local blockSign = B.part(ent, "BlockSign", V3(7, 1.1, 0.2), CF(0, L1 + 11.4, FACE_Z + 0.1), rgb(16, 18, 18), M.SmoothPlastic)
 	label(blockSign, NF.Back, "КОРПУС А", rgb(214, 222, 206))
-	local wl = B.part(ent, "WallLamp", V3(1.4, 0.5, 0.9), CF(0, L1 + 12.5, FACE_Z + 0.45), rgb(40, 42, 44), M.Metal)
-	B.part(ent, "WallLampLens", V3(1.2, 0.08, 0.7), CF(0, L1 + 12.22, FACE_Z + 0.45), C.cold, M.Neon)
-	B.light(wl, "SpotLight", { Face = NF.Bottom, Color = C.cold, Range = 22, Angle = 100, Brightness = 2.2 })
+	for s = -1, 1, 2 do
+		local wl = B.part(ent, "WallLamp", V3(0.9, 1.2, 0.7), CF(s * 6.2, L1 + 8.5, FACE_Z + 0.35), rgb(40, 42, 44), M.Metal)
+		B.part(ent, "WallLampLens", V3(0.7, 0.9, 0.08), CF(s * 6.2, L1 + 8.5, FACE_Z + 0.72), C.cold, M.Neon)
+		B.light(wl, "SpotLight", { Face = NF.Back, Color = C.cold, Range = 20, Angle = 110, Brightness = 1.6, Shadows = (s == 1) })
+	end
 	B.wall(ent, "Wall2", V3(-ENT, L2, FZ), V3(ENT, L2, FZ), STOREY, 1.5, entCol, M.Concrete, { { at = ENT, w = 4.4, y0 = 0, y1 = 8.5 } })
 	B.part(ent, "StaffDoor", V3(4.2, 8.4, 0.3), CF(0, L2 + 4.2, FZ - 0.1), rgb(64, 70, 72), M.CorrodedMetal)
 	local staff = B.part(ent, "StaffSign", V3(3.6, 0.8, 0.1), CF(0, L2 + 9.3, FACE_Z + 0.05), rgb(150, 30, 26), M.SmoothPlastic)
@@ -9340,10 +12008,10 @@ local function buildAsylum(root, cellsFolder, inmates)
 	-- башня над входом с вывеской
 	B.part(ent, "Tower", V3(2 * ENT, 9, 9), CF(0, ROOF_Y + 4.5, FACE_Z - 4.5), entCol, M.Concrete)
 	B.part(ent, "TowerCap", V3(2 * ENT + 1.2, 0.9, 10.2), CF(0, ROOF_Y + 9.45, FACE_Z - 4.5), C.concreteDark, M.Concrete)
-	local ts = B.part(ent, "TowerSign", V3(2 * ENT - 1.5, 4.6, 0.4), CF(0, ROOF_Y + 5, FACE_Z + 0.2), rgb(14, 16, 16), M.SmoothPlastic)
+	local ts = B.part(ent, "TowerSign", V3(2 * ENT - 1.5, 4.6, 0.4), CF(0, ROOF_Y + 5.5, FACE_Z + 0.2), rgb(14, 16, 16), M.SmoothPlastic)
 	label(ts, NF.Back, "BLACK RIDGE ASYLUM", rgb(206, 220, 200))
 	for s = -1, 1, 2 do
-		local sl = B.part(ent, "SignLamp", V3(1, 0.6, 1), CF(s * 5, ROOF_Y + 1.3, FACE_Z + 1.4) * ANG(rad(35), 0, 0), rgb(36, 38, 40), M.Metal)
+		local sl = B.part(ent, "SignLamp", V3(1, 0.6, 1), CF(s * 5, ROOF_Y + 1.1, FACE_Z + 0.6) * ANG(rad(35), 0, 0), rgb(36, 38, 40), M.Metal)
 		B.light(sl, "SpotLight", { Face = NF.Top, Color = C.cold, Range = 12, Angle = 70, Brightness = 2.5, Shadows = false })
 	end
 	-- углы, пилястры, пояса, карниз, парапет
@@ -9358,7 +12026,6 @@ local function buildAsylum(root, cellsFolder, inmates)
 	for _, x in ipairs(px) do
 		B.part(fac, "Pilaster", V3(1, top - L1, 0.5), CF(x, L1 + (top - L1) / 2, FACE_Z + 0.25), vary(C.concrete, 0.04), M.Concrete)
 	end
-	B.part(fac, "Band2", V3(2 * HX + 1, 0.9, 0.8), CF(0, L2 - 0.45, FACE_Z + 0.4), C.concrete, M.Concrete)
 	B.part(fac, "Band3", V3(2 * HX + 1, 0.9, 0.8), CF(0, L3 - 0.45, FACE_Z + 0.4), C.concrete, M.Concrete)
 	B.part(fac, "Cornice", V3(2 * HX + 2, 1.2, 1.8), CF(0, ROOF_Y + 0.2, FZ + 0.5), C.concreteDark, M.Concrete)
 	-- оболочка: боковые и задняя стены, крыша
@@ -9379,8 +12046,8 @@ local function buildAsylum(root, cellsFolder, inmates)
 	B.part(shell, "Parapet", V3(2 * HX, 2.7, 1.5), CF(0, ROOF_Y + 1.35, bz), C.concreteDark, M.Concrete)
 	B.part(shell, "ParapetFront", V3(2 * HX, 2.7, 1.5), CF(0, ROOF_Y + 1.35, FZ), vary(C.brick, 0.05), M.Brick)
 	B.part(shell, "Coping", V3(2 * HX + 1, 0.4, 2), CF(0, top + 0.2, FZ), C.concreteLight, M.Concrete)
-	B.part(shell, "Roof", V3(2 * HX - 3, 1, z1 - z0 - 1.5), CF(0, ROOF_Y + 0.5, (z0 + z1) / 2), rgb(52, 52, 54), M.Slate)
-	B.part(shell, "Plinth", V3(2 * HX, 0.6, z1 - z0), CF(0, 0.3, (z0 + z1) / 2), C.concreteDark, M.Concrete)
+	B.part(shell, "Roof", V3(2 * HX - 3, 1, z1 - z0 - 1.5), CF(0, ROOF_Y + 0.5, (z0 + 1.5 + z1) / 2), rgb(52, 52, 54), M.Slate)
+	B.part(shell, "Plinth", V3(2 * HX, 0.55, z1 - z0), CF(0, -0.025, (z0 + z1) / 2), C.concreteDark, M.Concrete)
 	L.cells = cells
 	L.model = f
 	return L
@@ -9663,10 +12330,10 @@ end
 -- ==========================================================================
 -- УЛИЧНАЯ МЕЛОЧЬ: фонари, скамейки, урны, конусы, барьеры, деревья, кусты, лужи, трещины
 -- ==========================================================================
--- фонарь: pos — низ, yaw — куда смотрит кронштейн (локальный −Z)
-local function lampPost(parent, pos, yaw, shadows)
+-- фонарь: pos — низ, кронштейн (локальный −Z) смотрит на target
+local function lampPost(parent, pos, target, shadows)
 	local m = B.model(parent, "LampPost")
-	local cf = B.at(pos.X, pos.Y, pos.Z, yaw)
+	local cf = facing(pos, target)
 	local poleC = rgb(46, 52, 50)
 	B.vcyl(m, "Base", 1.2, 1.3, cf * CF(0, 0.6, 0), C.concreteDark, M.Concrete)
 	B.vcyl(m, "Pole", 14, 0.5, cf * CF(0, 7.6, 0), poleC, M.Metal)
@@ -9689,7 +12356,7 @@ local function bench(parent, cf)
 		P(m, "Slat", V3(6.2, 0.18, 0.5), cf, 0, 1.95, -0.6 + k * 0.6, vary(wood, 0.08), M.WoodPlanks)
 	end
 	for k = 0, 1 do
-		P(m, "Back", V3(6.2, 0.45, 0.16), cf * ANG(rad(-12), 0, 0), 0, 2.7 + k * 0.7, 0.95 + k * 0.12, vary(wood, 0.08), M.WoodPlanks)
+		B.part(m, "Back", V3(6.2, 0.45, 0.16), cf * CF(0, 2.7 + k * 0.7, 0.95 + k * 0.15) * ANG(rad(12), 0, 0), vary(wood, 0.08), M.WoodPlanks)
 	end
 	return m
 end
@@ -9819,6 +12486,398 @@ local function crack(parent, pos, len)
 end
 
 -- ==========================================================================
+-- ТЮРЕМНЫЙ АВТОБУС (перед смотрит в локальный −Z)
+-- ==========================================================================
+local function prisonBus(parent, cf)
+	local m = B.model(parent, "PrisonBus")
+	local body = rgb(196, 196, 186)
+	local Lb, Wb = 38, 8.6
+	local hz = Lb / 2
+	P(m, "Chassis", V3(Wb - 0.6, 1.2, Lb - 2), cf, 0, 2.1, 0, rgb(28, 28, 30), M.Metal)
+	P(m, "LowerBody", V3(Wb, 3.6, Lb), cf, 0, 4.4, 0, body, M.Metal)
+	P(m, "Windows", V3(Wb - 0.2, 2.6, Lb - 2), cf, 0, 7.5, 0.5, C.darkGlass, M.Glass, { Transparency = 0.15, Reflectance = 0.2 })
+	P(m, "UpperBody", V3(Wb, 1.0, Lb), cf, 0, 9.3, 0, body, M.Metal)
+	P(m, "RoofCap", V3(Wb - 0.8, 0.4, Lb - 1), cf, 0, 10.0, 0, rgb(170, 170, 162), M.Metal)
+	P(m, "RoofHatch", V3(2.4, 0.3, 2.4), cf, 0, 10.3, 6, rgb(150, 150, 144), M.Metal)
+	-- оконные стойки и решётки по бортам
+	for s = -1, 1, 2 do
+		for k = 0, 7 do
+			P(m, "Pillar", V3(0.3, 2.6, 0.5), cf, s * (Wb / 2 - 0.05), 7.5, -hz + 4 + k * 4.6, body, M.Metal)
+		end
+		P(m, "Grille", V3(0.08, 0.15, Lb - 4), cf, s * (Wb / 2 + 0.05), 7.5, 1, rgb(40, 40, 40), M.Metal)
+		P(m, "Grille", V3(0.08, 0.15, Lb - 4), cf, s * (Wb / 2 + 0.05), 8.3, 1, rgb(40, 40, 40), M.Metal)
+		P(m, "Stripe", V3(0.08, 0.6, Lb), cf, s * (Wb / 2 + 0.02), 5.4, 0, rgb(214, 128, 24), M.SmoothPlastic)
+		local txt = P(m, "Lettering", V3(0.05, 1.3, 20), cf, s * (Wb / 2 + 0.03), 4.3, 2, body, M.Metal)
+		label(txt, s > 0 and NF.Right or NF.Left, "ИСПРАВИТЕЛЬНОЕ УЧРЕЖДЕНИЕ BLACK RIDGE", rgb(30, 34, 40))
+		P(m, "Mirror", V3(0.3, 1.2, 0.8), cf, s * (Wb / 2 + 0.7), 7.2, -hz + 0.6, rgb(24, 24, 26), M.Metal)
+	end
+	-- колёса: ось цилиндра по X (поперёк автобуса)
+	for _, wz in ipairs({ -hz + 6, hz - 9, hz - 5 }) do
+		for s = -1, 1, 2 do
+			B.cyl(m, "Wheel", 1.2, 3.4, cf * CF(s * (Wb / 2 - 0.4), 1.7, wz), rgb(22, 22, 24), B.mat("Rubber", M.SmoothPlastic))
+			B.cyl(m, "Hub", 1.25, 1.5, cf * CF(s * (Wb / 2 - 0.4), 1.7, wz), rgb(120, 120, 116), M.Metal)
+		end
+	end
+	-- перед: лобовое, решётка радиатора, фары, табло маршрута
+	P(m, "Windshield", V3(Wb - 1, 2.8, 0.2), cf, 0, 7.4, -hz - 0.05, rgb(40, 50, 58), M.Glass, { Transparency = 0.2, Reflectance = 0.25 })
+	P(m, "Grill", V3(5, 1.6, 0.2), cf, 0, 3.8, -hz - 0.1, rgb(36, 36, 38), M.DiamondPlate)
+	P(m, "Bumper", V3(Wb + 0.2, 0.8, 0.6), cf, 0, 2.3, -hz - 0.3, rgb(30, 30, 32), M.Metal)
+	for s = -1, 1, 2 do
+		P(m, "Headlight", V3(1.1, 0.8, 0.1), cf, s * 3.1, 3.8, -hz - 0.1, rgb(220, 214, 180), M.SmoothPlastic)
+		P(m, "TailLight", V3(1.0, 0.7, 0.1), cf, s * 3.2, 4.0, hz + 0.05, rgb(150, 20, 16), M.Neon)
+	end
+	local route = P(m, "RouteSign", V3(6, 0.9, 0.12), cf, 0, 9.3, -hz - 0.08, rgb(12, 12, 12), M.SmoothPlastic)
+	label(route, NF.Front, "НЕ ОБСЛУЖИВАЕТСЯ", rgb(255, 140, 30), { Font = Enum.Font.Code })
+	-- задняя аварийная дверь с решёткой
+	P(m, "RearDoor", V3(3.4, 6.4, 0.15), cf, 0, 6.0, hz + 0.05, rgb(170, 170, 162), M.Metal)
+	P(m, "RearWin", V3(2.6, 1.8, 0.1), cf, 0, 7.6, hz + 0.12, C.darkGlass, M.Glass)
+	P(m, "RearBumper", V3(Wb + 0.2, 0.8, 0.6), cf, 0, 2.3, hz + 0.3, rgb(30, 30, 32), M.Metal)
+	-- передняя дверь справа
+	P(m, "Door", V3(0.12, 6.4, 2.8), cf, -(Wb / 2 + 0.03), 5.4, -hz + 2.4, rgb(150, 150, 144), M.Metal)
+	return m
+end
+
+-- ==========================================================================
+-- БУДКА ОХРАНЫ (КПП) и шлагбаум
+-- ==========================================================================
+local function guardBooth(parent, cf)
+	local m = B.model(parent, "GuardBooth")
+	local wall = rgb(166, 162, 150)
+	local Wd = 8
+	P(m, "Base", V3(Wd + 0.8, 0.5, Wd + 0.8), cf, 0, 0.25, 0, C.concreteDark, M.Concrete)
+	for sx = -1, 1, 2 do
+		for sz = -1, 1, 2 do
+			P(m, "CornerPost", V3(0.5, 8.6, 0.5), cf, sx * Wd / 2, 4.8, sz * Wd / 2, rgb(50, 52, 54), M.Metal)
+		end
+	end
+	-- низ стен; дверь сзади (+Z)
+	P(m, "LowFront", V3(Wd, 3.4, 0.4), cf, 0, 2.2, -Wd / 2, wall, M.Concrete)
+	P(m, "LowL", V3(0.4, 3.4, Wd), cf, -Wd / 2, 2.2, 0, wall, M.Concrete)
+	P(m, "LowR", V3(0.4, 3.4, Wd), cf, Wd / 2, 2.2, 0, wall, M.Concrete)
+	P(m, "BackL", V3(2.4, 8.2, 0.4), cf, -2.8, 4.6, Wd / 2, wall, M.Concrete)
+	P(m, "BackR", V3(2.4, 8.2, 0.4), cf, 2.8, 4.6, Wd / 2, wall, M.Concrete)
+	P(m, "BackTop", V3(3.2, 1.2, 0.4), cf, 0, 8.1, Wd / 2, wall, M.Concrete)
+	P(m, "Door", V3(3.1, 7.0, 0.2), cf, 0, 4.0, Wd / 2 + 0.05, rgb(70, 80, 84), M.Metal)
+	-- стёкла по трём сторонам
+	P(m, "GlassFront", V3(Wd - 0.5, 4.4, 0.15), cf, 0, 6.1, -Wd / 2, C.glass, M.Glass, { Transparency = 0.5 })
+	P(m, "GlassL", V3(0.15, 4.4, Wd - 0.5), cf, -Wd / 2, 6.1, 0, C.glass, M.Glass, { Transparency = 0.5 })
+	P(m, "GlassR", V3(0.15, 4.4, Wd - 0.5), cf, Wd / 2, 6.1, 0, C.glass, M.Glass, { Transparency = 0.5 })
+	P(m, "Roof", V3(Wd + 2, 0.6, Wd + 2), cf, 0, 9.4, 0, rgb(46, 48, 50), M.Metal)
+	local fascia = P(m, "Fascia", V3(Wd + 2, 1.0, 0.2), cf, 0, 9.2, -Wd / 2 - 1.05, rgb(20, 40, 70), M.Metal)
+	label(fascia, NF.Front, "КПП · ОХРАНА", rgb(236, 236, 226))
+	-- внутри: стол, монитор, стул, настольная лампа
+	P(m, "Desk", V3(Wd - 1, 0.25, 2), cf, 0, 3.6, -Wd / 2 + 1.4, rgb(90, 70, 50), M.Wood)
+	P(m, "DeskBody", V3(Wd - 1, 3.0, 0.3), cf, 0, 2.0, -Wd / 2 + 2.3, rgb(70, 56, 42), M.Wood)
+	P(m, "Monitor", V3(1.6, 1.2, 1.0), cf, -1.5, 4.35, -Wd / 2 + 1.2, rgb(40, 40, 40), M.SmoothPlastic)
+	P(m, "MonitorGlow", V3(1.3, 0.9, 0.05), cf, -1.5, 4.35, -Wd / 2 + 0.68, rgb(90, 140, 120), M.Neon)
+	P(m, "Chair", V3(1.6, 0.3, 1.6), cf, 0, 2.2, 0, rgb(30, 30, 32), M.Fabric)
+	P(m, "ChairBack", V3(1.6, 1.8, 0.25), cf, 0, 3.2, 0.8, rgb(30, 30, 32), M.Fabric)
+	local lamp = P(m, "DeskLamp", V3(0.5, 0.4, 0.5), cf, 2, 4.2, -Wd / 2 + 1.3, rgb(255, 220, 160), M.Neon)
+	B.light(lamp, "PointLight", { Color = rgb(255, 206, 150), Range = 12, Brightness = 1.4 })
+	return m
+end
+
+-- шлагбаум: cf — тумба, стрела уходит в локальный +X, поднята
+local function boomGate(parent, cf, len)
+	local m = B.model(parent, "BoomGate")
+	P(m, "Housing", V3(1.4, 3.4, 1.4), cf, 0, 1.7, 0, rgb(220, 180, 40), M.Metal)
+	local pivot = cf * CF(0, 3.0, 0) * ANG(0, 0, rad(78))
+	for k = 0, 4 do
+		local c = (k % 2 == 0) and rgb(220, 30, 24) or rgb(236, 236, 230)
+		P(m, "Arm", V3(len / 5, 0.35, 0.3), pivot, (k + 0.5) * len / 5 + 0.4, 0, 0, c, M.SmoothPlastic)
+	end
+	return m
+end
+
+-- доска «ПРОПАЛ РЕБЁНОК» с листовками
+local function noticeBoard(parent, cf)
+	local m = B.model(parent, "NoticeBoard")
+	for s = -1, 1, 2 do P(m, "Leg", V3(0.35, 7, 0.35), cf, s * 3.2, 3.5, 0, rgb(70, 56, 40), M.Wood) end
+	P(m, "Board", V3(7, 4, 0.3), cf, 0, 5, 0, rgb(120, 92, 62), M.Wood)
+	B.part(m, "BoardRoof", V3(7.6, 0.25, 1.0), cf * CF(0, 7.2, 0) * ANG(rad(-15), 0, 0), rgb(50, 44, 38), M.Wood)
+	local texts = { "ПРОПАЛ\nРЕБЁНОК", "AMBER\nALERT", "ВЫ ВИДЕЛИ\nЕЁ?", "ПРОПАЛ\nБЕЗ ВЕСТИ", "НЕ ВЫХОДИТЕ\nНОЧЬЮ" }
+	for k = 1, 5 do
+		local px = -2.7 + (k - 1) * 1.35
+		local col = (k == 2) and rgb(255, 196, 40) or vary(rgb(226, 222, 206), 0.05)
+		local poster = B.part(m, "Poster", V3(1.15, 1.6, 0.04), cf * CF(px, 5 + rr(-0.8, 0.8), -0.18) * ANG(0, 0, rad(rr(-6, 6))), col, M.SmoothPlastic)
+		label(poster, NF.Front, texts[k], rgb(150, 20, 16), { Font = Enum.Font.GothamBlack })
+	end
+	return m
+end
+
+-- старая легковушка (длина по локальному Z)
+local function sedan(parent, cf, col)
+	local m = B.model(parent, "Car")
+	P(m, "Body", V3(5.6, 1.7, 12), cf, 0, 2.0, 0, col, M.Metal)
+	P(m, "Cabin", V3(5.0, 1.8, 6.2), cf, 0, 3.75, 0.6, C.darkGlass, M.Glass, { Transparency = 0.1, Reflectance = 0.2 })
+	P(m, "Roof", V3(5.1, 0.25, 5.4), cf, 0, 4.75, 0.8, col, M.Metal)
+	P(m, "Bumper", V3(5.8, 0.6, 0.4), cf, 0, 1.4, -6.1, rgb(150, 150, 146), M.Metal)
+	P(m, "Bumper", V3(5.8, 0.6, 0.4), cf, 0, 1.4, 6.1, rgb(150, 150, 146), M.Metal)
+	for _, wz in ipairs({ -3.8, 3.8 }) do
+		for s = -1, 1, 2 do
+			B.cyl(m, "Wheel", 0.9, 2.4, cf * CF(s * 2.5, 1.2, wz), rgb(22, 22, 24), B.mat("Rubber", M.SmoothPlastic))
+		end
+	end
+	for s = -1, 1, 2 do
+		P(m, "Headlight", V3(1.0, 0.5, 0.1), cf, s * 2.0, 2.2, -6.02, rgb(200, 196, 170), M.SmoothPlastic)
+		P(m, "TailLight", V3(1.0, 0.5, 0.1), cf, s * 2.0, 2.2, 6.02, rgb(120, 20, 16), M.SmoothPlastic)
+	end
+	return m
+end
+
+-- бордюр из кусков (разный оттенок): от a до b по земле
+local function kerb(parent, a, b, seg)
+	local flat = V3(b.X - a.X, 0, b.Z - a.Z)
+	local len = flat.Magnitude
+	local n = math.max(1, math.ceil(len / (seg or 16)))
+	for k = 0, n - 1 do
+		local p0 = a + flat * (k / n)
+		local p1 = a + flat * ((k + 1) / n)
+		beam(parent, "Kerb", V3(p0.X, 0.35, p0.Z), V3(p1.X, 0.35, p1.Z), 0.8, 0.7, vary(C.concreteLight, 0.05), M.Concrete)
+	end
+end
+
+-- ==========================================================================
+-- ПЛОЩАДЬ: фонари, скамейки, урны, доска объявлений, лужи, трещины, бордюры
+-- ==========================================================================
+local function buildPlaza(root)
+	local f = B.model(root, "Plaza")
+	local sp = SPAWN_POS
+	for _, p in ipairs({ V3(-47, PLAZA_Y, -46), V3(47, PLAZA_Y, -46), V3(-47, PLAZA_Y, -12), V3(47, PLAZA_Y, -12),
+		V3(-47, PLAZA_Y, 20), V3(47, PLAZA_Y, 20), V3(-16, PLAZA_Y, -34), V3(16, PLAZA_Y, -34) }) do
+		lampPost(f, p, sp)
+	end
+	for _, p in ipairs({ V3(-14, PLAZA_Y, -28), V3(14, PLAZA_Y, -28), V3(-22, PLAZA_Y, 14), V3(22, PLAZA_Y, 14) }) do
+		bench(f, facing(p, sp))
+		trashCan(f, p + V3((p.X > 0) and 4.5 or -4.5, 0, 0))
+	end
+	noticeBoard(f, facing(V3(44, PLAZA_Y, -34), sp))
+	-- бетонные клумбы с сухими кустами у краёв ряда кабинок
+	for s = -1, 1, 2 do
+		local x = s * 40
+		B.part(f, "Planter", V3(6, 1.6, 6), CF(x, PLAZA_Y + 0.8, 32), C.concrete, M.Concrete)
+		B.part(f, "Soil", V3(5.2, 0.2, 5.2), CF(x, PLAZA_Y + 1.55, 32), rgb(40, 32, 26), M.Ground)
+		bush(f, V3(x, PLAZA_Y + 1.6, 32), 3.2)
+	end
+	-- ограждения у главных ворот (воронка к проходу)
+	crowdBarrier(f, B.at(-15, PLAZA_Y, -46, 20))
+	crowdBarrier(f, B.at(15, PLAZA_Y, -46, -20))
+	-- лужи и трещины в плитке
+	puddle(f, V3(-30, PLAZA_Y, 18), 4)
+	puddle(f, V3(24, PLAZA_Y, -42), 3.5)
+	puddle(f, V3(6, PLAZA_Y, 16), 3)
+	for k = 1, 9 do
+		local p = V3(rr(-45, 45), PLAZA_Y + 0.005, rr(-48, 22))
+		if (p - V3(sp.X, p.Y, sp.Z)).Magnitude > 12 then crack(f, p, rr(4, 9)) end
+	end
+	-- бордюры: восток и юг площади
+	kerb(f, V3(50.4, 0, -52), V3(50.4, 0, 51.4), 20)
+	kerb(f, V3(-50, 0, 51.4), V3(50.4, 0, 51.4), 20)
+end
+
+-- ==========================================================================
+-- ПАРКОВКА: разметка, автобус, машины, лужи, выбоина с конусами
+-- ==========================================================================
+local function buildParking(root)
+	local f = B.model(root, "Parking")
+	local Y = 0.2
+	local paint = B.model(f, "Paint")
+	for k = 0, 18 do
+		local z = -46 + 9 * k
+		B.part(paint, "Line", V3(18, 0.02, 0.3), CF(-114, Y + 0.01, z), C.lineWhite, M.SmoothPlastic, { CastShadow = false })
+		if z < 14 or z > 64 then
+			B.part(paint, "Line", V3(18, 0.02, 0.3), CF(-68, Y + 0.01, z), C.lineWhite, M.SmoothPlastic, { CastShadow = false })
+		end
+	end
+	-- место автобуса: жёлтая рамка и надпись
+	B.part(paint, "BusBay", V3(0.35, 0.02, 50), CF(-77, Y + 0.012, 39), C.lineYellow, M.SmoothPlastic, { CastShadow = false })
+	B.part(paint, "BusBay", V3(0.35, 0.02, 50), CF(-59, Y + 0.012, 39), C.lineYellow, M.SmoothPlastic, { CastShadow = false })
+	B.part(paint, "BusBay", V3(18, 0.02, 0.35), CF(-68, Y + 0.012, 14), C.lineYellow, M.SmoothPlastic, { CastShadow = false })
+	B.part(paint, "BusBay", V3(18, 0.02, 0.35), CF(-68, Y + 0.012, 64), C.lineYellow, M.SmoothPlastic, { CastShadow = false })
+	local word = B.part(paint, "BusWord", V3(14, 0.02, 4), CF(-68, Y + 0.013, 18.5), nil, nil, { Transparency = 1, CanCollide = false, CastShadow = false })
+	label(word, NF.Top, "АВТОБУС", C.lineYellow, { Font = Enum.Font.GothamBlack })
+	for k = 0, 10 do
+		B.part(paint, "Dash", V3(0.3, 0.02, 6), CF(-91, Y + 0.01, -40 + k * 16), C.lineYellow, M.SmoothPlastic, { CastShadow = false })
+	end
+	-- «зебра» перехода к площади
+	for k = -2, 2 do
+		B.part(paint, "Zebra", V3(7, 0.02, 1.1), CF(-58.5, Y + 0.01, k * 2.4), C.lineWhite, M.SmoothPlastic, { CastShadow = false })
+	end
+	-- пятна масла
+	for k = 1, 6 do
+		local z = -41.5 + 9 * math.floor(rr(0, 17.99))
+		B.vcyl(paint, "Oil", 0.02, rr(2.5, 4), CF(rr(-117, -111), Y + 0.006, z), rgb(24, 24, 26), M.SmoothPlastic, { Transparency = 0.3, CastShadow = false })
+	end
+	-- бордюр между парковкой и площадью (с проходом у «зебры»)
+	kerb(f, V3(-54.4, 0, -52), V3(-54.4, 0, -6.5), 16)
+	kerb(f, V3(-54.4, 0, 6.5), V3(-54.4, 0, 127.5), 16)
+	-- тюремный автобус и пара брошенных машин
+	prisonBus(f, CF(-68, Y, 40) * ANG(0, rad(3), 0))
+	sedan(f, CF(-114, Y, -41.5 + 9 * 3) * ANG(0, rad(92), 0), rgb(70, 44, 40))
+	sedan(f, CF(-114, Y, -41.5 + 9 * 11) * ANG(0, rad(87), 0), rgb(52, 62, 74))
+	sedan(f, CF(-68, Y, -41.5 + 9 * 2) * ANG(0, rad(-91), 0), rgb(150, 146, 132))
+	-- выбоина, огороженная конусами и козлами
+	B.vcyl(f, "Pothole", 0.03, 3.8, CF(-92, Y + 0.015, 60), rgb(16, 16, 18), M.Asphalt, { CastShadow = false })
+	B.vcyl(f, "Pothole", 0.03, 2.4, CF(-91, Y + 0.02, 61.2), rgb(30, 26, 22), M.Ground, { CastShadow = false })
+	for k = 0, 3 do
+		local a = k / 4 * math.pi * 2 + 0.4
+		cone(f, V3(-92 + math.cos(a) * 3.6, Y, 60 + math.sin(a) * 3.6))
+	end
+	sawhorse(f, B.at(-92, Y, 55, 0))
+	-- лужи и трещины
+	puddle(f, V3(-90, Y, 10), 6)
+	puddle(f, V3(-112, Y, 60), 4)
+	puddle(f, V3(-82, Y, 96), 5)
+	puddle(f, V3(-100, Y, -30), 4.5)
+	puddle(f, V3(-64, Y, 86), 3.5)
+	for k = 1, 14 do crack(f, V3(rr(-122, -58), Y + 0.005, rr(-48, 124)), rr(5, 12)) end
+	-- фонари вдоль краёв
+	lampPost(f, V3(-122, Y, 30), V3(-90, Y, 30))
+	lampPost(f, V3(-122, Y, 110), V3(-90, Y, 110))
+	lampPost(f, V3(-57, Y, 70), V3(-90, Y, 70), false)
+	lampPost(f, V3(-57, Y, 110), V3(-90, Y, 110), false)
+end
+
+-- ==========================================================================
+-- СКВЕР (восток) и пустырь за экраном (юг): дорожки, мёртвые деревья, кусты, скамейки
+-- ==========================================================================
+local function buildLawns(root)
+	local f = B.model(root, "Lawns")
+	local Y = 0.15
+	B.part(f, "Path", V3(68, 0.1, 8), CF(84, 0.15, 0), rgb(88, 84, 76), M.Pebble)
+	B.part(f, "Path", V3(8, 0.1, 176), CF(88, 0.16, 37), rgb(84, 80, 72), M.Pebble)
+	bench(f, facing(V3(76, Y, 7), V3(76, Y, 0)))
+	bench(f, facing(V3(104, Y, -7), V3(104, Y, 0)))
+	bench(f, facing(V3(96, Y, 44), V3(88, Y, 44)))
+	bench(f, facing(V3(80, Y, -40), V3(88, Y, -40)))
+	trashCan(f, V3(81, Y, 7.5))
+	trashCan(f, V3(96.5, Y, 50))
+	lampPost(f, V3(66, Y, 6), V3(66, Y, 0))
+	lampPost(f, V3(110, Y, -6), V3(110, Y, 0), false)
+	lampPost(f, V3(93.5, Y, 70), V3(88, Y, 70), false)
+	lampPost(f, V3(82.5, Y, -30), V3(88, Y, -30), false)
+	lampPost(f, V3(-20, Y, 92), V3(0, Y, 92), false)
+	-- мёртвые деревья
+	local trees = { V3(70, Y, -40), V3(102, Y, -24), V3(117, Y, 18), V3(66, Y, 30), V3(106, Y, 62), V3(74, Y, 86),
+		V3(114, Y, 110), V3(60, Y, 116), V3(-40, Y, 76), V3(-14, Y, 104), V3(30, Y, 82), V3(42, Y, 114), V3(-46, Y, 118),
+		V3(118, Y, -40) }
+	for _, p in ipairs(trees) do deadTree(f, p, rr(0.85, 1.3)) end
+	-- кусты: вдоль полосы у парковки и по газонам
+	for k = 0, 4 do bush(f, V3(-52, Y, -40 + k * 20 + rr(-3, 3)), rr(2.4, 3.2)) end
+	for k = 1, 16 do
+		local p
+		if k <= 9 then p = V3(rr(56, 122), Y, rr(-46, 122)) else p = V3(rr(-48, 46), Y, rr(62, 122)) end
+		if math.abs(p.X - 88) > 7 and math.abs(p.Z) > 7 then bush(f, p, rr(2.5, 4.5)) end
+	end
+	puddle(f, V3(70, Y, 50), 4)
+end
+
+-- ==========================================================================
+-- ДВОР ЛЕЧЕБНИЦЫ: мусорные баки, бочки, кресло-каталка, щит, трещины, лужи
+-- ==========================================================================
+local function dumpster(parent, cf)
+	local m = B.model(parent, "Dumpster")
+	local c = vary(rgb(40, 70, 52), 0.08)
+	P(m, "Box", V3(7, 4, 4), cf, 0, 2.4, 0, c, M.CorrodedMetal)
+	B.part(m, "Lid", V3(7.2, 0.25, 4.3), cf * CF(0, 4.55, 0) * ANG(rad(-6), 0, 0), rgb(30, 30, 32), M.Plastic)
+	for s = -1, 1, 2 do P(m, "Wheel", V3(0.6, 0.6, 0.6), cf, s * 3, 0.3, 1.4, rgb(20, 20, 20), M.Metal) end
+	return m
+end
+
+local function wheelchair(parent, cf)
+	local m = B.model(parent, "Wheelchair")
+	local s = rgb(150, 152, 150)
+	P(m, "Seat", V3(2, 0.25, 2), cf, 0, 2, 0, rgb(40, 40, 46), M.Fabric)
+	B.part(m, "Back", V3(2, 2, 0.2), cf * CF(0, 3.1, 1.0) * ANG(rad(10), 0, 0), rgb(40, 40, 46), M.Fabric)
+	for k = -1, 1, 2 do
+		B.cyl(m, "BigWheel", 0.15, 2.8, cf * CF(k * 1.15, 1.4, 0.4), s, M.Metal, { Transparency = 0.1 })
+		B.cyl(m, "SmallWheel", 0.15, 0.7, cf * CF(k * 0.8, 0.35, -1.0), rgb(30, 30, 30), M.Metal)
+		P(m, "Handle", V3(0.12, 0.12, 0.8), cf, k * 0.9, 4.0, 1.4, s, M.Metal)
+	end
+	return m
+end
+
+local function buildCourtyard(root, L)
+	local f = B.model(root, "Courtyard")
+	local Y = PLAZA_Y
+	local hx = L and L.HX or 79
+	dumpster(f, facing(V3(hx + 12, Y, -82), V3(hx + 12, Y, -60)))
+	dumpster(f, facing(V3(hx + 21, Y, -80), V3(hx + 21, Y, -60)) * ANG(0, rad(8), 0))
+	for k = 0, 2 do
+		B.vcyl(f, "Barrel", 3, 2, CF(hx + 30 + k * 2.3, Y + 1.5, -84 + (k % 2) * 1.5), vary(rgb(70, 60, 44), 0.12), M.CorrodedMetal)
+	end
+	wheelchair(f, facing(V3(26, Y, -64), V3(10, Y, -80)))
+	-- электрощит с табличкой
+	B.part(f, "Generator", V3(6, 5, 3.5), CF(-hx - 14, Y + 2.5, -64), rgb(70, 76, 64), M.CorrodedMetal)
+	local warn1 = B.part(f, "GenSign", V3(2.6, 1.4, 0.05), CF(-hx - 14, Y + 3.2, -62.23), rgb(232, 196, 40), M.SmoothPlastic)
+	label(warn1, NF.Back, "ОПАСНО!\n380 В", rgb(20, 20, 20))
+	-- конусы у подножия лестницы и вдоль двора
+	cone(f, V3(-hx - 34, Y, -78))
+	cone(f, V3(-hx - 34, Y, -82))
+	cone(f, V3(40, Y, -70))
+	sawhorse(f, B.at(60, Y, -66, 15))
+	puddle(f, V3(-20, Y, -70), 5)
+	puddle(f, V3(50, Y, -78), 3.5)
+	for k = 1, 8 do crack(f, V3(rr(-115, 115), Y + 0.005, rr(-80, -56)), rr(5, 12)) end
+	-- холодные настенные фонари на 3 этаже фасада
+	for _, x in ipairs({ -hx + 12, -hx * 0.45, hx * 0.45, hx - 12 }) do
+		local lamp = B.part(f, "WallPack", V3(1.6, 1.0, 1.2), CF(x, L3 + 10.5, FACE_Z + 0.6), rgb(36, 38, 40), M.Metal)
+		B.part(f, "WallPackLens", V3(1.3, 0.1, 0.9), CF(x, L3 + 9.98, FACE_Z + 0.65), C.cold, M.Neon)
+		B.light(lamp, "SpotLight", { Face = NF.Bottom, Color = C.cold, Range = 40, Angle = 70, Brightness = 2.2, Shadows = false })
+	end
+	-- крыша: вентустановки, бак на опорах, антенна с красным огнём
+	local ry = ROOF_Y + 1
+	for k = -1, 1, 2 do
+		B.part(f, "HVAC", V3(8, 3.5, 5), CF(k * (hx * 0.55), ry + 1.75, -110), rgb(140, 142, 140), M.Metal)
+		B.vcyl(f, "Fan", 0.3, 3, CF(k * (hx * 0.55) + 1.5, ry + 3.6, -110), rgb(40, 40, 40), M.DiamondPlate)
+	end
+	local tx = -hx * 0.3
+	for sx = -1, 1, 2 do
+		for sz = -1, 1, 2 do
+			B.part(f, "TankLeg", V3(0.5, 8, 0.5), CF(tx + sx * 2.5, ry + 4, -112 + sz * 2.5), rgb(60, 50, 40), M.Wood)
+		end
+	end
+	B.vcyl(f, "Tank", 7, 7.5, CF(tx, ry + 11.5, -112), rgb(92, 72, 54), M.WoodPlanks)
+	B.vcyl(f, "TankRoof", 1, 8.2, CF(tx, ry + 15.5, -112), rgb(52, 50, 48), M.Metal)
+	B.vcyl(f, "Antenna", 14, 0.35, CF(hx * 0.35, ry + 7, -115), rgb(90, 90, 92), M.Metal)
+	B.ball(f, "AntennaLight", 0.6, CF(hx * 0.35, ry + 14.2, -115), rgb(255, 40, 30), M.Neon)
+end
+
+-- ==========================================================================
+-- ЮЖНЫЙ ВЪЕЗД: открытые откатные ворота, шлагбаум, будка охраны, блоки, дорога в туман
+-- ==========================================================================
+local function buildSouthGate(root)
+	local f = B.model(root, "SouthGate")
+	local Y = 0.2
+	local z = EDGE
+	for _, x in ipairs({ -104.8, -87.2 }) do
+		B.part(f, "GatePost", V3(1, 12, 1), CF(x, 6, z), rgb(90, 94, 98), M.Metal)
+		B.part(f, "PostCap", V3(1.3, 0.3, 1.3), CF(x, 12.15, z), rgb(60, 62, 66), M.Metal)
+	end
+	-- откатная створка отъехала вдоль забора внутрь
+	local gz = z - 1.3
+	B.part(f, "SlideTop", V3(17, 0.35, 0.35), CF(-78.5, 10, gz), GALV, M.Metal)
+	B.part(f, "SlideBottom", V3(17, 0.35, 0.35), CF(-78.5, 1.0, gz), GALV, M.Metal)
+	B.part(f, "SlideMesh", V3(17, 8.6, 0.06), CF(-78.5, 5.5, gz), rgb(128, 132, 136), M.DiamondPlate, { Transparency = 0.62, CastShadow = false })
+	for _, x in ipairs({ -87, -70 }) do
+		B.part(f, "SlideEnd", V3(0.35, 9.4, 0.35), CF(x, 5.5, gz), GALV, M.Metal)
+		B.cyl(f, "Roller", 0.3, 0.8, CF(x, 0.6, gz) * ANG(0, rad(90), 0), rgb(30, 30, 30), M.Metal)
+	end
+	-- дорога наружу и бетонные блоки поперёк неё
+	B.part(f, "Road", V3(18, 0.2, 36), CF(-96, 0.1, z + 18), C.asphalt, M.Asphalt)
+	B.part(f, "RoadLine", V3(0.3, 0.02, 34), CF(-96, 0.21, z + 18), C.lineYellow, M.SmoothPlastic, { CastShadow = false })
+	for k = -1, 1 do jersey(f, B.at(-96 + k * 6.2, Y, z + 6, rr(-4, 4))) end
+	sawhorse(f, B.at(-96, Y, z + 3.2, 0))
+	cone(f, V3(-102, Y, z + 2.5))
+	cone(f, V3(-90, Y, z + 2.2))
+	cone(f, V3(-99, Y, z - 4))
+	-- шлагбаум поднят, будка охраны у въезда
+	boomGate(f, CF(-105.5, Y, z - 9), 15)
+	guardBooth(f, facing(V3(-114, Y, z - 14), V3(-90, Y, z - 14)))
+	lampPost(f, V3(-106, Y, z - 4), V3(-96, Y, z - 4))
+end
+
+-- ==========================================================================
 -- ПОСТРОЙКА
 -- ==========================================================================
 function LobbyMap.build(parent)
@@ -9844,9 +12903,14 @@ function LobbyMap.build(parent)
 		lobby.cells = L.cells
 		safe("галерея", buildCatwalk, root, L)
 	end
+	safe("двор", buildCourtyard, root, L)
 	safe("заборы", buildFences, root)
 	safe("ворота", buildMainGate, root)
 	safe("прожекторы", buildFloodlights, root)
+	safe("площадь", buildPlaza, root)
+	safe("парковка", buildParking, root)
+	safe("сквер", buildLawns, root)
+	safe("въезд", buildSouthGate, root)
 
 	root.Parent = parent
 	LobbyMap.current = lobby
@@ -9858,7 +12922,7 @@ function LobbyMap.init(c)
 end
 
 return LobbyMap
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000018"><Properties><string name="Name">Match</string><ProtectedString name="Source"><![CDATA[-- Матч: один дом и 1–4 игрока из кабинки лобби.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000001B"><Properties><string name="Name">Match</string><ProtectedString name="Source"><![CDATA[-- Матч: один дом и 1–4 игрока из кабинки лобби.
 -- Фазы: loading → day (7:00–21:00) → alert (оповещение по ТВ) → night (до 7:00) → dawn → следующий день … → end.
 -- Смерть: тело остаётся, игрок наблюдает; на рассвете или дефибриллятором — оживление.
 local Players = game:GetService("Players")
@@ -10497,7 +13561,7 @@ end
 
 return Match
 ]]></ProtectedString></Properties></Item></Item></Item>
-<Item class="StarterPlayer" referent="RBX0000001D"><Properties><string name="Name">StarterPlayer</string><float name="CameraMaxZoomDistance">22</float><float name="CharacterWalkSpeed">14</float><float name="CharacterJumpHeight">5.5</float></Properties><Item class="StarterPlayerScripts" referent="RBX0000001C"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX0000001B"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Точка входа клиента: собирает общий ctx и запускает клиентские модули по порядку.
+<Item class="StarterPlayer" referent="RBX00000020"><Properties><string name="Name">StarterPlayer</string><float name="CameraMaxZoomDistance">22</float><float name="CharacterWalkSpeed">14</float><float name="CharacterJumpHeight">5.5</float></Properties><Item class="StarterPlayerScripts" referent="RBX0000001F"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX0000001E"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Точка входа клиента: собирает общий ctx и запускает клиентские модули по порядку.
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -10546,5 +13610,5 @@ end)
 
 print("[AA] Клиент Amber Alert запущен")
 ]]></ProtectedString></Properties></Item></Item></Item>
-<Item class="SoundService" referent="RBX0000001E"><Properties><string name="Name">SoundService</string><bool name="RespectFilteringEnabled">true</bool></Properties></Item>
+<Item class="SoundService" referent="RBX00000021"><Properties><string name="Name">SoundService</string><bool name="RespectFilteringEnabled">true</bool></Properties></Item>
 </roblox>
