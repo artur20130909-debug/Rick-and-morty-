@@ -1,4 +1,4 @@
--- Карта лобби: холодная туманная ночная площадь у ворот лечебницы Black Ridge.
+-- Карта лобби: холодная туманная ночная площадь у ворот лечебницы Ashgrove.
 -- Строит Model "Lobby" в начале координат (контракт §7 ARCHITECTURE.md):
 -- точка появления, 4 кабинки (по одной на сложность), 4 киоска, большой экран EAS,
 -- лечебница с рядом камер (по камере на каждый модуль ReplicatedStorage.Inmates),
@@ -8,11 +8,11 @@
 -- План (вид сверху, север = −Z, юг = +Z; игрок появляется лицом на юг, к кабинкам и экрану):
 --
 --  z=-128 ┌──────────────── внешний забор + колючая проволока ────────────────────┐
---         │  ░░░░░░ ЛЕЧЕБНИЦА BLACK RIDGE (3 этажа, x −79..79, z −122..−87) ░░░░░░  │
+--         │  ░░░░░░ ЛЕЧЕБНИЦА ASHGROVE (3 этажа, x −79..79, z −122..−87) ░░░░░░  │
 --         │  ░ 3 эт.: окна с решётками            башня с вывеской над входом     ░  │
 --  z=-87  │ [лестница]═ галерея 2 эт.: 2-й ряд камер ═══════════════════════════    │
 --         │   ▯▯▯▯▯▯ [ВХОД «КОРПУС А»] ▯▯▯▯▯▯  1-й ряд камер, планшеты у дверей       │
---  z=-52  │ ●прожектор ═══ забор с колючкой ══[ВОРОТА BLACK RIDGE]══ забор ═══ ●    │
+--  z=-52  │ ●прожектор ═══ забор с колючкой ══[ВОРОТА ASHGROVE]══ забор ═══ ●    │
 --         │ ПАРКОВКА  ┆      [Классы]      ◉ СПАВН (0,−8)      [Задания]   ┆ сквер  │
 --         │ разметка  ┆   [Досье]                                 [Коды]   ┆ мёртвые│
 --  z=+26  │ автобус   ┆        ┌Б4┐ ┌Б3┐ ┌Б2┐ ┌Б1┐  кабинки, вход на север   ┆ деревья│
@@ -363,7 +363,7 @@ local function buildBillboard(root)
 	B.part(f, "Walkway", V3(W + 2, 0.25, 2.2), CF(x, wy, z - 1.2), rgb(70, 72, 76), M.DiamondPlate)
 	B.part(f, "WalkwayEdge", V3(W + 2, 0.7, 0.15), CF(x, wy - 0.3, z - 2.3), rgb(30, 32, 36), M.Metal)
 	local plate = B.part(f, "Plate", V3(16, 0.7, 0.1), CF(x, wy - 0.3, z - 2.4), rgb(16, 16, 18), M.SmoothPlastic)
-	label(plate, NF.Front, "СИСТЕМА ЭКСТРЕННОГО ОПОВЕЩЕНИЯ  ·  BLACK RIDGE", C.amber)
+	label(plate, NF.Front, "СИСТЕМА ЭКСТРЕННОГО ОПОВЕЩЕНИЯ  ·  ASHGROVE", C.amber)
 	B.cyl(f, "Rail", W + 2, 0.18, CF(x, wy + 3.2, z - 2.25), C.steel, M.Metal)
 	for k = 0, 6 do
 		B.part(f, "RailPost", V3(0.2, 3.2, 0.2), CF(x - (W + 2) / 2 + 0.2 + k * (W + 1.6) / 6, wy + 1.6, z - 2.25), C.steel, M.Metal)
@@ -414,7 +414,7 @@ local function tabletGui(tablet, e)
 	local bg = B.make("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = rgb(8, 14, 18), BorderSizePixel = 0 }, g)
 	B.make("Frame", { Size = UDim2.new(1, 0, 0.13, 0), BackgroundColor3 = e.color, BorderSizePixel = 0 }, bg)
 	B.make("TextLabel", {
-		Size = UDim2.new(1, 0, 0.13, 0), BackgroundTransparency = 1, Text = "BLACK RIDGE",
+		Size = UDim2.new(1, 0, 0.13, 0), BackgroundTransparency = 1, Text = "ASHGROVE",
 		TextScaled = true, Font = Enum.Font.GothamBold, TextColor3 = rgb(10, 10, 12),
 	}, bg)
 	B.make("TextLabel", {
@@ -530,7 +530,7 @@ local function buildCell(parent, name, cf, W, e)
 end
 
 -- ==========================================================================
--- ЛЕЧЕБНИЦА BLACK RIDGE: фасад с пролётами, камеры, галерея, лестница, крыша
+-- ЛЕЧЕБНИЦА ASHGROVE: фасад с пролётами, камеры, галерея, лестница, крыша
 -- ==========================================================================
 -- раскладка пролётов: по perSide пролётов слева и справа от входного блока
 local function asylumLayout(n)
@@ -657,7 +657,7 @@ local function buildAsylum(root, cellsFolder, inmates)
 	B.part(ent, "Tower", V3(2 * ENT, 9, 9), CF(0, ROOF_Y + 4.5, FACE_Z - 4.5), entCol, M.Concrete)
 	B.part(ent, "TowerCap", V3(2 * ENT + 1.2, 0.9, 10.2), CF(0, ROOF_Y + 9.45, FACE_Z - 4.5), C.concreteDark, M.Concrete)
 	local ts = B.part(ent, "TowerSign", V3(2 * ENT - 1.5, 4.6, 0.4), CF(0, ROOF_Y + 5.5, FACE_Z + 0.2), rgb(14, 16, 16), M.SmoothPlastic)
-	label(ts, NF.Back, "BLACK RIDGE ASYLUM", rgb(206, 220, 200))
+	label(ts, NF.Back, "ASHGROVE ASYLUM", rgb(206, 220, 200))
 	for s = -1, 1, 2 do
 		local sl = B.part(ent, "SignLamp", V3(1, 0.6, 1), CF(s * 5, ROOF_Y + 1.1, FACE_Z + 0.6) * ANG(rad(35), 0, 0), rgb(36, 38, 40), M.Metal)
 		B.light(sl, "SpotLight", { Face = NF.Top, Color = C.cold, Range = 12, Angle = 70, Brightness = 2.5, Shadows = false })
@@ -893,11 +893,11 @@ local function buildFences(root)
 	-- таблички
 	fenceSign(f, V3(22, 5.5, GATE_Z + 0.15), 0, "ВХОД ТОЛЬКО ПО ПРОПУСКАМ", rgb(200, 196, 186), rgb(150, 24, 20))
 	fenceSign(f, V3(-40, 5.5, GATE_Z + 0.15), 0, "ОСТОРОЖНО!\nВЫСОКОЕ НАПРЯЖЕНИЕ", rgb(232, 196, 40), rgb(20, 20, 20))
-	fenceSign(f, V3(70, 5.5, GATE_Z + 0.15), 0, "ЗОНА ОХРАНЫ\nBLACK RIDGE", rgb(200, 196, 186), rgb(30, 30, 34))
+	fenceSign(f, V3(70, 5.5, GATE_Z + 0.15), 0, "ЗОНА ОХРАНЫ\nASHGROVE", rgb(200, 196, 186), rgb(30, 30, 34))
 	fenceSign(f, V3(-EDGE + 0.15, 5.5, 40), 90, "ОХРАНЯЕМАЯ ТЕРРИТОРИЯ", rgb(200, 196, 186), rgb(150, 24, 20))
 end
 
--- главные ворота лечебницы: столбы, арка с вывеской BLACK RIDGE ASYLUM, распахнутые створки
+-- главные ворота лечебницы: столбы, арка с вывеской ASHGROVE ASYLUM, распахнутые створки
 local function buildMainGate(root)
 	local f = B.model(root, "MainGate")
 	local z = GATE_Z
@@ -931,8 +931,8 @@ local function buildMainGate(root)
 		beam(f, "ArchLattice", V3(x0, 14.2, z), V3(x0 + 3, 16.0, z), 0.2, 0.2, C.steelDark, M.Metal)
 	end
 	local sign = B.part(f, "GateSign", V3(20, 3.2, 0.4), CF(0, 17.9, z), rgb(14, 16, 16), M.Metal)
-	label(sign, NF.Back, "BLACK RIDGE ASYLUM", rgb(214, 226, 206))
-	label(sign, NF.Front, "BLACK RIDGE ASYLUM", rgb(214, 226, 206))
+	label(sign, NF.Back, "ASHGROVE ASYLUM", rgb(214, 226, 206))
+	label(sign, NF.Front, "ASHGROVE ASYLUM", rgb(214, 226, 206))
 	local sub = B.part(f, "GateSub", V3(13, 1.1, 0.15), CF(0, 12.9, z), rgb(150, 28, 24), M.Metal)
 	label(sub, NF.Back, "ПСИХИАТРИЧЕСКАЯ ЛЕЧЕБНИЦА СТРОГОГО РЕЖИМА", rgb(240, 236, 228))
 	label(sub, NF.Front, "ПСИХИАТРИЧЕСКАЯ ЛЕЧЕБНИЦА СТРОГОГО РЕЖИМА", rgb(240, 236, 228))
@@ -1156,7 +1156,7 @@ local function prisonBus(parent, cf)
 		P(m, "Grille", V3(0.08, 0.15, Lb - 4), cf, s * (Wb / 2 + 0.05), 8.3, 1, rgb(40, 40, 40), M.Metal)
 		P(m, "Stripe", V3(0.08, 0.6, Lb), cf, s * (Wb / 2 + 0.02), 5.4, 0, rgb(214, 128, 24), M.SmoothPlastic)
 		local txt = P(m, "Lettering", V3(0.05, 1.3, 20), cf, s * (Wb / 2 + 0.03), 4.3, 2, body, M.Metal)
-		label(txt, s > 0 and NF.Right or NF.Left, "ИСПРАВИТЕЛЬНОЕ УЧРЕЖДЕНИЕ BLACK RIDGE", rgb(30, 34, 40))
+		label(txt, s > 0 and NF.Right or NF.Left, "ИСПРАВИТЕЛЬНОЕ УЧРЕЖДЕНИЕ ASHGROVE", rgb(30, 34, 40))
 		P(m, "Mirror", V3(0.3, 1.2, 0.8), cf, s * (Wb / 2 + 0.7), 7.2, -hz + 0.6, rgb(24, 24, 26), M.Metal)
 	end
 	-- колёса: ось цилиндра по X (поперёк автобуса)

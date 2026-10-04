@@ -45,4 +45,4 @@ RunService.Heartbeat:Connect(function()
 	if l and l.Enabled then l.Enabled = false end
 end)
 
-print("[AA] Клиент Amber Alert запущен")
+print("[AA] Клиент Stay Inside запущен")

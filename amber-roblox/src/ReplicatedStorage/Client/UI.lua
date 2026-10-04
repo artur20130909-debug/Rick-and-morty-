@@ -1084,7 +1084,7 @@ function Eas.build()
 		local eas = label(inner, "EAS", 58, F.title, COL.white, { Size = UDim2.fromScale(1, 1) })
 		stroke(eas, COL.black, 3, 0.2, true)
 		label(em, "CIVIL DEFENSE", 13, F.code, COL.amber, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 0, 22) })
-		label(em, "BLACK RIDGE", 13, F.code, COL.amber, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 1, -38) })
+		label(em, "ASHGROVE", 13, F.code, COL.amber, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 1, -38) })
 	end
 	-- вращающиеся риски вокруг эмблемы
 	Eas.ticks = {}
@@ -1139,7 +1139,7 @@ function Eas.build()
 	local bar = frame(st, { Name = "Bar", Size = UDim2.fromOffset(1280, 40), Position = UDim2.fromOffset(0, 680), BackgroundColor3 = Color3.fromRGB(70, 48, 0) })
 	Eas.fill = frame(bar, { Size = UDim2.fromScale(0, 1), BackgroundColor3 = COL.amber })
 	grad(Eas.fill, COL.white, Color3.fromRGB(200, 200, 200), 90)
-	label(bar, "AMBER ALERT · BLACK RIDGE ASYLUM", 17, F.title, COL.black, { Size = UDim2.new(0.6, -20, 1, 0), Position = UDim2.fromOffset(20, 0), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 2 })
+	label(bar, "STAY INSIDE · ASHGROVE ASYLUM", 17, F.title, COL.black, { Size = UDim2.new(0.6, -20, 1, 0), Position = UDim2.fromOffset(20, 0), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 2 })
 	Eas.left = label(bar, "", 17, F.title, COL.black, { Size = UDim2.new(0.4, -20, 1, 0), Position = UDim2.fromScale(0.6, 0), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 2 })
 
 	-- экранное меню видеомагнитофона
@@ -1371,7 +1371,7 @@ function Loading.build()
 	local st = frame(root, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(1280, 720), BackgroundTransparency = 1, ZIndex = 10 })
 	fitScale(st, 1280, 720, 2, 1)
 	Loading.stage = st
-	Loading.logo = chromaLabel(st, "BLACK RIDGE", 120, F.title, COL.white, { Size = UDim2.fromOffset(1280, 140), Position = UDim2.fromOffset(0, 230), ZIndex = 12 }, 4)
+	Loading.logo = chromaLabel(st, "ASHGROVE", 120, F.title, COL.white, { Size = UDim2.fromOffset(1280, 140), Position = UDim2.fromOffset(0, 230), ZIndex = 12 }, 4)
 	stroke(Loading.logo.main, COL.amber, 4, 0.75, true)
 	label(st, spaced("ЛЕЧЕБНИЦА · ОКРУГ ЭМБЕР"), 22, F.code, COL.amber, { Size = UDim2.fromOffset(1280, 30), Position = UDim2.fromOffset(0, 370), ZIndex = 12 })
 	Loading.text = label(st, "", 22, F.bold, COL.txt, { Size = UDim2.fromOffset(1000, 30), Position = UDim2.fromOffset(140, 430), ZIndex = 12 })
@@ -1865,7 +1865,7 @@ local function modalShell(name, title, tag, w, h)
 	local tl = label(head, title, 24, F.title, COL.amber, { Size = UDim2.new(1, -150, 0, 30), Position = UDim2.fromOffset(32, 6),
 		TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd })
 	stroke(tl, COL.amber2, 2, 0.75, true)
-	label(head, tag or "BLACK RIDGE // ФАЙЛ", 12, F.mono, COL.dim, { Size = UDim2.new(1, -150, 0, 16), Position = UDim2.fromOffset(33, 36),
+	label(head, tag or "ASHGROVE // ФАЙЛ", 12, F.mono, COL.dim, { Size = UDim2.new(1, -150, 0, 16), Position = UDim2.fromOffset(33, 36),
 		TextXAlignment = Enum.TextXAlignment.Left })
 	local line = frame(head, { Size = UDim2.new(1, 0, 0, 2), Position = UDim2.new(0, 0, 1, -2), BackgroundColor3 = COL.amber })
 	grad(line, COL.white, COL.white, 0, 0, 1)
@@ -2136,7 +2136,7 @@ end
 
 Screens.Dossier = function(key)
 	local def = inmateDef(key)
-	local sh = modalShell("Dossier", "ДОСЬЕ · BLACK RIDGE", "ЛЕЧЕБНИЦА BLACK RIDGE // ОТДЕЛ СОДЕРЖАНИЯ // ДСП", 960, 620)
+	local sh = modalShell("Dossier", "ДОСЬЕ · ASHGROVE", "ЛЕЧЕБНИЦА ASHGROVE // ОТДЕЛ СОДЕРЖАНИЯ // ДСП", 960, 620)
 	local body = sh.body
 	if not def then
 		label(body, "ДЕЛО НЕ НАЙДЕНО", 26, F.title, COL.red, { Size = UDim2.fromScale(1, 0.5) })
@@ -2196,7 +2196,7 @@ Screens.Dossier = function(key)
 		Rotation = -9, TextTransparency = 0.15 })
 	stroke(stamp, COL.stamp, 3, 0.2)
 	-- низ листа
-	label(paper, "BLACK RIDGE ASYLUM · ЭКЗ. 1 ИЗ 1 · ВЫНОС ЗАПРЕЩЁН", 12, F.mono, Color3.fromRGB(120, 108, 90), { AnchorPoint = Vector2.new(0, 1),
+	label(paper, "ASHGROVE ASYLUM · ЭКЗ. 1 ИЗ 1 · ВЫНОС ЗАПРЕЩЁН", 12, F.mono, Color3.fromRGB(120, 108, 90), { AnchorPoint = Vector2.new(0, 1),
 		Size = UDim2.new(1, -350, 0, 16), Position = UDim2.new(0, 326, 1, -14), TextXAlignment = Enum.TextXAlignment.Left })
 	button(paper, "← ВСЕ ДЕЛА", "dark", function() UI.open("Dossiers") end, { AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -18, 1, -40),
 		Size = UDim2.fromOffset(150, 38), TextSize = 14 })
@@ -2224,7 +2224,7 @@ end
 
 -- ===================== список досье =====================
 Screens.Dossiers = function()
-	local sh = modalShell("Dossiers", "АРХИВ ДЕЛ", "BLACK RIDGE // КАРТОТЕКА ЗАКЛЮЧЁННЫХ", 760, 600)
+	local sh = modalShell("Dossiers", "АРХИВ ДЕЛ", "ASHGROVE // КАРТОТЕКА ЗАКЛЮЧЁННЫХ", 760, 600)
 	local list = allInmates()
 	if #list == 0 then
 		label(sh.body, "АРХИВ ПУСТ", 24, F.title, COL.dim, { Size = UDim2.fromScale(1, 1) })
@@ -2265,7 +2265,7 @@ local QUESTS = {
 }
 
 Screens.Quests = function()
-	local sh = modalShell("Quests", "ЗАДАНИЯ ДНЯ", "BLACK RIDGE // ЕЖЕДНЕВНЫЙ НАРЯД", 640, 440)
+	local sh = modalShell("Quests", "ЗАДАНИЯ ДНЯ", "ASHGROVE // ЕЖЕДНЕВНЫЙ НАРЯД", 640, 440)
 	local box = frame(sh.body, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 })
 	vlist(box, 10)
 	for i, q in ipairs(QUESTS) do
@@ -2290,7 +2290,7 @@ end
 
 -- ===================== коды (заглушка) =====================
 Screens.Codes = function()
-	local sh = modalShell("Codes", "КОДЫ", "BLACK RIDGE // ТЕРМИНАЛ ДОСТУПА", 560, 320)
+	local sh = modalShell("Codes", "КОДЫ", "ASHGROVE // ТЕРМИНАЛ ДОСТУПА", 560, 320)
 	local body = sh.body
 	label(body, "Введи код из сообщества игры:", 15, F.body, COL.dim, { Size = UDim2.new(1, 0, 0, 22), TextXAlignment = Enum.TextXAlignment.Left })
 	local tb = mk("TextBox", body, { Size = UDim2.new(1, 0, 0, 56), Position = UDim2.fromOffset(0, 30), BackgroundTransparency = 0.1, BackgroundColor3 = Color3.fromRGB(10, 12, 16),

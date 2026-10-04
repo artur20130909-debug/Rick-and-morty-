@@ -1,4 +1,4 @@
--- Точка входа сервера Amber Alert: удалённые события, служебные папки и запуск модулей по порядку.
+-- Точка входа сервера Stay Inside: удалённые события, служебные папки и запуск модулей по порядку.
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 
@@ -49,4 +49,4 @@ for _, name in ipairs(order) do
 		if not ok then warn("[AA] Ошибка запуска " .. name .. ": " .. tostring(err)) end
 	end
 end
-print("[AA] Сервер Amber Alert запущен")
+print("[AA] Сервер Stay Inside запущен")

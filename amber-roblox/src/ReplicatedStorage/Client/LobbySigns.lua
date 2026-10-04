@@ -76,7 +76,7 @@ local function setupBillboard(part)
 	head.BorderSizePixel = 0
 	head.Parent = bg
 	label(head, "⚠ ЭКСТРЕННОЕ ОПОВЕЩЕНИЕ ⚠", UDim2.fromScale(1, 0.8), UDim2.fromScale(0, 0.1), Color3.new(1, 1, 1))
-	label(bg, Config.GameName or "AMBER ALERT", UDim2.fromScale(1, 0.34), UDim2.fromScale(0, 0.26), AMBER)
+	label(bg, Config.GameName or "STAY INSIDE", UDim2.fromScale(1, 0.34), UDim2.fromScale(0, 0.26), AMBER)
 	local online = label(bg, "", UDim2.fromScale(1, 0.12), UDim2.fromScale(0, 0.62), Color3.fromRGB(200, 200, 210))
 	local clip = Instance.new("Frame")
 	clip.Size = UDim2.fromScale(1, 0.16)
@@ -85,7 +85,7 @@ local function setupBillboard(part)
 	clip.BorderSizePixel = 0
 	clip.ClipsDescendants = true
 	clip.Parent = bg
-	local ticker = label(clip, "ЛЕЧЕБНИЦА BLACK RIDGE: ЗАКЛЮЧЁННЫЕ НА СВОБОДЕ  ·  НЕ ОТКРЫВАЙТЕ ДВЕРЬ НЕЗНАКОМЦАМ  ·  "
+	local ticker = label(clip, "ЛЕЧЕБНИЦА ASHGROVE: ЗАКЛЮЧЁННЫЕ НА СВОБОДЕ  ·  НЕ ОТКРЫВАЙТЕ ДВЕРЬ НЕЗНАКОМЦАМ  ·  "
 		.. "ЗАЙДИТЕ В КАБИНКУ, ЧТОБЫ НАЧАТЬ  ·  СЛЕДИТЕ ЗА ТЕЛЕВИЗОРОМ В 21:00  ·  ", UDim2.fromScale(3, 1), UDim2.fromScale(0, 0), AMBER)
 	ticker.TextXAlignment = Enum.TextXAlignment.Left
 	billboard = { head = head, online = online, ticker = ticker }

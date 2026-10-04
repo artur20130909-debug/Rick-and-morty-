@@ -2,7 +2,7 @@
 -- Звуки и картинки: вставь ID из Roblox (только цифры). Пустая строка — звук/картинка просто не используется.
 local Config = {}
 
-Config.GameName = "AMBER ALERT"
+Config.GameName = "STAY INSIDE"
 Config.MaxPlayersPerHouse = 4
 Config.BoothCountdown = 15          -- секунд в кабинке до старта
 Config.MaxApplesCarried = 14
@@ -50,7 +50,7 @@ Config.Classes = {
 }
 
 Config.Ranks = { "Recruit", "Documented", "Field Operative", "Cleared Personnel", "Containment Unit", "Research Unit",
-	"Anomalous Specialist", "Black Ridge Operator", "Classified", "Amber Alert" }
+	"Anomalous Specialist", "Ashgrove Operator", "Classified", "Stay Inside" }
 Config.XpPerLevel = 200
 function Config.levelOf(xp) return math.floor((xp or 0) / Config.XpPerLevel) + 1 end
 function Config.rankOf(level) return Config.Ranks[math.clamp(math.floor(((level or 1) - 1) / 3) + 1, 1, #Config.Ranks)] end
@@ -58,7 +58,7 @@ function Config.rankOf(level) return Config.Ranks[math.clamp(math.floor(((level 
 -- текст экстренного оповещения (первая строка всегда одна и та же)
 Config.AlertHead = "ГРАЖДАНСКИЕ ВЛАСТИ ОБЪЯВИЛИ ЧРЕЗВЫЧАЙНУЮ СИТУАЦИЮ В ВАШЕМ РАЙОНЕ."
 Config.AlertUnknown = {
-	"МЫ ПОЛУЧАЕМ СООБЩЕНИЯ О НАРУШЕНИИ ПЕРИМЕТРА В ЛЕЧЕБНИЦЕ BLACK RIDGE.",
+	"МЫ ПОЛУЧАЕМ СООБЩЕНИЯ О НАРУШЕНИИ ПЕРИМЕТРА В ЛЕЧЕБНИЦЕ ASHGROVE.",
 	"ОДИН ЗАКЛЮЧЁННЫЙ НЕ НАЙДЕН. ЕГО ИМЯ, КЛАССИФИКАЦИЯ И УРОВЕНЬ УГРОЗЫ — НЕИЗВЕСТНЫ. СИЛЬНАЯ ПОТЕРЯ СИГНАЛА.",
 	"ГРАЖДАНАМ РЕКОМЕНДУЕТСЯ ОСТАВАТЬСЯ В ПОМЕЩЕНИИ ДО ПОЛУЧЕНИЯ НОВОЙ ИНФОРМАЦИИ.",
 }
