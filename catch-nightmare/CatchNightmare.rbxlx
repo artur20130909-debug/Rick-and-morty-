@@ -1,0 +1,3785 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+<External>null</External>
+<External>nil</External>
+<Item class="Workspace" referent="RBX00000001"><Properties><string name="Name">Workspace</string><bool name="StreamingEnabled">false</bool></Properties></Item>
+<Item class="Lighting" referent="RBX00000002"><Properties><string name="Name">Lighting</string><token name="Technology">4</token><token name="LightingStyle">0</token><bool name="PrioritizeLightingQuality">true</bool><bool name="GlobalShadows">true</bool><float name="Brightness">2.2</float><float name="ClockTime">14.5</float><Color3 name="Ambient"><R>0.27</R><G>0.27</G><B>0.33</B></Color3><Color3 name="OutdoorAmbient"><R>0.49</R><G>0.49</G><B>0.55</B></Color3><float name="EnvironmentDiffuseScale">1</float><float name="EnvironmentSpecularScale">1</float></Properties></Item>
+<Item class="ReplicatedStorage" referent="RBX0000000C"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="Folder" referent="RBX00000005"><Properties><string name="Name">Client</string></Properties><Item class="ModuleScript" referent="RBX00000003"><Properties><string name="Name">UI</string><ProtectedString name="Source"><![CDATA[-- Интерфейс игрока: Страх и доход, таймер дня/ночи, события, сообщения, объявления на весь сервер,
+-- лавка (сети, приманки, клетки, Robux), панель приманок, «несёшь монстра», скример, тревога «крадут»,
+-- админ-панель. Всё рисуется кодом; размеры подстраиваются под экран телефона.
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local SoundService = game:GetService("SoundService")
+local StarterGui = game:GetService("StarterGui")
+local RS = game:GetService("ReplicatedStorage")
+local Shared = RS:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Util = require(Shared.Util)
+local Net = require(Shared.Net)
+
+local UI = {}
+local player = Players.LocalPlayer
+local state = RS:WaitForChild("State")
+local Action = Net.event("Action")
+
+local C = {
+	bg = Color3.fromRGB(20, 16, 30), bg2 = Color3.fromRGB(36, 28, 56), accent = Color3.fromRGB(140, 90, 255),
+	gold = Color3.fromRGB(255, 214, 74), text = Color3.new(1, 1, 1), dim = Color3.fromRGB(185, 175, 205),
+	red = Color3.fromRGB(255, 80, 90), green = Color3.fromRGB(110, 255, 130), night = Color3.fromRGB(110, 140, 255),
+}
+local LEFT = Enum.TextXAlignment.Left
+local RIGHT = Enum.TextXAlignment.Right
+
+local gui, scareGui
+local refs = {}
+local scales = {}
+local shopTab = "nets"
+local shopData = nil
+
+---------------------------------------------------------------- помощники
+local function make(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props or {}) do o[k] = v end
+	if parent then o.Parent = parent end
+	return o
+end
+
+local function corner(o, r) return make("UICorner", { CornerRadius = UDim.new(0, r or 12) }, o) end
+
+local function stroke(o, color, th, tr)
+	return make("UIStroke", { Color = color or C.accent, Thickness = th or 2, Transparency = tr or 0, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, o)
+end
+
+local function label(parent, props)
+	local t = make("TextLabel", { BackgroundTransparency = 1, Font = Enum.Font.GothamBlack, TextColor3 = C.text, TextScaled = true, Text = "", RichText = true }, parent)
+	for k, v in pairs(props or {}) do t[k] = v end
+	return t
+end
+
+local function panel(parent, props)
+	local f = make("Frame", { BackgroundColor3 = C.bg, BackgroundTransparency = 0.12, BorderSizePixel = 0 }, parent)
+	for k, v in pairs(props or {}) do f[k] = v end
+	corner(f, 14)
+	stroke(f, C.accent, 2, 0.2)
+	return f
+end
+
+function UI.sound(key, volume)
+	local id = Config.Sounds[key]
+	if not id or id == "" then return end
+	if tonumber(id) then id = "rbxassetid://" .. id end
+	local s = make("Sound", { SoundId = id, Volume = volume or 0.6 }, SoundService)
+	s:Play()
+	task.delay(8, function() s:Destroy() end)
+end
+
+local function button(parent, text, color, props, onClick)
+	local b = make("TextButton", { BackgroundColor3 = color or C.accent, Font = Enum.Font.GothamBlack, TextColor3 = C.text,
+		TextScaled = true, Text = text, AutoButtonColor = true, BorderSizePixel = 0, RichText = true }, parent)
+	corner(b, 10)
+	stroke(b, Color3.new(0, 0, 0), 2, 0.55)
+	make("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 5), PaddingBottom = UDim.new(0, 5) }, b)
+	for k, v in pairs(props or {}) do b[k] = v end
+	if onClick then
+		b.Activated:Connect(function()
+			UI.sound("Click", 0.4)
+			onClick()
+		end)
+	end
+	return b
+end
+
+-- масштаб под размер экрана (телефоны меньше)
+local function addScale(o)
+	local s = make("UIScale", { Scale = 1 }, o)
+	table.insert(scales, s)
+	return s
+end
+
+local function updateScales()
+	local cam = workspace.CurrentCamera
+	local h = cam and cam.ViewportSize.Y or 720
+	local w = cam and cam.ViewportSize.X or 1280
+	local k = math.clamp(math.min(h / 760, w / 1100), 0.55, 1.2)
+	for _, s in ipairs(scales) do s.Scale = k end
+end
+
+local function myBase()
+	local idx = player:GetAttribute("BaseIndex")
+	local bases = workspace:FindFirstChild("Bases")
+	return idx and bases and bases:FindFirstChild("Base_" .. idx) or nil
+end
+
+local function now() return workspace:GetServerTimeNow() end
+
+---------------------------------------------------------------- сообщения
+function UI.toast(text, color)
+	local list = refs.toasts
+	if not list then return end
+	local items = {}
+	for _, c in ipairs(list:GetChildren()) do
+		if c:IsA("Frame") then table.insert(items, c) end
+	end
+	if #items >= 5 then items[1]:Destroy() end
+	local f = make("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = C.bg, BackgroundTransparency = 0.25, BorderSizePixel = 0, LayoutOrder = math.floor(os.clock() * 100) }, list)
+	corner(f, 8)
+	local t = label(f, { Size = UDim2.new(1, -16, 1, -6), Position = UDim2.new(0, 8, 0, 3), Text = text, TextColor3 = color or C.text, Font = Enum.Font.GothamBold })
+	task.delay(3.6, function()
+		if not f.Parent then return end
+		TweenService:Create(f, TweenInfo.new(0.4), { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(t, TweenInfo.new(0.4), { TextTransparency = 1 }):Play()
+		task.wait(0.45)
+		f:Destroy()
+	end)
+end
+
+local announceQueue = {}
+local announcing = false
+local function runAnnounce()
+	if announcing then return end
+	announcing = true
+	task.spawn(function()
+		while #announceQueue > 0 do
+			local a = table.remove(announceQueue, 1)
+			local l = refs.announce
+			l.Text = a.text
+			l.TextColor3 = a.color or C.gold
+			l.TextTransparency = 1
+			l.TextStrokeTransparency = 1
+			l.Visible = true
+			TweenService:Create(l, TweenInfo.new(0.3), { TextTransparency = 0, TextStrokeTransparency = 0 }):Play()
+			task.wait(#announceQueue > 0 and 3 or 4.5)
+			TweenService:Create(l, TweenInfo.new(0.4), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+			task.wait(0.45)
+			l.Visible = false
+		end
+		announcing = false
+	end)
+end
+
+function UI.announce(text, color)
+	table.insert(announceQueue, { text = text, color = color })
+	if #announceQueue > 4 then table.remove(announceQueue, 1) end
+	UI.sound("Whoosh", 0.5)
+	runAnnounce()
+end
+
+-- летящая цифра у денег
+local function cashFloat(amount)
+	local m = refs.money
+	if not m then return end
+	local t = label(m, { Size = UDim2.new(0, 160, 0, 30), Position = UDim2.new(1, 10, 0, 10),
+		Text = (amount >= 0 and "+" or "") .. Util.num(amount) .. " 💀", TextColor3 = amount >= 0 and C.green or C.red, TextXAlignment = LEFT, TextStrokeTransparency = 0.3 })
+	TweenService:Create(t, TweenInfo.new(1.2), { Position = UDim2.new(1, 10, 0, -20), TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	task.delay(1.3, function() t:Destroy() end)
+end
+
+---------------------------------------------------------------- скример и тревога
+local function jumpscare(key, rarityKey)
+	local f = refs.scare
+	local def = Config.MonsterIndex[key]
+	local r = Config.RarityIndex[rarityKey or "common"] or Config.Rarities[1]
+	refs.scareName.Text = def and string.upper(def.name) or "БУ!"
+	refs.scareName.TextColor3 = r.color
+	f.BackgroundTransparency = 0.05
+	f.Visible = true
+	refs.scareScale.Scale = 0.5
+	TweenService:Create(refs.scareScale, TweenInfo.new(0.18, Enum.EasingStyle.Back), { Scale = 1.15 }):Play()
+	UI.sound("Jumpscare", 1)
+	UI.sound("Scream", 0.9)
+	-- тряска камеры
+	task.spawn(function()
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		for _ = 1, 14 do
+			if hum then hum.CameraOffset = Vector3.new(math.random() - 0.5, math.random() - 0.5, 0) * 1.6 end
+			task.wait(0.03)
+		end
+		if hum then hum.CameraOffset = Vector3.new() end
+	end)
+	task.delay(0.55, function()
+		TweenService:Create(f, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(refs.scareScale, TweenInfo.new(0.5), { Scale = 0.01 }):Play()
+		task.wait(0.5)
+		f.Visible = false
+	end)
+	UI.toast("😱 Тебя напугал монстр! Ты уронил добычу", C.red)
+end
+
+local function stolenAlert(name, thief)
+	local l = refs.alert
+	l.Text = "⚠ ВОР! " .. thief .. " утащил " .. name .. "!\nДогони и жми F — «Отобрать»"
+	l.Visible = true
+	for i = 1, 3 do
+		task.delay((i - 1) * 0.35, function() UI.sound("Alarm", 0.8) end)
+	end
+	task.spawn(function()
+		for i = 1, 10 do
+			l.TextColor3 = (i % 2 == 0) and C.red or Color3.new(1, 1, 1)
+			task.wait(0.3)
+		end
+		l.Visible = false
+	end)
+end
+
+local function offlinePopup(earned, away)
+	local f = panel(gui, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 420, 0, 200), ZIndex = 20 })
+	addScale(f)
+	updateScales()
+	local mins = math.floor(away / 60)
+	local txt = mins >= 60 and (math.floor(mins / 60) .. " ч " .. (mins % 60) .. " мин") or (mins .. " мин")
+	label(f, { Size = UDim2.new(1, -30, 0, 36), Position = UDim2.new(0, 15, 0, 14), Text = "🌙 Пока тебя не было (" .. txt .. ")", ZIndex = 21 })
+	label(f, { Size = UDim2.new(1, -30, 0, 50), Position = UDim2.new(0, 15, 0, 56), Text = "монстры напугали людей на <font color=\"#ffd64a\">+" .. Util.num(earned) .. " 💀</font>", Font = Enum.Font.GothamBold, ZIndex = 21 })
+	button(f, "Забрать!", C.accent, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.new(0, 200, 0, 50), ZIndex = 21 }, function()
+		f:Destroy()
+	end)
+	UI.sound("Cash", 0.7)
+end
+
+---------------------------------------------------------------- лавка
+local function clearContent()
+	for _, c in ipairs(refs.shopList:GetChildren()) do
+		if c:IsA("GuiObject") then c:Destroy() end
+	end
+end
+
+local function row(order, title, desc, btnText, btnColor, onClick)
+	local f = make("Frame", { Size = UDim2.new(1, -10, 0, 70), BackgroundColor3 = C.bg2, BorderSizePixel = 0, LayoutOrder = order }, refs.shopList)
+	corner(f, 12)
+	label(f, { Size = UDim2.new(1, -190, 0, 32), Position = UDim2.new(0, 12, 0, 6), Text = title, TextXAlignment = LEFT })
+	label(f, { Size = UDim2.new(1, -190, 0, 22), Position = UDim2.new(0, 12, 0, 40), Text = desc or "", TextXAlignment = LEFT, TextColor3 = C.dim, Font = Enum.Font.GothamBold })
+	local b = button(f, btnText, btnColor or C.accent, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.new(0, 165, 0, 48) }, onClick)
+	if not onClick then b.AutoButtonColor = false end
+	return f, b
+end
+
+local function buy(what, key)
+	Action:FireServer("buy", what, key)
+	task.delay(0.35, function() UI.refreshShop(true) end)
+end
+
+local function promptProduct(kind, def)
+	if not def.id or def.id == 0 then
+		UI.toast("Товар ещё не настроен: впиши его ID в Config (см. README)", C.red)
+		return
+	end
+	if kind == "product" then
+		MarketplaceService:PromptProductPurchase(player, def.id)
+	else
+		MarketplaceService:PromptGamePassPurchase(player, def.id)
+	end
+end
+
+local function rarityListUpTo(net)
+	local names = {}
+	for _, r in ipairs(Config.Rarities) do
+		if r.net == net then table.insert(names, r.name) end
+	end
+	return table.concat(names, ", ")
+end
+
+local function renderShop()
+	if not refs.shop.Visible then return end
+	clearContent()
+	local fear = player:GetAttribute("Fear") or 0
+	local d = shopData or {}
+	for name, b in pairs(refs.tabs) do
+		b.BackgroundColor3 = (name == shopTab) and C.accent or C.bg2
+	end
+	if shopTab == "nets" then
+		local net = player:GetAttribute("Net") or 1
+		for i, n in ipairs(Config.Nets) do
+			local desc = "Открывает: " .. rarityListUpTo(n.level)
+			if n.level <= net then
+				row(i, "🕸 " .. n.name, desc, "✓ Есть", Color3.fromRGB(60, 120, 70))
+			elseif n.level == net + 1 then
+				local can = fear >= n.price
+				row(i, "🕸 " .. n.name, desc, Util.num(n.price) .. " 💀", can and C.accent or Color3.fromRGB(90, 70, 110), function() buy("net") end)
+			else
+				row(i, "🔒 " .. n.name, desc, Util.num(n.price) .. " 💀", Color3.fromRGB(60, 55, 70))
+			end
+		end
+	elseif shopTab == "baits" then
+		for i, b in ipairs(Config.Baits) do
+			local left = d.left and d.left[b.key] or 0
+			local have = player:GetAttribute("Bait_" .. b.key) or 0
+			local extra = ""
+			if b.gold then extra = ", золотые ×" .. b.gold end
+			if b.blood then extra = ", кровавые мутации" end
+			local desc = "Удача ×" .. b.luck .. extra .. " · в наличии: " .. left .. " · у тебя: " .. have
+			if left > 0 then
+				row(i, b.icon .. " " .. b.name, desc, Util.num(b.price) .. " 💀", fear >= b.price and C.accent or Color3.fromRGB(90, 70, 110), function() buy("bait", b.key) end)
+			else
+				row(i, b.icon .. " " .. b.name, desc, "Нет в наличии", Color3.fromRGB(60, 55, 70))
+			end
+		end
+	elseif shopTab == "cages" then
+		local cages = player:GetAttribute("Cages") or Config.StartCages
+		local max = player:GetAttribute("MaxCages") or Config.MaxCages
+		local nextPrice = Config.CagePrices[cages + 1]
+		if cages < max and nextPrice then
+			row(1, "🧺 Новая клетка", "Сейчас клеток: " .. cages .. " из " .. max, Util.num(nextPrice) .. " 💀", fear >= nextPrice and C.accent or Color3.fromRGB(90, 70, 110), function() buy("cage") end)
+		else
+			row(1, "🧺 Клетки", "Сейчас клеток: " .. cages .. " из " .. max, "Максимум", Color3.fromRGB(60, 55, 70))
+		end
+		row(2, "💡 Совет", "Клетку можно купить и прямо на базе (замок на пустой клетке)", "OK", C.bg)
+	elseif shopTab == "robux" then
+		local l = Config.Products.ServerLuck
+		row(1, "🍀 " .. l.name, l.minutes .. " минут удача ×2 у всех игроков", "R$ " .. l.robux, Color3.fromRGB(40, 160, 80), function() promptProduct("product", l) end)
+		local i = 2
+		for _, key in ipairs({ "DoubleFear", "ExtraCages" }) do
+			local p = Config.Passes[key]
+			if player:GetAttribute("Pass" .. key) then
+				row(i, "⭐ " .. p.name, "Уже куплено", "✓ Есть", Color3.fromRGB(60, 120, 70))
+			else
+				row(i, "⭐ " .. p.name, "Геймпасс навсегда", "R$ " .. p.robux, Color3.fromRGB(40, 160, 80), function() promptProduct("pass", p) end)
+			end
+			i = i + 1
+		end
+	end
+end
+
+function UI.refreshShop(fetch)
+	if fetch then
+		local ok, res = pcall(function() return Net.func("GetShop"):InvokeServer() end)
+		if ok and type(res) == "table" then shopData = res end
+	end
+	renderShop()
+end
+
+function UI.openShop(tab)
+	if tab then shopTab = tab end
+	refs.shop.Visible = true
+	UI.refreshShop(true)
+end
+
+local function buildShop()
+	local shop = panel(gui, { Name = "Shop", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.52), Size = UDim2.new(0, 600, 0, 440), Visible = false, ZIndex = 5 })
+	addScale(shop)
+	refs.shop = shop
+	label(shop, { Size = UDim2.new(0, 330, 0, 40), Position = UDim2.new(0, 16, 0, 10), Text = "🛒 ЛАВКА ЛОВЦА", TextXAlignment = LEFT, TextColor3 = C.gold })
+	refs.restock = label(shop, { Size = UDim2.new(0, 190, 0, 22), Position = UDim2.new(1, -250, 0, 20), Text = "", TextXAlignment = RIGHT, TextColor3 = C.dim, Font = Enum.Font.GothamBold })
+	button(shop, "✕", C.red, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 10), Size = UDim2.new(0, 44, 0, 44) }, function()
+		shop.Visible = false
+	end)
+	refs.tabs = {}
+	local tabs = { { "nets", "🕸 Сети" }, { "baits", "🍖 Приманки" }, { "cages", "🧺 Клетки" }, { "robux", "💎 Robux" } }
+	for i, t in ipairs(tabs) do
+		refs.tabs[t[1]] = button(shop, t[2], C.bg2, { Position = UDim2.new((i - 1) / 4, 12, 0, 62), Size = UDim2.new(0.25, -16, 0, 42) }, function()
+			shopTab = t[1]
+			renderShop()
+		end)
+	end
+	local list = make("ScrollingFrame", { Position = UDim2.new(0, 12, 0, 114), Size = UDim2.new(1, -24, 1, -126), BackgroundTransparency = 1,
+		BorderSizePixel = 0, ScrollBarThickness = 6, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y }, shop)
+	make("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+	refs.shopList = list
+	-- перерисовка при смене денег/предметов
+	for _, a in ipairs({ "Fear", "Net", "Cages", "MaxCages", "PassDoubleFear", "PassExtraCages" }) do
+		player:GetAttributeChangedSignal(a):Connect(function()
+			if shop.Visible and a ~= "Fear" then renderShop() end
+		end)
+	end
+end
+
+---------------------------------------------------------------- админ
+local function buildAdmin()
+	local f = panel(gui, { Name = "Admin", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -180, 0.5, 0), Size = UDim2.new(0, 220, 0, 470), Visible = false, ZIndex = 6 })
+	addScale(f)
+	label(f, { Size = UDim2.new(1, -20, 0, 28), Position = UDim2.new(0, 10, 0, 6), Text = "⚙ АДМИН", TextColor3 = C.gold })
+	local holder = make("Frame", { Position = UDim2.new(0, 10, 0, 40), Size = UDim2.new(1, -20, 1, -50), BackgroundTransparency = 1 }, f)
+	make("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, holder)
+	local cmds = {
+		{ "☀ День", "day" }, { "🌙 Ночь", "night" }, { "🩸 Кровавая луна", "bloodmoon" }, { "👾 Глитч-ночь", "glitch" },
+		{ "🌫 Туман", "fog" }, { "Спавн: Легендарный", "spawn legendary" }, { "Спавн: Мифический", "spawn mythic" },
+		{ "Спавн: Секретный", "spawn secret" }, { "+10K Страха", "fear 10000" }, { "🍀 Удача ×2", "luck" }, { "🛒 Обновить лавку", "restock" },
+	}
+	for i, c in ipairs(cmds) do
+		button(holder, c[1], C.bg2, { Size = UDim2.new(1, 0, 0, 34), LayoutOrder = i }, function()
+			Action:FireServer("admin", c[2])
+		end)
+	end
+	refs.admin = f
+end
+
+---------------------------------------------------------------- основной HUD
+local function buildHud()
+	gui = make("ScreenGui", { Name = "HUD", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, player:WaitForChild("PlayerGui"))
+
+	-- деньги
+	local money = panel(gui, { Name = "Money", Position = UDim2.new(0, 12, 0, 10), Size = UDim2.new(0, 270, 0, 128) })
+	addScale(money)
+	refs.money = money
+	refs.fear = label(money, { Position = UDim2.new(0, 14, 0, 6), Size = UDim2.new(1, -28, 0, 42), Text = "💀 0", TextXAlignment = LEFT, TextColor3 = C.gold })
+	refs.income = label(money, { Position = UDim2.new(0, 14, 0, 48), Size = UDim2.new(1, -28, 0, 22), Text = "", TextXAlignment = LEFT, TextColor3 = C.green, Font = Enum.Font.GothamBold })
+	refs.stats = label(money, { Position = UDim2.new(0, 14, 0, 72), Size = UDim2.new(1, -28, 0, 20), Text = "", TextXAlignment = LEFT, TextColor3 = C.dim, Font = Enum.Font.GothamBold })
+	refs.lock = label(money, { Position = UDim2.new(0, 14, 0, 96), Size = UDim2.new(1, -28, 0, 20), Text = "", TextXAlignment = LEFT, TextColor3 = C.dim, Font = Enum.Font.GothamBold })
+
+	-- верх: фаза, событие, удача, сообщения
+	local top = make("Frame", { Name = "Top", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 8), Size = UDim2.new(0, 480, 0, 300), BackgroundTransparency = 1 }, gui)
+	addScale(top)
+	local pill = panel(top, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(0, 290, 0, 52) })
+	pill:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0, 26)
+	refs.pill = pill
+	refs.phase = label(pill, { Size = UDim2.new(1, -24, 1, -12), Position = UDim2.new(0, 12, 0, 6), Text = "☀ ДЕНЬ" })
+	refs.event = label(top, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 58), Size = UDim2.new(1, 0, 0, 24), Text = "", Font = Enum.Font.GothamBold, TextStrokeTransparency = 0.3 })
+	refs.luck = label(top, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 84), Size = UDim2.new(1, 0, 0, 22), Text = "", TextColor3 = C.green, Font = Enum.Font.GothamBold, TextStrokeTransparency = 0.3 })
+	local toasts = make("Frame", { Position = UDim2.new(0, 40, 0, 112), Size = UDim2.new(1, -80, 0, 180), BackgroundTransparency = 1 }, top)
+	make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = Enum.HorizontalAlignment.Center }, toasts)
+	refs.toasts = toasts
+
+	-- объявление на весь сервер
+	local ann = make("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.36), Size = UDim2.new(0, 900, 0, 64), BackgroundTransparency = 1 }, gui)
+	addScale(ann)
+	refs.announce = label(ann, { Size = UDim2.fromScale(1, 1), Visible = false, TextStrokeTransparency = 0, TextStrokeColor3 = Color3.new(0, 0, 0) })
+
+	-- тревога «крадут»
+	local al = make("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.55), Size = UDim2.new(0, 760, 0, 90), BackgroundTransparency = 1 }, gui)
+	addScale(al)
+	refs.alert = label(al, { Size = UDim2.fromScale(1, 1), Visible = false, TextColor3 = C.red, TextStrokeTransparency = 0 })
+
+	-- кнопки справа
+	local right = make("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.45, 0), Size = UDim2.new(0, 160, 0, 200), BackgroundTransparency = 1 }, gui)
+	addScale(right)
+	make("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center }, right)
+	button(right, "🛒 Лавка", C.accent, { Size = UDim2.new(1, 0, 0, 56), LayoutOrder = 1 }, function()
+		if refs.shop.Visible then refs.shop.Visible = false else UI.openShop() end
+	end)
+	button(right, "🍀 Удача ×2", Color3.fromRGB(40, 160, 80), { Size = UDim2.new(1, 0, 0, 56), LayoutOrder = 2 }, function()
+		promptProduct("product", Config.Products.ServerLuck)
+	end)
+	refs.adminBtn = button(right, "⚙ Админ", C.bg2, { Size = UDim2.new(1, 0, 0, 44), LayoutOrder = 3, Visible = false }, function()
+		refs.admin.Visible = not refs.admin.Visible
+	end)
+
+	-- низ: «несёшь» и приманки
+	local bottom = make("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -12), Size = UDim2.new(0, 700, 0, 140), BackgroundTransparency = 1 }, gui)
+	addScale(bottom)
+	local carry = panel(bottom, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(0, 620, 0, 46), Visible = false })
+	refs.carry = carry
+	refs.carryText = label(carry, { Size = UDim2.new(1, -20, 1, -10), Position = UDim2.new(0, 10, 0, 5), Text = "" })
+	local bar = make("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, 0), Size = UDim2.new(1, 0, 0, 74), BackgroundTransparency = 1 }, bottom)
+	make("UIListLayout", { Padding = UDim.new(0, 10), FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder }, bar)
+	refs.baits = {}
+	for i, b in ipairs(Config.Baits) do
+		local btn = button(bar, b.icon, C.bg2, { Size = UDim2.new(0, 130, 1, 0), LayoutOrder = i, Visible = false }, function()
+			Action:FireServer("useBait", b.key)
+		end)
+		refs.baits[b.key] = btn
+	end
+	refs.hint = label(bottom, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -80), Size = UDim2.new(1, 0, 0, 26), Text = "", Font = Enum.Font.GothamBold, TextColor3 = C.gold, TextStrokeTransparency = 0.3 })
+
+	buildShop()
+	buildAdmin()
+
+	-- скример (поверх всего, включая верхнюю панель Roblox)
+	scareGui = make("ScreenGui", { Name = "Scare", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 20 }, player.PlayerGui)
+	local sf = make("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(40, 0, 0), BackgroundTransparency = 1, Visible = false, BorderSizePixel = 0 }, scareGui)
+	refs.scare = sf
+	local face = make("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.48), Size = UDim2.fromScale(0.7, 0.7), BackgroundTransparency = 1 }, sf)
+	make("UIAspectRatioConstraint", { AspectRatio = 1.3 }, face)
+	refs.scareScale = make("UIScale", { Scale = 1 }, face)
+	for _, x in ipairs({ 0.3, 0.7 }) do
+		local eye = make("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(x, 0.35), Size = UDim2.fromScale(0.22, 0.29), BackgroundColor3 = Color3.fromRGB(255, 250, 220), BorderSizePixel = 0 }, face)
+		make("UICorner", { CornerRadius = UDim.new(1, 0) }, eye)
+		local pupil = make("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.55), Size = UDim2.fromScale(0.35, 0.35), BackgroundColor3 = Color3.fromRGB(200, 0, 0), BorderSizePixel = 0 }, eye)
+		make("UICorner", { CornerRadius = UDim.new(1, 0) }, pupil)
+	end
+	label(face, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.72), Size = UDim2.fromScale(0.75, 0.22), Text = "▼▼▼▼▼▼▼", TextColor3 = Color3.fromRGB(245, 245, 235) })
+	refs.scareName = label(face, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0.9), Size = UDim2.fromScale(1, 0.12), Text = "", TextStrokeTransparency = 0 })
+
+	updateScales()
+	local cam = workspace.CurrentCamera
+	if cam then cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateScales) end
+end
+
+---------------------------------------------------------------- обновление каждые 0.2 с
+local function refresh()
+	local t = now()
+	local fear = player:GetAttribute("Fear") or 0
+	refs.fear.Text = "💀 " .. Util.num(fear)
+	local inc = player:GetAttribute("Income") or 0
+	refs.income.Text = "+" .. Util.num(inc) .. " 💀/с" .. (player:GetAttribute("PassDoubleFear") and "  (×2)" or "")
+	local base = myBase()
+	local used = 0
+	if base then
+		for _, sm in ipairs(base.Slots:GetChildren()) do
+			if sm:FindFirstChild("Monster") then used = used + 1 end
+		end
+	end
+	refs.stats.Text = "🕸 Сеть " .. (player:GetAttribute("Net") or 1) .. "   🧺 " .. used .. "/" .. (player:GetAttribute("Cages") or 0)
+	if base and base:GetAttribute("Locked") then
+		refs.lock.Text = "🔒 База заперта · " .. Util.time((base:GetAttribute("LockEnds") or 0) - t)
+		refs.lock.TextColor3 = C.green
+	else
+		refs.lock.Text = "🔓 Открыта — запри у входа"
+		refs.lock.TextColor3 = C.dim
+	end
+
+	-- фаза
+	local phase = state:GetAttribute("Phase")
+	local left = (state:GetAttribute("PhaseEnds") or 0) - t
+	local ev = Config.EventIndex[state:GetAttribute("Event") or ""]
+	local pillStroke = refs.pill:FindFirstChildOfClass("UIStroke")
+	if phase == "night" then
+		refs.phase.Text = "🌙 НОЧЬ " .. Util.time(left)
+		pillStroke.Color = ev and ev.color or C.night
+		if ev then
+			refs.event.Text = ev.name .. " · " .. ev.text
+			refs.event.TextColor3 = ev.color
+		else
+			refs.event.Text = "Редкие монстры вышли на охоту"
+			refs.event.TextColor3 = C.night
+		end
+	else
+		refs.phase.Text = "☀ ДЕНЬ " .. Util.time(left)
+		pillStroke.Color = C.gold
+		refs.event.Text = "Днём только обычные, необычные и редкие"
+		refs.event.TextColor3 = C.dim
+	end
+	local luckEnds = state:GetAttribute("LuckEnds") or 0
+	if (state:GetAttribute("ServerLuck") or 1) > 1 and luckEnds > t then
+		refs.luck.Text = "🍀 Удача сервера ×" .. state:GetAttribute("ServerLuck") .. " · " .. Util.time(luckEnds - t)
+	else
+		refs.luck.Text = ""
+	end
+
+	-- несёшь монстра
+	local carrying = player:GetAttribute("Carrying") or ""
+	refs.carry.Visible = carrying ~= ""
+	if carrying ~= "" then
+		local r = Config.RarityIndex[player:GetAttribute("CarryRarity") or ""] or Config.Rarities[1]
+		refs.carryText.Text = "🎒 " .. carrying .. " — беги на свою базу 🏠"
+		refs.carryText.TextColor3 = r.color
+	end
+
+	-- приманки
+	for _, b in ipairs(Config.Baits) do
+		local n = player:GetAttribute("Bait_" .. b.key) or 0
+		local btn = refs.baits[b.key]
+		btn.Visible = n > 0
+		btn.Text = b.icon .. " ×" .. n
+	end
+
+	-- подсказка новичку
+	local caught = player:GetAttribute("Caught") or 0
+	if carrying ~= "" then
+		refs.hint.Text = ""
+	elseif caught == 0 then
+		refs.hint.Text = "Подойди к монстру и держи E, чтобы поймать"
+	elseif caught < 3 and (player:GetAttribute("Net") or 1) < 2 then
+		refs.hint.Text = "Копи Страх и купи сеть получше в Лавке у костра 🔥"
+	else
+		refs.hint.Text = ""
+	end
+
+	if refs.shop.Visible then
+		local ra = state:GetAttribute("RestockAt") or 0
+		refs.restock.Text = "Обновление: " .. Util.time(ra - t)
+	end
+	refs.adminBtn.Visible = player:GetAttribute("IsAdmin") == true
+end
+
+---------------------------------------------------------------- запуск
+function UI.init()
+	pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false) end)
+	buildHud()
+	Net.event("Toast").OnClientEvent:Connect(function(text, color) UI.toast(text, color) end)
+	Net.event("Announce").OnClientEvent:Connect(function(text, color) UI.announce(text, color) end)
+	Net.event("Fx").OnClientEvent:Connect(function(kind, a, b)
+		if kind == "openShop" then UI.openShop()
+		elseif kind == "scare" then jumpscare(a, b)
+		elseif kind == "stolen" then stolenAlert(a, b)
+		elseif kind == "tackled" then
+			UI.toast("😤 " .. tostring(b) .. " отобрал у тебя " .. tostring(a) .. "!", C.red)
+			UI.sound("Alarm", 0.6)
+		elseif kind == "caught" then
+			local r = Config.RarityIndex[b or ""] or Config.Rarities[1]
+			UI.toast("Поймал: " .. tostring(a) .. "! Неси на базу", r.color)
+			UI.sound("Catch", 0.7)
+		elseif kind == "delivered" then
+			local r = Config.RarityIndex[b or ""] or Config.Rarities[1]
+			UI.toast("🧺 " .. tostring(a) .. " теперь в твоей клетке!", r.color)
+			UI.sound("Cash", 0.7)
+		elseif kind == "cash" then
+			cashFloat(tonumber(a) or 0)
+			if (tonumber(a) or 0) > 0 then UI.sound("Cash", 0.5) end
+		elseif kind == "offline" then offlinePopup(tonumber(a) or 0, tonumber(b) or 0)
+		end
+	end)
+	task.spawn(function()
+		while true do
+			local ok, err = pcall(refresh)
+			if not ok then warn("[CN] UI: " .. tostring(err)) end
+			task.wait(0.2)
+		end
+	end)
+end
+
+return UI
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000004"><Properties><string name="Name">Visuals</string><ProtectedString name="Source"><![CDATA[-- Что клиент делает с миром у себя: освещение дня/ночи и событий, показ подсказок только тем,
+-- кому они нужны (свою клетку нельзя «украсть», чужую — «продать»), проход хозяина через
+-- запертую дверь своей базы, покачивание монстров в клетках, метка «ТВОЯ БАЗА», таймер замков.
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local CollectionService = game:GetService("CollectionService")
+local RS = game:GetService("ReplicatedStorage")
+local Shared = RS:WaitForChild("Shared")
+local Util = require(Shared.Util)
+
+local Visuals = {}
+local player = Players.LocalPlayer
+local state = RS:WaitForChild("State")
+
+---------------------------------------------------------------- освещение
+local atmo, cc, bloom
+local clock = Instance.new("NumberValue")
+clock.Value = 14.5
+
+local PRESETS = {
+	day = {
+		clock = 14.5, light = { Brightness = 2.2, Ambient = Color3.fromRGB(70, 70, 85), OutdoorAmbient = Color3.fromRGB(125, 125, 140),
+			FogStart = 200, FogEnd = 900, FogColor = Color3.fromRGB(170, 180, 200), ExposureCompensation = 0 },
+		atmo = { Density = 0.25, Color = Color3.fromRGB(200, 190, 215), Decay = Color3.fromRGB(110, 100, 130), Haze = 1 },
+		cc = { TintColor = Color3.fromRGB(255, 250, 245), Saturation = 0.05, Contrast = 0.05, Brightness = 0 },
+	},
+	night = {
+		clock = 24.2, light = { Brightness = 0.6, Ambient = Color3.fromRGB(22, 22, 38), OutdoorAmbient = Color3.fromRGB(45, 48, 80),
+			FogStart = 30, FogEnd = 280, FogColor = Color3.fromRGB(12, 12, 26), ExposureCompensation = 0.2 },
+		atmo = { Density = 0.42, Color = Color3.fromRGB(40, 42, 75), Decay = Color3.fromRGB(20, 20, 45), Haze = 2 },
+		cc = { TintColor = Color3.fromRGB(205, 210, 255), Saturation = -0.15, Contrast = 0.1, Brightness = 0 },
+	},
+}
+local function variant(base, light, atmoP, ccP)
+	local p = { clock = base.clock, light = {}, atmo = {}, cc = {} }
+	for k, v in pairs(base.light) do p.light[k] = v end
+	for k, v in pairs(base.atmo) do p.atmo[k] = v end
+	for k, v in pairs(base.cc) do p.cc[k] = v end
+	for k, v in pairs(light or {}) do p.light[k] = v end
+	for k, v in pairs(atmoP or {}) do p.atmo[k] = v end
+	for k, v in pairs(ccP or {}) do p.cc[k] = v end
+	return p
+end
+PRESETS.bloodmoon = variant(PRESETS.night, { OutdoorAmbient = Color3.fromRGB(90, 25, 30), FogColor = Color3.fromRGB(45, 0, 6) },
+	{ Color = Color3.fromRGB(95, 15, 20), Decay = Color3.fromRGB(60, 5, 10) }, { TintColor = Color3.fromRGB(255, 165, 165), Saturation = 0.1 })
+PRESETS.glitch = variant(PRESETS.night, { OutdoorAmbient = Color3.fromRGB(60, 30, 95), FogColor = Color3.fromRGB(25, 5, 40) },
+	{ Color = Color3.fromRGB(70, 25, 110) }, { TintColor = Color3.fromRGB(225, 185, 255), Saturation = 0.35 })
+PRESETS.fog = variant(PRESETS.night, { FogStart = 4, FogEnd = 95, FogColor = Color3.fromRGB(40, 44, 55) }, { Density = 0.65 }, {})
+
+local current = nil
+local function applyLighting(instant)
+	local phase = state:GetAttribute("Phase") or "day"
+	local key = phase
+	if phase == "night" then
+		local ev = state:GetAttribute("Event") or ""
+		if PRESETS[ev] then key = ev end
+	end
+	if key == current then return end
+	current = key
+	local p = PRESETS[key]
+	local info = TweenInfo.new(instant and 0 or 4, Enum.EasingStyle.Sine)
+	-- время суток крутим через число, чтобы закат шёл вперёд, а не назад
+	local target = p.clock
+	if target < clock.Value and phase == "night" then target = target + 24 end
+	if phase == "day" and clock.Value > 24 then clock.Value = clock.Value - 24 end
+	if phase == "day" and clock.Value > target then clock.Value = clock.Value - 24 end
+	TweenService:Create(clock, info, { Value = target }):Play()
+	TweenService:Create(Lighting, info, p.light):Play()
+	TweenService:Create(atmo, info, p.atmo):Play()
+	TweenService:Create(cc, info, p.cc):Play()
+end
+
+local function setupLighting()
+	atmo = Lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere")
+	atmo.Parent = Lighting
+	cc = Lighting:FindFirstChild("CN_Color") or Instance.new("ColorCorrectionEffect")
+	cc.Name = "CN_Color"
+	cc.Parent = Lighting
+	bloom = Lighting:FindFirstChildOfClass("BloomEffect") or Instance.new("BloomEffect")
+	bloom.Intensity = 0.6
+	bloom.Size = 30
+	bloom.Threshold = 0.9
+	bloom.Parent = Lighting
+	clock.Changed:Connect(function(v) Lighting.ClockTime = v % 24 end)
+	applyLighting(true)
+	state:GetAttributeChangedSignal("Phase"):Connect(function() applyLighting(false) end)
+	state:GetAttributeChangedSignal("Event"):Connect(function() applyLighting(false) end)
+end
+
+---------------------------------------------------------------- подсказки только для своих
+local origDist = setmetatable({}, { __mode = "k" })
+
+local function baseOf(inst)
+	local a = inst.Parent
+	while a and a ~= workspace do
+		if a:IsA("Model") and a:GetAttribute("OwnerId") ~= nil then return a end
+		a = a.Parent
+	end
+	return nil
+end
+
+local function filterPrompt(p)
+	local mode = p:GetAttribute("For")
+	if not mode then return end
+	if origDist[p] == nil then origDist[p] = p.MaxActivationDistance end
+	local me = player.UserId
+	local show
+	if mode == "notself" then
+		show = p:GetAttribute("UserId") ~= me
+	else
+		local base = baseOf(p)
+		local owner = base and base:GetAttribute("OwnerId") or 0
+		if mode == "owner" then show = owner == me else show = owner ~= 0 and owner ~= me end
+	end
+	p.MaxActivationDistance = show and origDist[p] or 0
+end
+
+local function filterIn(root)
+	for _, d in ipairs(root:GetDescendants()) do
+		if d:IsA("ProximityPrompt") then filterPrompt(d) end
+	end
+end
+
+local function setupPrompts()
+	filterIn(workspace)
+	workspace.DescendantAdded:Connect(function(d)
+		if d:IsA("ProximityPrompt") then
+			task.defer(function() if d.Parent then filterPrompt(d) end end)
+		end
+	end)
+	local bases = workspace:WaitForChild("Bases")
+	local function hookBase(b)
+		b:GetAttributeChangedSignal("OwnerId"):Connect(function() filterIn(b) end)
+	end
+	for _, b in ipairs(bases:GetChildren()) do hookBase(b) end
+	bases.ChildAdded:Connect(hookBase)
+end
+
+---------------------------------------------------------------- своя база: дверь и метка
+local hookedDoor = nil
+local function myBase()
+	local idx = player:GetAttribute("BaseIndex")
+	local bases = workspace:FindFirstChild("Bases")
+	return idx and bases and bases:FindFirstChild("Base_" .. idx) or nil
+end
+
+local function hookMyBase()
+	local b = myBase()
+	if not b then return end
+	local door = b:FindFirstChild("Door")
+	if door and door ~= hookedDoor then
+		hookedDoor = door
+		door.CanCollide = false
+		door:GetPropertyChangedSignal("CanCollide"):Connect(function()
+			if door.CanCollide then door.CanCollide = false end
+		end)
+	end
+	filterIn(b)
+end
+
+---------------------------------------------------------------- монстры в клетках
+local bobbing = {}
+local function addBob(m)
+	if not m:IsA("Model") then return end
+	bobbing[m] = { cf = m:GetPivot(), phase = math.random() * 6, glitch = m:GetAttribute("Mutation") == "glitch" }
+end
+
+local function setupBob()
+	for _, m in ipairs(CollectionService:GetTagged("CageMonster")) do addBob(m) end
+	CollectionService:GetInstanceAddedSignal("CageMonster"):Connect(function(m)
+		task.defer(function() if m.Parent then addBob(m) end end)
+	end)
+	CollectionService:GetInstanceRemovedSignal("CageMonster"):Connect(function(m) bobbing[m] = nil end)
+	RunService.RenderStepped:Connect(function()
+		local cam = workspace.CurrentCamera
+		if not cam then return end
+		local camPos = cam.CFrame.Position
+		local t = os.clock()
+		for m, b in pairs(bobbing) do
+			local root = m.PrimaryPart
+			if not m.Parent or not root then
+				bobbing[m] = nil
+			elseif (b.cf.Position - camPos).Magnitude < 160 then
+				local y = math.sin(t * 2 + b.phase) * 0.3 + 0.3
+				local cf = b.cf * CFrame.new(0, y, 0) * CFrame.Angles(0, math.sin(t * 0.8 + b.phase) * 0.3, 0)
+				if b.glitch and math.random() < 0.1 then cf = cf * CFrame.new(math.random() * 0.8 - 0.4, 0, math.random() * 0.8 - 0.4) end
+				root.CFrame = cf
+			end
+		end
+	end)
+end
+
+---------------------------------------------------------------- метка базы и таймер замков
+local function update()
+	local b = myBase()
+	local carrying = (player:GetAttribute("Carrying") or "") ~= ""
+	if b then
+		local hm = b.Top:FindFirstChild("HomeMarker")
+		if hm then hm.Enabled = carrying end
+	end
+	local bases = workspace:FindFirstChild("Bases")
+	if not bases then return end
+	local t = workspace:GetServerTimeNow()
+	for _, base in ipairs(bases:GetChildren()) do
+		local door = base:FindFirstChild("Door")
+		local g = door and door:FindFirstChild("LockGui")
+		if g and base:GetAttribute("Locked") then
+			g.Text.Text = "🔒 " .. Util.time((base:GetAttribute("LockEnds") or 0) - t)
+		end
+	end
+end
+
+function Visuals.init()
+	setupLighting()
+	setupPrompts()
+	setupBob()
+	hookMyBase()
+	player:GetAttributeChangedSignal("BaseIndex"):Connect(hookMyBase)
+	task.spawn(function()
+		while true do
+			local ok, err = pcall(update)
+			if not ok then warn("[CN] Visuals: " .. tostring(err)) end
+			task.wait(0.25)
+		end
+	end)
+end
+
+return Visuals
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX0000000B"><Properties><string name="Name">Shared</string></Properties><Item class="ModuleScript" referent="RBX00000006"><Properties><string name="Name">Build</string><ProtectedString name="Source"><![CDATA[-- Помощники постройки (сервер и клиент): детали, клинья, цилиндры, стены с проёмами,
+-- свет, подсказки ProximityPrompt, надписи, текстуры. Все детали по умолчанию закреплены (Anchored).
+local B = {}
+
+local function apply(o, props)
+	if props then
+		for k, v in pairs(props) do
+			if k ~= "Parent" then o[k] = v end
+		end
+	end
+end
+B.apply = apply
+
+-- цвет: Color3, "#RRGGBB" или r, g, b (0..255)
+function B.color(r, g, b)
+	if typeof(r) == "Color3" then return r end
+	if type(r) == "string" then return Color3.fromHex(r) end
+	return Color3.fromRGB(r, g, b)
+end
+
+-- ID ассета из Config: "" -> "", "123" -> "rbxassetid://123", "rbxasset://..." -> как есть
+function B.asset(id)
+	if id == nil or id == "" then return "" end
+	if tonumber(id) then return "rbxassetid://" .. tostring(id) end
+	return tostring(id)
+end
+
+-- материал по имени с запасным вариантом (новые материалы вроде Carpet, Plaster, RoofShingles,
+-- CeramicTiles, Leather, Rubber, Cardboard, ClayRoofTiles есть не во всех версиях)
+function B.mat(name, fallback)
+	local ok, m = pcall(function() return Enum.Material[name] end)
+	if ok and m then return m end
+	return fallback or Enum.Material.SmoothPlastic
+end
+
+function B.make(class, props, parent)
+	local o = Instance.new(class)
+	apply(o, props)
+	o.Parent = parent or (props and props.Parent)
+	return o
+end
+
+function B.model(parent, name)
+	local m = Instance.new("Model")
+	m.Name = name or "Model"
+	m.Parent = parent
+	return m
+end
+
+function B.folder(parent, name)
+	local f = Instance.new("Folder")
+	f.Name = name or "Folder"
+	f.Parent = parent
+	return f
+end
+
+local function basePart(class, parent, name, size, cf, color, material, props)
+	local p = Instance.new(class)
+	p.Name = name or class
+	p.Anchored = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Size = size
+	p.CFrame = cf
+	if color then p.Color = B.color(color) end
+	p.Material = material or Enum.Material.SmoothPlastic
+	apply(p, props)
+	p.Parent = parent
+	return p
+end
+
+-- прямоугольная деталь: size — Vector3, cf — CFrame центра
+function B.part(parent, name, size, cf, color, material, props)
+	return basePart("Part", parent, name, size, cf, color, material, props)
+end
+
+-- клин: наклонная грань идёт от верхнего заднего (+Z) ребра к нижнему переднему (−Z)
+function B.wedge(parent, name, size, cf, color, material, props)
+	return basePart("WedgePart", parent, name, size, cf, color, material, props)
+end
+
+function B.cornerWedge(parent, name, size, cf, color, material, props)
+	return basePart("CornerWedgePart", parent, name, size, cf, color, material, props)
+end
+
+-- цилиндр: ось вдоль X у cf; length — длина, d — диаметр
+function B.cyl(parent, name, length, d, cf, color, material, props)
+	local p = basePart("Part", parent, name, Vector3.new(length, d, d), cf, color, material, props)
+	p.Shape = Enum.PartType.Cylinder
+	return p
+end
+
+-- вертикальный цилиндр (ось вверх) с центром в cf
+function B.vcyl(parent, name, height, d, cf, color, material, props)
+	return B.cyl(parent, name, height, d, cf * CFrame.Angles(0, 0, math.rad(90)), color, material, props)
+end
+
+function B.ball(parent, name, d, cf, color, material, props)
+	local p = basePart("Part", parent, name, Vector3.new(d, d, d), cf, color, material, props)
+	p.Shape = Enum.PartType.Ball
+	return p
+end
+
+-- невидимая служебная деталь (зоны, точки появления, якоря)
+function B.marker(parent, name, size, cf, props)
+	local p = basePart("Part", parent, name, size or Vector3.new(1, 1, 1), cf, nil, nil, props)
+	p.Transparency = 1
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	apply(p, props)
+	return p
+end
+
+-- Стена от точки a до точки b (обе — низ стены на полу), высота h, толщина th.
+-- openings: { { at = расстояние от a до центра проёма, w = ширина, y0 = низ проёма, y1 = верх проёма }, ... }
+-- Собирает стену из кусков вокруг проёмов (двери, окна). Возвращает Model.
+-- Совет: внешние стены не тоньше 1 стада, иначе свет «протекает» сквозь них.
+function B.wall(parent, name, a, b, h, th, color, material, openings, props)
+	local m = B.model(parent, name)
+	local flat = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+	local len = flat.Magnitude
+	if len < 0.01 then return m end
+	local frame = CFrame.fromMatrix(a, flat.Unit, Vector3.yAxis)
+	local function seg(x0, x1, y0, y1)
+		if x1 - x0 < 0.02 or y1 - y0 < 0.02 then return end
+		B.part(m, "Wall", Vector3.new(x1 - x0, y1 - y0, th), frame * CFrame.new((x0 + x1) / 2, (y0 + y1) / 2, 0), color, material, props)
+	end
+	local list = {}
+	for _, o in ipairs(openings or {}) do table.insert(list, o) end
+	table.sort(list, function(p, q) return p.at < q.at end)
+	local cursor = 0
+	for _, o in ipairs(list) do
+		local x0, x1 = o.at - o.w / 2, o.at + o.w / 2
+		if x0 > cursor then seg(cursor, x0, 0, h) end
+		if (o.y0 or 0) > 0 then seg(math.max(x0, cursor), x1, 0, o.y0) end
+		if (o.y1 or h) < h then seg(math.max(x0, cursor), x1, o.y1, h) end
+		cursor = math.max(cursor, x1)
+	end
+	seg(cursor, len, 0, h)
+	return m
+end
+
+-- источник света: class = "PointLight" | "SpotLight" | "SurfaceLight"; тени включены по умолчанию
+function B.light(parent, class, props)
+	local l = Instance.new(class)
+	l.Shadows = true
+	apply(l, props)
+	l.Parent = parent
+	return l
+end
+
+-- подсказка взаимодействия (клавиша E по умолчанию)
+function B.prompt(parent, name, action, object, props)
+	local p = Instance.new("ProximityPrompt")
+	p.Name = name or "Prompt"
+	p.ActionText = action or ""
+	p.ObjectText = object or ""
+	p.MaxActivationDistance = 8
+	p.RequiresLineOfSight = false
+	p.KeyboardKeyCode = Enum.KeyCode.E
+	apply(p, props)
+	p.Parent = parent
+	return p
+end
+
+-- надпись на грани детали (вывески, таблички, экраны)
+function B.sign(part, face, text, props, guiProps)
+	local g = Instance.new("SurfaceGui")
+	g.Name = "Sign"
+	g.Face = face or Enum.NormalId.Front
+	g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	g.PixelsPerStud = 40
+	g.LightInfluence = 1
+	apply(g, guiProps)
+	g.Parent = part
+	local l = Instance.new("TextLabel")
+	l.Size = UDim2.fromScale(1, 1)
+	l.BackgroundTransparency = 1
+	l.Text = text or ""
+	l.TextScaled = true
+	l.Font = Enum.Font.GothamBold
+	l.TextColor3 = Color3.new(1, 1, 1)
+	apply(l, props)
+	l.Parent = g
+	return g, l
+end
+
+-- повторяющаяся текстура (обои, плитка); id из Config.Images; пустой id — ничего не делаем
+function B.texture(part, face, id, studsU, studsV, props)
+	local url = B.asset(id)
+	if url == "" then return nil end
+	local t = Instance.new("Texture")
+	t.Texture = url
+	t.Face = face or Enum.NormalId.Front
+	t.StudsPerTileU = studsU or 4
+	t.StudsPerTileV = studsV or 4
+	apply(t, props)
+	t.Parent = part
+	return t
+end
+
+-- одиночная картинка (плакат, лицо)
+function B.decal(part, face, id, props)
+	local url = B.asset(id)
+	if url == "" then return nil end
+	local d = Instance.new("Decal")
+	d.Texture = url
+	d.Face = face or Enum.NormalId.Front
+	apply(d, props)
+	d.Parent = part
+	return d
+end
+
+function B.weld(a, b)
+	local w = Instance.new("WeldConstraint")
+	w.Part0 = a
+	w.Part1 = b
+	w.Parent = a
+	return w
+end
+
+function B.attrs(inst, t)
+	for k, v in pairs(t) do inst:SetAttribute(k, v) end
+	return inst
+end
+
+-- CFrame: позиция + поворот вокруг вертикали в градусах
+function B.at(x, y, z, yawDeg)
+	return CFrame.new(x, y, z) * CFrame.Angles(0, math.rad(yawDeg or 0), 0)
+end
+
+return B
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000007"><Properties><string name="Name">Config</string><ProtectedString name="Source"><![CDATA[-- Все настройки игры в одном месте: время дня и ночи, редкости, монстры, мутации,
+-- события, магазин, цены и товары за Robux. Меняй цифры здесь — код подхватит сам.
+local Config = {}
+
+Config.GameName = "Catch a Nightmare"
+Config.DataStoreName = "CatchNightmare_v1"
+
+---------------------------------------------------------------- время
+Config.DaySeconds = 240        -- день
+Config.NightSeconds = 180      -- ночь
+Config.RestockSeconds = 300    -- обновление лавки
+
+---------------------------------------------------------------- старт
+Config.StartFear = 50
+Config.StartCages = 4
+Config.MaxCages = 10           -- без геймпасса
+Config.PassCages = 2           -- геймпасс «+2 клетки»
+Config.OfflineRate = 0.5       -- доля дохода, пока игрока нет
+Config.OfflineCapSeconds = 3 * 3600
+
+-- цена N-й клетки (первые Config.StartCages бесплатные)
+Config.CagePrices = { [5] = 300, [6] = 1000, [7] = 3000, [8] = 9000, [9] = 25000, [10] = 70000, [11] = 150000, [12] = 300000 }
+
+-- сети: уровень сети решает, каких монстров можно поймать
+Config.Nets = {
+	{ level = 1, name = "Сачок", price = 0, speed = 1.0 },
+	{ level = 2, name = "Крепкая сеть", price = 500, speed = 0.9 },
+	{ level = 3, name = "Стальная сеть", price = 5000, speed = 0.8 },
+	{ level = 4, name = "Неоновая сеть", price = 50000, speed = 0.7 },
+	{ level = 5, name = "Сеть Пустоты", price = 500000, speed = 0.6 },
+}
+
+---------------------------------------------------------------- редкости
+-- chance — «1 к N». Ролл идёт от самой редкой: шанс = удача / N, первая удачная побеждает.
+-- hold — сколько секунд держать E, net — нужный уровень сети, scare — шанс напугать за секунду рядом.
+-- nightOnly — днём такие не появляются.
+Config.Rarities = {
+	{ key = "common", name = "Обычный", color = Color3.fromRGB(190, 190, 190), chance = 1, hold = 0.4, net = 1, scare = 0.04, speed = 7 },
+	{ key = "uncommon", name = "Необычный", color = Color3.fromRGB(90, 214, 90), chance = 4, hold = 0.6, net = 1, scare = 0.06, speed = 8 },
+	{ key = "rare", name = "Редкий", color = Color3.fromRGB(64, 170, 255), chance = 12, hold = 1.0, net = 2, scare = 0.1, speed = 9 },
+	{ key = "epic", name = "Эпический", color = Color3.fromRGB(184, 92, 255), chance = 50, hold = 1.5, net = 3, scare = 0.16, speed = 10, nightOnly = true },
+	{ key = "legendary", name = "Легендарный", color = Color3.fromRGB(255, 180, 0), chance = 300, hold = 2.0, net = 4, scare = 0.22, speed = 11, nightOnly = true },
+	{ key = "mythic", name = "Мифический", color = Color3.fromRGB(255, 60, 110), chance = 3000, hold = 2.5, net = 5, scare = 0.3, speed = 12, nightOnly = true },
+	{ key = "secret", name = "Секретный", color = Color3.fromRGB(255, 255, 255), chance = 60000, hold = 3.0, net = 5, scare = 0.4, speed = 13, nightOnly = true },
+}
+Config.RarityIndex = {}
+for i, r in ipairs(Config.Rarities) do
+	r.tier = i
+	Config.RarityIndex[r.key] = r
+end
+Config.AnnounceTier = 5        -- с этой редкости поимку видит весь сервер (5 = легендарный)
+Config.StealAnnounceTier = 4   -- с этой редкости весь сервер видит кражу
+
+---------------------------------------------------------------- монстры
+-- income — «Страх» в секунду. sell = income * Config.SellMul. size — высота модели (для подписи и переноски).
+Config.SellMul = 40
+Config.Monsters = {
+	{ key = "slipper", name = "Тапок-Кусака", rarity = "common", income = 1, size = 2.5 },
+	{ key = "dustbun", name = "Пыльный Бубу", rarity = "common", income = 2, size = 3 },
+	{ key = "fridge", name = "Холодильник Валера", rarity = "uncommon", income = 6, size = 6 },
+	{ key = "sock", name = "Носок-Призрак", rarity = "uncommon", income = 8, size = 5 },
+	{ key = "wardrobe", name = "Шкаф с Глазами", rarity = "rare", income = 25, size = 7 },
+	{ key = "lamp", name = "Лампа-Шептун", rarity = "rare", income = 32, size = 6 },
+	{ key = "grandma", name = "Бабушка Wi-Fi", rarity = "epic", income = 110, size = 6 },
+	{ key = "matryoshka", name = "Матрёшка-Паук", rarity = "epic", income = 140, size = 5 },
+	{ key = "cat404", name = "Кот 404", rarity = "legendary", income = 600, size = 5 },
+	{ key = "pizzademon", name = "Пицца-Демон", rarity = "legendary", income = 750, size = 6 },
+	{ key = "moonhead", name = "Луноголовый", rarity = "mythic", income = 4000, size = 9 },
+	{ key = "nobody", name = "Тот-Кого-Нет", rarity = "secret", income = 30000, size = 9 },
+}
+Config.MonsterIndex = {}
+Config.MonstersByRarity = {}
+for _, m in ipairs(Config.Monsters) do
+	Config.MonsterIndex[m.key] = m
+	local list = Config.MonstersByRarity[m.rarity]
+	if not list then
+		list = {}
+		Config.MonstersByRarity[m.rarity] = list
+	end
+	table.insert(list, m)
+end
+
+---------------------------------------------------------------- мутации
+-- chance — «1 к N» при появлении; mul — множитель дохода
+Config.Mutations = {
+	{ key = "gold", name = "Золотой", mul = 2, chance = 25, color = Color3.fromRGB(255, 205, 60) },
+	{ key = "blood", name = "Кровавый", mul = 3, chance = 0, color = Color3.fromRGB(190, 10, 30) },   -- только в Кровавую луну
+	{ key = "glitch", name = "Глитч", mul = 5, chance = 250, color = Color3.fromRGB(170, 60, 255) },
+}
+Config.MutationIndex = {}
+for _, m in ipairs(Config.Mutations) do Config.MutationIndex[m.key] = m end
+
+---------------------------------------------------------------- события ночи
+-- выпадают в начале ночи: weight — вес (из 100), остальное — обычная ночь
+Config.Events = {
+	{ key = "bloodmoon", name = "КРОВАВАЯ ЛУНА", text = "удача ×3, кровавые мутации", weight = 18, luck = 3, color = Color3.fromRGB(255, 50, 50) },
+	{ key = "glitch", name = "ГЛИТЧ-НОЧЬ", text = "глитч-мутации ×25", weight = 10, luck = 1.5, color = Color3.fromRGB(180, 80, 255) },
+	{ key = "fog", name = "ТУМАН", text = "монстров больше, но их почти не видно", weight = 15, luck = 1.2, color = Color3.fromRGB(170, 180, 200) },
+}
+Config.EventIndex = {}
+for _, e in ipairs(Config.Events) do Config.EventIndex[e.key] = e end
+Config.BloodMutationChance = 3    -- в Кровавую луну «1 к 3» станет кровавым
+Config.GlitchNightMul = 25        -- в Глитч-ночь глитч в 25 раз чаще
+
+---------------------------------------------------------------- дикие монстры
+Config.Wild = {
+	DayInterval = 7, DayMax = 8,         -- днём редко и только до «Редкого»
+	NightInterval = 2.4, NightMax = 22,
+	FogBonus = 6,                        -- в туман можно на столько больше монстров
+	LifeMin = 80, LifeMax = 140,         -- через сколько секунд монстр убегает
+	ScareRange = 10, ScareCooldown = 6, StunSeconds = 1.3,
+	ReserveSeconds = 12,                 -- монстр из приманки — только для хозяина приманки
+	FirstCatchHelp = true,               -- новичку у базы появляется лёгкий монстр
+}
+
+---------------------------------------------------------------- переноска и кража
+Config.CarrySpeed = 12          -- скорость с монстром на голове (обычная — 16)
+Config.CarryRareSpeed = 10      -- с эпическим и выше
+Config.TackleHold = 0.5         -- держать E, чтобы отобрать монстра у игрока
+Config.TackleImmunity = 3       -- после отбора столько секунд нельзя отобрать снова
+Config.StealHold = 1.8          -- держать E, чтобы утащить монстра из чужой клетки
+Config.SellHold = 1.0
+Config.LockSeconds = 60         -- замок базы
+
+---------------------------------------------------------------- лавка
+-- приманки: luck — множитель удачи, gold — во сколько раз чаще золотые, inStock — шанс появиться в лавке
+Config.Baits = {
+	{ key = "bait", name = "Приманка", price = 100, luck = 1.5, inStock = 1, min = 3, max = 8, icon = "🍖" },
+	{ key = "golden", name = "Золотая приманка", price = 2500, luck = 4, gold = 5, inStock = 0.6, min = 1, max = 3, icon = "✨" },
+	{ key = "blood", name = "Кровавая приманка", price = 25000, luck = 12, blood = true, inStock = 0.2, min = 1, max = 1, icon = "🩸" },
+	{ key = "void", name = "Приманка Пустоты", price = 250000, luck = 40, inStock = 0.05, min = 1, max = 1, icon = "🕳" },
+}
+Config.BaitIndex = {}
+for _, b in ipairs(Config.Baits) do Config.BaitIndex[b.key] = b end
+Config.BaitDelay = 3            -- через сколько секунд из приманки вылезает монстр
+
+---------------------------------------------------------------- Robux
+-- Впиши ID из Creator Hub (Monetization). 0 — товар выключен.
+Config.Products = {
+	ServerLuck = { id = 0, name = "Удача ×2 для всего сервера", minutes = 15, robux = 49 },
+}
+Config.Passes = {
+	DoubleFear = { id = 0, name = "×2 Страха навсегда", robux = 199 },
+	ExtraCages = { id = 0, name = "+2 клетки", robux = 149 },
+}
+
+-- админы (UserId) для команд /night, /bloodmoon ... В Studio и у владельца игры работают всегда.
+Config.Admins = {}
+
+---------------------------------------------------------------- звуки
+-- Встроенные звуки Roblox (rbxasset://) работают сразу. Свои — впиши цифры ID.
+Config.Sounds = {
+	Catch = "rbxasset://sounds/electronicpingshort.wav",
+	Click = "rbxasset://sounds/button.wav",
+	Whoosh = "rbxasset://sounds/swoosh.wav",
+	Scream = "rbxasset://sounds/uuhhh.mp3",
+	Alarm = "rbxasset://sounds/clickfast.wav",
+	Cash = "rbxasset://sounds/electronicpingshort.wav",
+	NightStart = "",
+	DayStart = "",
+	Jumpscare = "",
+}
+
+---------------------------------------------------------------- карта
+Config.Map = {
+	BaseCount = 8,
+	BaseRadius = 262,      -- центры баз от центра карты
+	BaseSize = 64,         -- квадрат базы
+	WallHeight = 14,
+	SafeRadius = 32,       -- поляна с костром: монстры не подходят
+	ForestMin = 44, ForestMax = 192,
+}
+
+return Config
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000008"><Properties><string name="Name">Monsters</string><ProtectedString name="Source"><![CDATA[-- Модели монстров из простых деталей. Monsters.build(key, mutation) -> Model, Root.
+-- Root — невидимая закреплённая деталь у ног монстра (перед — сторона −Z). Остальные детали
+-- приварены к Root, без столкновений и без массы: монстра можно двигать одним Root.CFrame
+-- и носить на голове. Подпись над монстром — Monsters.label(model, text...).
+local Config = require(script.Parent.Config)
+local Util = require(script.Parent.Util)
+
+local Monsters = {}
+
+local hex = Color3.fromHex
+local rad = math.rad
+local EYE_WHITE = Color3.fromRGB(245, 245, 245)
+local BLACK = Color3.fromRGB(10, 10, 10)
+
+-- конструктор деталей вокруг корня
+local function ctx(m, root)
+	local c = {}
+	local function finish(p, off, color, mat, props)
+		p.CFrame = root.CFrame * off
+		p.Color = color
+		p.Material = mat or Enum.Material.SmoothPlastic
+		p.Anchored = false
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.Massless = true
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		if props then
+			for k, v in pairs(props) do p[k] = v end
+		end
+		p.Parent = m
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = root
+		w.Part1 = p
+		w.Parent = p
+		return p
+	end
+	-- брусок: размер, позиция, цвет, материал, поворот (CFrame), свойства
+	function c.box(sx, sy, sz, x, y, z, color, mat, rot, props)
+		local p = Instance.new("Part")
+		p.Size = Vector3.new(sx, sy, sz)
+		return finish(p, CFrame.new(x, y, z) * (rot or CFrame.new()), color, mat, props)
+	end
+	function c.ball(d, x, y, z, color, mat, props)
+		local p = Instance.new("Part")
+		p.Shape = Enum.PartType.Ball
+		p.Size = Vector3.new(d, d, d)
+		return finish(p, CFrame.new(x, y, z), color, mat, props)
+	end
+	-- вертикальный цилиндр
+	function c.vcyl(h, d, x, y, z, color, mat, props)
+		local p = Instance.new("Part")
+		p.Shape = Enum.PartType.Cylinder
+		p.Size = Vector3.new(h, d, d)
+		return finish(p, CFrame.new(x, y, z) * CFrame.Angles(0, 0, rad(90)), color, mat, props)
+	end
+	-- плоский цилиндр, смотрящий вперёд (−Z): пуговицы, пепперони
+	function c.disc(d, th, x, y, z, color, mat, props)
+		local p = Instance.new("Part")
+		p.Shape = Enum.PartType.Cylinder
+		p.Size = Vector3.new(th, d, d)
+		return finish(p, CFrame.new(x, y, z) * CFrame.Angles(0, rad(90), 0), color, mat, props)
+	end
+	function c.wedge(sx, sy, sz, x, y, z, color, mat, rot, props)
+		local p = Instance.new("WedgePart")
+		p.Size = Vector3.new(sx, sy, sz)
+		return finish(p, CFrame.new(x, y, z) * (rot or CFrame.new()), color, mat, props)
+	end
+	-- глаз: белок + зрачок впереди; detail = без мутационной перекраски
+	function c.eye(x, y, z, d, pupil, white)
+		local e = c.ball(d, x, y, z, white or EYE_WHITE, Enum.Material.SmoothPlastic)
+		e:SetAttribute("NoTint", true)
+		local p = c.ball(d * 0.5, x, y, z - d * 0.32, pupil or BLACK, Enum.Material.SmoothPlastic)
+		p:SetAttribute("NoTint", true)
+		return e, p
+	end
+	function c.light(y, color, range, brightness)
+		local a = Instance.new("Attachment")
+		a.Position = Vector3.new(0, y, 0)
+		a.Parent = root
+		local l = Instance.new("PointLight")
+		l.Color = color
+		l.Range = range or 10
+		l.Brightness = brightness or 1
+		l.Shadows = false
+		l.Parent = a
+		return l
+	end
+	return c
+end
+
+local B = {}
+
+B.slipper = function(c)
+	c.box(2.2, 0.5, 4, 0, 0.25, 0, hex("#d86a8a"))
+	c.box(2.3, 1.1, 2.2, 0, 0.95, -0.9, hex("#f2e6e9"), Enum.Material.Fabric)
+	c.box(0.8, 0.1, 0.7, 0, 0.55, -2.05, hex("#c4243a"))
+	for i = -1, 1, 2 do
+		c.wedge(0.3, 0.35, 0.25, i * 0.75, 0.62, -2.05, EYE_WHITE, nil, CFrame.Angles(rad(180), 0, 0))
+		c.wedge(0.3, 0.35, 0.25, i * 0.25, 0.62, -2.05, EYE_WHITE, nil, CFrame.Angles(rad(180), 0, 0))
+	end
+	c.eye(-0.5, 1.65, -1.3, 0.7)
+	c.eye(0.5, 1.65, -1.3, 0.7)
+end
+
+B.dustbun = function(c)
+	local grey = hex("#8d8d93")
+	c.ball(2.6, 0, 1.5, 0, grey, Enum.Material.Fabric)
+	local fuzz = { { 1.1, 2.3, 0.3 }, { -1.1, 2.2, 0.2 }, { 0.2, 2.8, 0.5 }, { 1.2, 1.0, 0.6 }, { -1.2, 1.1, 0.5 }, { 0, 1.6, 1.2 } }
+	for _, f in ipairs(fuzz) do c.ball(1.0, f[1], f[2], f[3], hex("#7a7a80"), Enum.Material.Fabric) end
+	c.eye(-0.5, 1.9, -1.0, 1.0)
+	c.eye(0.5, 1.9, -1.0, 1.0)
+	c.ball(0.6, -0.6, 0.3, -0.4, hex("#4a4a50"))
+	c.ball(0.6, 0.6, 0.3, -0.4, hex("#4a4a50"))
+end
+
+B.fridge = function(c)
+	c.box(3.2, 5.6, 2.8, 0, 3.0, 0, hex("#e9eef2"))
+	c.box(3.25, 0.12, 0.1, 0, 4.0, -1.42, hex("#7d8790"))
+	c.box(0.25, 1.2, 0.25, 1.2, 4.7, -1.5, hex("#9aa4ad"), Enum.Material.Metal)
+	c.box(0.25, 1.2, 0.25, 1.2, 2.9, -1.5, hex("#9aa4ad"), Enum.Material.Metal)
+	c.eye(-0.7, 5.0, -1.45, 0.8)
+	c.eye(0.5, 5.0, -1.45, 0.8)
+	c.box(1.8, 0.4, 0.1, -0.2, 2.2, -1.42, BLACK)
+	for i = 0, 3 do c.box(0.3, 0.2, 0.1, -0.85 + i * 0.45, 2.33, -1.46, EYE_WHITE) end
+	c.box(0.4, 0.4, 0.1, -1.0, 3.3, -1.45, hex("#e03c3c"))
+	c.box(0.4, 0.4, 0.1, 0.4, 3.5, -1.45, hex("#f5c400"))
+	c.box(0.4, 0.6, 0.6, -1, 0.3, 0, hex("#3a3f44"))
+	c.box(0.4, 0.6, 0.6, 1, 0.3, 0, hex("#3a3f44"))
+end
+
+B.sock = function(c)
+	local white, red = hex("#f4f4f4"), hex("#e23a3a")
+	c.box(1.2, 0.6, 1.2, 0, 0.5, 0, white, nil, nil, { Transparency = 0.5 })
+	c.box(1.6, 1.2, 2.6, 0, 1.4, -0.5, white, Enum.Material.Fabric)
+	c.ball(1.5, 0, 1.4, 0.8, white, Enum.Material.Fabric)
+	for i = 0, 3 do
+		c.box(1.6, 0.8, 1.6, 0, 2.4 + i * 0.8, 0.4, (i % 2 == 0) and red or white, Enum.Material.Fabric)
+	end
+	c.eye(-0.4, 4.5, -0.45, 0.55)
+	c.eye(0.4, 4.5, -0.45, 0.55)
+	c.box(0.6, 0.15, 0.1, 0, 3.9, -0.42, BLACK)
+end
+
+B.wardrobe = function(c)
+	local wood = hex("#6b4528")
+	c.box(4, 6.4, 2.4, 0, 3.6, 0, wood, Enum.Material.WoodPlanks)
+	c.box(4.3, 0.4, 2.7, 0, 7.0, 0, hex("#553620"), Enum.Material.Wood)
+	c.box(3.6, 5.8, 0.1, 0, 3.6, -1.21, BLACK)
+	c.box(1.9, 6, 0.2, -1.6, 3.6, -1.7, wood, Enum.Material.WoodPlanks, CFrame.Angles(0, rad(-35), 0))
+	c.box(1.9, 6, 0.2, 1.6, 3.6, -1.7, wood, Enum.Material.WoodPlanks, CFrame.Angles(0, rad(35), 0))
+	local eyes = { { -0.9, 5.4 }, { 0.6, 5.8 }, { -0.2, 4.4 }, { 1.0, 3.6 }, { -1.1, 2.8 }, { 0.3, 2.2 } }
+	for _, e in ipairs(eyes) do
+		local p = c.ball(0.4, e[1], e[2], -1.3, hex("#ffe14a"), Enum.Material.Neon)
+		p:SetAttribute("NoTint", true)
+	end
+	for _, x in ipairs({ -1.6, 1.6 }) do
+		c.box(0.4, 0.4, 0.4, x, 0.2, -0.8, hex("#3a2414"))
+		c.box(0.4, 0.4, 0.4, x, 0.2, 0.8, hex("#3a2414"))
+	end
+	c.light(4, hex("#ffe14a"), 8, 0.6)
+end
+
+B.lamp = function(c)
+	c.vcyl(0.4, 2.0, 0, 0.2, 0, hex("#2e2a26"), Enum.Material.Metal)
+	c.vcyl(3.6, 0.35, 0, 2.2, 0, hex("#b08d3c"), Enum.Material.Metal)
+	c.vcyl(1.8, 2.6, 0, 4.7, 0, hex("#f3e2b5"), Enum.Material.Fabric)
+	local bulb = c.ball(1.1, 0, 3.8, 0, hex("#fff1a8"), Enum.Material.Neon)
+	bulb:SetAttribute("NoTint", true)
+	c.ball(0.4, -0.45, 4.95, -1.25, BLACK)
+	c.ball(0.4, 0.45, 4.95, -1.25, BLACK)
+	c.box(0.8, 0.15, 0.1, 0, 4.35, -1.3, BLACK)
+	c.light(3.8, hex("#ffe9a0"), 12, 1.2)
+end
+
+B.grandma = function(c)
+	c.ball(3.6, 0, 2.2, 0, hex("#7b4aa0"), Enum.Material.Fabric)
+	c.box(3.2, 0.5, 2.2, 0, 3.75, 0, hex("#c0392b"), Enum.Material.Fabric)
+	c.ball(2.0, 0, 4.7, 0, hex("#f1c9a5"))
+	c.ball(2.1, 0, 4.95, 0.2, hex("#cfcfcf"), Enum.Material.Fabric)
+	c.ball(1.1, 0, 5.95, 0.5, hex("#cfcfcf"), Enum.Material.Fabric)
+	c.eye(-0.4, 4.75, -0.8, 0.45)
+	c.eye(0.4, 4.75, -0.8, 0.45)
+	c.box(1.4, 0.08, 0.08, 0, 4.85, -1.1, BLACK)
+	c.ball(0.6, -0.4, 4.75, -1.0, hex("#bfe6ff"), Enum.Material.Glass, { Transparency = 0.6 })
+	c.ball(0.6, 0.4, 4.75, -1.0, hex("#bfe6ff"), Enum.Material.Glass, { Transparency = 0.6 })
+	for i = -1, 1, 2 do
+		c.box(0.15, 1.6, 0.15, i * 0.55, 6.2, 0, hex("#2b2b2b"), nil, CFrame.Angles(0, 0, rad(-i * 20)))
+		local tip = c.ball(0.35, i * 0.85, 7.0, 0, hex("#3cff6a"), Enum.Material.Neon)
+		tip:SetAttribute("NoTint", true)
+	end
+	for i = 0, 2 do
+		local led = c.ball(0.25, -0.5 + i * 0.5, 2.6, -1.75, (i == 1) and hex("#3fa9ff") or hex("#3cff6a"), Enum.Material.Neon)
+		led:SetAttribute("NoTint", true)
+	end
+end
+
+B.matryoshka = function(c)
+	local red = hex("#c8102e")
+	c.ball(3.0, 0, 1.9, 0, red)
+	c.ball(2.2, 0, 3.6, 0, red)
+	c.ball(1.4, 0, 3.7, -0.6, hex("#f6d7b8"))
+	c.eye(-0.25, 3.85, -1.2, 0.3)
+	c.eye(0.25, 3.85, -1.2, 0.3)
+	c.ball(0.25, -0.42, 3.5, -1.2, hex("#ff6b81"))
+	c.ball(0.25, 0.42, 3.5, -1.2, hex("#ff6b81"))
+	c.ball(0.9, 0, 1.9, -1.2, hex("#ffd23f"))
+	local leg = hex("#2a1a1a")
+	for i = 1, 4 do
+		local z = -1.2 + (i - 1) * 0.8
+		for s = -1, 1, 2 do
+			c.box(2.0, 0.25, 0.25, s * 1.9, 2.3, z, leg, nil, CFrame.Angles(0, 0, rad(s * 25)))
+			c.box(0.25, 2.3, 0.25, s * 2.85, 1.15, z, leg)
+		end
+	end
+end
+
+B.cat404 = function(c)
+	local black = hex("#121212")
+	c.box(2, 1.8, 3.4, 0, 1.9, 0.3, black)
+	c.box(2, 1.8, 1.8, 0, 3.2, -1.5, black)
+	c.wedge(0.6, 0.8, 0.6, -0.6, 4.5, -1.5, black)
+	c.wedge(0.6, 0.8, 0.6, 0.6, 4.5, -1.5, black)
+	local e1 = c.box(0.6, 0.35, 0.1, -0.5, 3.4, -2.42, hex("#30f0ff"), Enum.Material.Neon)
+	local e2 = c.box(0.6, 0.35, 0.1, 0.5, 3.4, -2.42, hex("#30f0ff"), Enum.Material.Neon)
+	e1:SetAttribute("NoTint", true)
+	e2:SetAttribute("NoTint", true)
+	local ghost = c.box(2.1, 1.9, 1.9, 0.25, 3.25, -1.5, hex("#ff2bd6"), Enum.Material.Neon, nil, { Transparency = 0.75 })
+	ghost:SetAttribute("NoTint", true)
+	c.box(0.3, 0.3, 2.4, 0, 3.0, 2.5, black, nil, CFrame.Angles(rad(40), 0, 0))
+	for _, p in ipairs({ { -0.6, -0.9 }, { 0.6, -0.9 }, { -0.6, 1.4 }, { 0.6, 1.4 } }) do
+		c.box(0.5, 1.0, 0.5, p[1], 0.5, p[2], black)
+	end
+	c.light(3, hex("#30f0ff"), 8, 0.8)
+end
+
+B.pizzademon = function(c)
+	local cheese = hex("#ffcf40")
+	c.box(4.4, 0.8, 1.0, 0, 1.1, 0, hex("#d9a066"))
+	-- треугольник из двух клиньев, остриё вверх
+	c.wedge(0.8, 4.5, 2, 1, 3.75, 0, cheese, nil, CFrame.Angles(0, rad(-90), 0))
+	c.wedge(0.8, 4.5, 2, -1, 3.75, 0, cheese, nil, CFrame.Angles(0, rad(90), 0))
+	c.disc(0.8, 0.1, -0.8, 2.0, -0.42, hex("#b3261e"))
+	c.disc(0.7, 0.1, 0.7, 2.4, -0.42, hex("#b3261e"))
+	c.disc(0.5, 0.1, 0, 4.4, -0.42, hex("#b3261e"))
+	local e1 = c.ball(0.45, -0.4, 3.3, -0.45, hex("#ff2a2a"), Enum.Material.Neon)
+	local e2 = c.ball(0.45, 0.4, 3.3, -0.45, hex("#ff2a2a"), Enum.Material.Neon)
+	e1:SetAttribute("NoTint", true)
+	e2:SetAttribute("NoTint", true)
+	c.box(1.0, 0.25, 0.1, 0, 2.75, -0.43, BLACK)
+	c.wedge(0.3, 0.9, 0.4, -0.75, 4.4, 0, hex("#8b0000"), nil, CFrame.Angles(0, 0, rad(30)))
+	c.wedge(0.3, 0.9, 0.4, 0.75, 4.4, 0, hex("#8b0000"), nil, CFrame.Angles(0, 0, rad(-30)))
+	c.box(0.4, 0.7, 0.4, -1, 0.35, 0, hex("#5a3a20"))
+	c.box(0.4, 0.7, 0.4, 1, 0.35, 0, hex("#5a3a20"))
+	local crust = c.box(0.2, 0.2, 0.2, 0, 1.6, 0.3, cheese, nil, nil, { Transparency = 1 })
+	local fire = Instance.new("Fire")
+	fire.Size = 3
+	fire.Heat = 4
+	fire.Parent = crust
+end
+
+B.moonhead = function(c)
+	local dark = hex("#1b1b2a")
+	c.box(0.35, 4, 0.35, -0.5, 2, 0, dark)
+	c.box(0.35, 4, 0.35, 0.5, 2, 0, dark)
+	c.box(1.4, 2.6, 0.9, 0, 5.2, 0, hex("#23233a"), Enum.Material.Fabric)
+	c.box(0.3, 3.4, 0.3, -1.0, 4.6, 0, dark)
+	c.box(0.3, 3.4, 0.3, 1.0, 4.6, 0, dark)
+	local moon = c.ball(3.6, 0, 8.3, 0, hex("#f5f1d0"), Enum.Material.Neon)
+	moon:SetAttribute("NoTint", true)
+	c.ball(0.8, 0.8, 8.9, -1.4, hex("#d8d2a8"))
+	c.ball(0.6, -0.9, 7.7, -1.45, hex("#d8d2a8"))
+	c.ball(0.5, -0.6, 8.4, -1.65, BLACK)
+	c.ball(0.5, 0.6, 8.4, -1.65, BLACK)
+	c.box(1.0, 0.18, 0.1, 0, 7.6, -1.72, BLACK)
+	c.light(8.3, hex("#fff6c8"), 18, 1.5)
+end
+
+B.nobody = function(c)
+	local void = hex("#050505")
+	c.box(0.6, 4, 0.6, -0.6, 2, 0, void)
+	c.box(0.6, 4, 0.6, 0.6, 2, 0, void)
+	local torso = c.box(2.2, 3, 1.2, 0, 5.5, 0, void)
+	c.box(0.45, 4.5, 0.45, -1.5, 4.9, 0, void)
+	c.box(0.45, 4.5, 0.45, 1.5, 4.9, 0, void)
+	c.ball(1.8, 0, 7.9, 0, void)
+	local e1 = c.ball(0.35, -0.35, 8.0, -0.82, EYE_WHITE, Enum.Material.Neon)
+	local e2 = c.ball(0.35, 0.35, 8.0, -0.82, EYE_WHITE, Enum.Material.Neon)
+	e1:SetAttribute("NoTint", true)
+	e2:SetAttribute("NoTint", true)
+	for i = 0, 5 do
+		local a = rad(i * 60)
+		local spike = c.box(0.15, 0.8, 0.15, math.cos(a) * 0.7, 9.0, math.sin(a) * 0.7, EYE_WHITE, Enum.Material.Neon)
+		spike:SetAttribute("NoTint", true)
+	end
+	local smoke = Instance.new("Smoke")
+	smoke.Color = Color3.fromRGB(0, 0, 0)
+	smoke.Opacity = 0.25
+	smoke.RiseVelocity = 1
+	smoke.Size = 4
+	smoke.Parent = torso
+	c.light(8, EYE_WHITE, 10, 1)
+end
+
+-- перекраска под мутацию
+local function tint(m, mut)
+	local mu = Config.MutationIndex[mut or ""]
+	if not mu then return end
+	for _, p in ipairs(m:GetDescendants()) do
+		if p:IsA("BasePart") and p.Name ~= "Root" and not p:GetAttribute("NoTint") then
+			p.Color = p.Color:Lerp(mu.color, 0.6)
+			if mut == "gold" then p.Material = Enum.Material.Metal end
+		end
+	end
+	if mut == "glitch" then m:SetAttribute("Glitch", true) end
+	local root = m:FindFirstChild("Root")
+	if root then
+		local l = Instance.new("PointLight")
+		l.Name = "MutationLight"
+		l.Color = mu.color
+		l.Range = 9
+		l.Brightness = 1.2
+		l.Shadows = false
+		l.Parent = root
+	end
+end
+
+-- собрать монстра в начале координат; потом ставить через model:PivotTo(cf)
+function Monsters.build(key, mut)
+	local def = Config.MonsterIndex[key] or Config.Monsters[1]
+	local m = Instance.new("Model")
+	m.Name = def.key
+	local root = Instance.new("Part")
+	root.Name = "Root"
+	root.Size = Vector3.new(2, 1, 2)
+	root.CFrame = CFrame.new()
+	root.Transparency = 1
+	root.Anchored = true
+	root.CanCollide = false
+	root.CanQuery = false
+	root.CanTouch = false
+	root.Massless = true
+	root.Parent = m
+	m.PrimaryPart = root
+	local builder = B[def.key] or B.slipper
+	builder(ctx(m, root))
+	tint(m, mut)
+	m:SetAttribute("Key", def.key)
+	m:SetAttribute("Mutation", mut or "")
+	m:SetAttribute("Rarity", def.rarity)
+	m:SetAttribute("Size", def.size)
+	local r = Config.RarityIndex[def.rarity]
+	if r.tier >= 4 then
+		local a = Instance.new("Attachment")
+		a.Name = "AuraAtt"
+		a.Position = Vector3.new(0, def.size * 0.5, 0)
+		a.Parent = root
+		local l = Instance.new("PointLight")
+		l.Name = "Aura"
+		l.Color = r.color
+		l.Range = 10
+		l.Brightness = 0.8
+		l.Shadows = false
+		l.Parent = a
+	end
+	return m, root
+end
+
+-- подпись над монстром. line2 — нижняя строка («+25/с» или «1 к 50»)
+function Monsters.label(m, line2, maxDistance)
+	local root = m.PrimaryPart
+	local key, mut = m:GetAttribute("Key"), m:GetAttribute("Mutation")
+	local def = Config.MonsterIndex[key]
+	local r = Util.rarityOf(key)
+	local old = root:FindFirstChild("Label")
+	if old then old:Destroy() end
+	local g = Instance.new("BillboardGui")
+	g.Name = "Label"
+	g.Size = UDim2.new(0, 230, 0, 66)
+	g.StudsOffset = Vector3.new(0, (def and def.size or 4) + 1.6, 0)
+	g.MaxDistance = maxDistance or 70
+	g.LightInfluence = 0
+	g.AlwaysOnTop = false
+	g.Parent = root
+	local function line(text, y, h, color)
+		local t = Instance.new("TextLabel")
+		t.BackgroundTransparency = 1
+		t.Size = UDim2.new(1, 0, 0, h)
+		t.Position = UDim2.new(0, 0, 0, y)
+		t.Font = Enum.Font.GothamBlack
+		t.TextScaled = true
+		t.RichText = true
+		t.Text = text
+		t.TextColor3 = color
+		t.TextStrokeTransparency = 0.2
+		t.Parent = g
+		return t
+	end
+	local mu = Config.MutationIndex[mut or ""]
+	local name = def and def.name or key
+	if mu then name = string.format('<font color="%s">%s</font> %s', Util.hex(mu.color), mu.name, name) end
+	line(name, 0, 26, Color3.new(1, 1, 1))
+	line(r.name, 26, 20, r.color)
+	line(line2 or "", 46, 20, Color3.fromRGB(255, 230, 120))
+	return g
+end
+
+return Monsters
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000009"><Properties><string name="Name">Net</string><ProtectedString name="Source"><![CDATA[-- Удалённые события и функции. Сервер создаёт их (Net.init), клиент ждёт.
+local RunService = game:GetService("RunService")
+local RS = game:GetService("ReplicatedStorage")
+
+local Net = {}
+Net.Events = { "Action", "Toast", "Announce", "Fx" }
+Net.Functions = { "GetShop" }
+
+local folder = nil
+local function getFolder()
+	if folder then return folder end
+	if RunService:IsServer() then
+		folder = RS:FindFirstChild("Remotes")
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = "Remotes"
+			folder.Parent = RS
+		end
+	else
+		folder = RS:WaitForChild("Remotes")
+	end
+	return folder
+end
+
+local function get(class, name)
+	local f = getFolder()
+	local r = f:FindFirstChild(name)
+	if r then return r end
+	if RunService:IsServer() then
+		r = Instance.new(class)
+		r.Name = name
+		r.Parent = f
+		return r
+	end
+	return f:WaitForChild(name)
+end
+
+function Net.event(name) return get("RemoteEvent", name) end
+function Net.func(name) return get("RemoteFunction", name) end
+
+-- сервер: создать всё сразу
+function Net.init()
+	for _, n in ipairs(Net.Events) do Net.event(n) end
+	for _, n in ipairs(Net.Functions) do Net.func(n) end
+end
+
+return Net
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000A"><Properties><string name="Name">Util</string><ProtectedString name="Source"><![CDATA[-- Общие расчёты для сервера и клиента: формат чисел и времени, ролл редкости и мутации,
+-- доход монстра, цена продажи.
+local Config = require(script.Parent.Config)
+
+local Util = {}
+
+local SUFFIX = { "", "K", "M", "B", "T", "Qa", "Qi" }
+
+-- 1234 -> "1.2K", 15 -> "15"
+function Util.num(n)
+	n = tonumber(n) or 0
+	local neg = n < 0
+	if neg then n = -n end
+	local i = 1
+	while n >= 1000 and i < #SUFFIX do
+		n = n / 1000
+		i = i + 1
+	end
+	local s
+	if i == 1 then
+		s = tostring(math.floor(n + 0.5))
+	elseif n < 10 then
+		s = string.format("%.2f", math.floor(n * 100) / 100)
+	elseif n < 100 then
+		s = string.format("%.1f", math.floor(n * 10) / 10)
+	else
+		s = tostring(math.floor(n))
+	end
+	if s:find(".", 1, true) then
+		s = (s:gsub("(%..-)0+$", "%1"))
+		s = (s:gsub("%.$", ""))
+	end
+	return (neg and "-" or "") .. s .. SUFFIX[i]
+end
+
+-- 125 -> "2:05"
+function Util.time(sec)
+	sec = math.max(0, math.floor(tonumber(sec) or 0))
+	return string.format("%d:%02d", math.floor(sec / 60), sec % 60)
+end
+
+-- редкость по удаче; maxTier — самая высокая разрешённая (днём ниже)
+function Util.rollRarity(rng, luck, maxTier)
+	luck = math.max(1, luck or 1)
+	maxTier = maxTier or #Config.Rarities
+	for i = math.min(maxTier, #Config.Rarities), 2, -1 do
+		local r = Config.Rarities[i]
+		if rng:NextNumber() < luck / r.chance then return r end
+	end
+	return Config.Rarities[1]
+end
+
+-- случайный монстр этой редкости
+function Util.rollMonster(rng, rarityKey)
+	local list = Config.MonstersByRarity[rarityKey] or Config.MonstersByRarity.common
+	return list[rng:NextInteger(1, #list)]
+end
+
+-- мутация: opts = { event = "bloodmoon"|..., gold = множитель золотых, blood = true }
+function Util.rollMutation(rng, opts)
+	opts = opts or {}
+	local glitch = Config.MutationIndex.glitch.chance
+	if opts.event == "glitch" then glitch = glitch / Config.GlitchNightMul end
+	if rng:NextNumber() < 1 / glitch then return "glitch" end
+	if opts.blood or opts.event == "bloodmoon" then
+		local bc = opts.blood and 1.5 or Config.BloodMutationChance
+		if rng:NextNumber() < 1 / bc then return "blood" end
+	end
+	local gold = Config.MutationIndex.gold.chance / (opts.gold or 1)
+	if rng:NextNumber() < 1 / gold then return "gold" end
+	return ""
+end
+
+function Util.mutMul(mut)
+	local m = Config.MutationIndex[mut or ""]
+	return m and m.mul or 1
+end
+
+-- доход монстра в секунду (без геймпасса)
+function Util.income(key, mut)
+	local m = Config.MonsterIndex[key]
+	if not m then return 0 end
+	return m.income * Util.mutMul(mut)
+end
+
+function Util.sellPrice(key, mut)
+	return Util.income(key, mut) * Config.SellMul
+end
+
+-- подпись «Золотой Кот 404»
+function Util.fullName(key, mut)
+	local m = Config.MonsterIndex[key]
+	local name = m and m.name or key
+	local mu = Config.MutationIndex[mut or ""]
+	if mu then name = mu.name .. " " .. name end
+	return name
+end
+
+function Util.rarityOf(key)
+	local m = Config.MonsterIndex[key]
+	return Config.RarityIndex[m and m.rarity or "common"]
+end
+
+-- цвет в hex для RichText
+function Util.hex(c)
+	return string.format("#%02x%02x%02x", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
+end
+
+return Util
+]]></ProtectedString></Properties></Item></Item></Item>
+<Item class="ServerScriptService" referent="RBX00000018"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="Script" referent="RBX0000000D"><Properties><string name="Name">Main</string><ProtectedString name="Source"><![CDATA[-- Запуск сервера: строит карту, включает модули и встречает игроков.
+-- Модули знают друг о друге через общую таблицу S (S.Data, S.Bases, S.Carry ...).
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local Shared = RS:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Net = require(Shared.Net)
+local Util = require(Shared.Util)
+local Server = script.Parent:WaitForChild("Server")
+
+Net.init()
+
+local S = {}
+S.Data = require(Server.Data)
+S.Cycle = require(Server.Cycle)
+S.Bases = require(Server.Bases)
+S.Carry = require(Server.Carry)
+S.Wild = require(Server.Wild)
+S.Shop = require(Server.Shop)
+S.Monetize = require(Server.Monetize)
+S.Admin = require(Server.Admin)
+
+local world = require(Server.World).build()
+S.Data.init(S)
+S.Cycle.init(S)
+S.Bases.init(S, world.bases)
+S.Carry.init(S)
+S.Wild.init(S)
+S.Shop.init(S, world.shop)
+S.Monetize.init(S)
+S.Admin.init(S)
+
+local function toast(player, text, color) Net.event("Toast"):FireClient(player, text, color) end
+
+-- действия игрока
+Net.event("Action").OnServerEvent:Connect(function(player, kind, a, b)
+	local ok, err = pcall(function()
+		if kind == "buy" then S.Shop.buy(player, a, b)
+		elseif kind == "useBait" then S.Wild.useBait(player, a)
+		elseif kind == "admin" then S.Admin.run(player, a)
+		end
+	end)
+	if not ok then warn("[CN] Action " .. tostring(kind) .. ": " .. tostring(err)) end
+end)
+
+local function onCharacter(player, char)
+	task.spawn(function()
+		local hrp = char:WaitForChild("HumanoidRootPart", 10)
+		if not hrp then return end
+		task.wait(0.1)
+		local cf = S.Bases.spawnCF(player)
+		if cf then char:PivotTo(cf) end
+		S.Cycle.applyLight(char)
+	end)
+	S.Carry.onCharacter(player, char)
+end
+
+local function onPlayer(player)
+	local p = S.Data.load(player)
+	if not player.Parent then
+		S.Data.release(player)
+		return
+	end
+	S.Monetize.checkPasses(player)
+	local rec = S.Bases.assign(player)
+	if not rec then
+		player:Kick("Все базы на этом сервере заняты — зайди на другой сервер")
+		return
+	end
+	S.Data.sync(player)
+	-- доход, пока игрока не было
+	if p.last > 0 then
+		local away = math.min(os.time() - p.last, Config.OfflineCapSeconds)
+		local inc = S.Bases.incomeOf(player)
+		local earned = math.floor(away * inc * Config.OfflineRate)
+		if away > 60 and earned > 0 then
+			S.Data.addFear(player, earned)
+			task.delay(3, function()
+				if player.Parent then Net.event("Fx"):FireClient(player, "offline", earned, away) end
+			end)
+		end
+	end
+	player.CharacterAdded:Connect(function(char) onCharacter(player, char) end)
+	if player.Character then onCharacter(player, player.Character) end
+	if p.isNew and Config.Wild.FirstCatchHelp then
+		task.delay(4, function()
+			if player.Parent then S.Wild.spawnHelper(player) end
+		end)
+	else
+		task.delay(3, function()
+			if player.Parent then toast(player, "С возвращением! Доход базы: +" .. Util.num(S.Bases.incomeOf(player)) .. " 💀/с", Color3.fromRGB(255, 230, 140)) end
+		end)
+	end
+end
+
+Players.PlayerAdded:Connect(onPlayer)
+for _, pl in ipairs(Players:GetPlayers()) do task.spawn(onPlayer, pl) end
+
+Players.PlayerRemoving:Connect(function(player)
+	S.Carry.onLeave(player)
+	S.Data.release(player)
+	S.Bases.release(player)
+end)
+
+print("[CN] " .. Config.GameName .. " запущена")
+]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX00000017"><Properties><string name="Name">Server</string></Properties><Item class="ModuleScript" referent="RBX0000000E"><Properties><string name="Name">Admin</string><ProtectedString name="Source"><![CDATA[-- Админ-команды для тестов и «админ-ивентов»: кнопки в админ-панели (Action "admin")
+-- и команды в чате. Работают в Studio, у владельца игры и у UserId из Config.Admins.
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local RS = game:GetService("ReplicatedStorage")
+local Shared = RS:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Net = require(Shared.Net)
+
+local Admin = {}
+local S
+local last = {} -- player -> { cmd, t } защита от двойного срабатывания
+
+function Admin.isAdmin(player)
+	if RunService:IsStudio() then return true end
+	if game.CreatorType == Enum.CreatorType.User and player.UserId == game.CreatorId then return true end
+	return table.find(Config.Admins, player.UserId) ~= nil
+end
+
+local function spawnRarity(player, rarityKey)
+	local list = Config.MonstersByRarity[rarityKey]
+	if not list then return end
+	local def = list[math.random(1, #list)]
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local pos = hrp and (hrp.CFrame * CFrame.new(0, 0, -10)).Position or nil
+	S.Wild.spawn({ pos = pos, key = def.key, mut = "" })
+end
+
+-- выполнить команду: "day", "night", "bloodmoon", "glitch", "fog", "spawn <редкость>", "fear <n>", "luck", "restock"
+function Admin.run(player, text)
+	if not Admin.isAdmin(player) or type(text) ~= "string" then return false end
+	text = string.lower(text):gsub("^/", "")
+	local cmd, arg = text:match("^(%S+)%s*(.*)$")
+	if not cmd then return false end
+	local l = last[player]
+	if l and l.cmd == text and os.clock() - l.t < 0.5 then return true end
+	last[player] = { cmd = text, t = os.clock() }
+	if cmd == "day" then S.Cycle.force("day")
+	elseif cmd == "night" then S.Cycle.force("night", arg ~= "" and arg or "")
+	elseif cmd == "bloodmoon" or cmd == "glitch" or cmd == "fog" then S.Cycle.force("night", cmd)
+	elseif cmd == "spawn" then spawnRarity(player, arg ~= "" and arg or "legendary")
+	elseif cmd == "fear" then S.Data.addFear(player, tonumber(arg) or 10000)
+	elseif cmd == "luck" then S.Cycle.addServerLuck(tonumber(arg) or Config.Products.ServerLuck.minutes, player.DisplayName)
+	elseif cmd == "restock" then S.Shop.restock()
+	else return false end
+	Net.event("Toast"):FireClient(player, "Админ: " .. text, Color3.fromRGB(150, 200, 255))
+	return true
+end
+
+function Admin.init(s)
+	S = s
+	local function hook(player)
+		player:SetAttribute("IsAdmin", Admin.isAdmin(player))
+		player.Chatted:Connect(function(msg)
+			if string.sub(msg, 1, 1) == "/" then Admin.run(player, msg) end
+		end)
+	end
+	Players.PlayerAdded:Connect(hook)
+	for _, pl in ipairs(Players:GetPlayers()) do hook(pl) end
+	Players.PlayerRemoving:Connect(function(pl) last[pl] = nil end)
+end
+
+return Admin
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000F"><Properties><string name="Name">Bases</string><ProtectedString name="Source"><![CDATA[-- Базы игроков: выдача базы, монстры в клетках, доход каждую секунду, замок двери,
+-- кража из чужой клетки, продажа, покупка клетки (через Shop).
+local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
+local RS = game:GetService("ReplicatedStorage")
+local Shared = RS:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Util = require(Shared.Util)
+local Net = require(Shared.Net)
+local Monsters = require(Shared.Monsters)
+
+local Bases = {}
+local S
+local list = {}
+local byPlayer = {}
+local HALF = Config.Map.BaseSize / 2
+
+local function toast(player, text, color) Net.event("Toast"):FireClient(player, text, color) end
+local function fx(player, ...) Net.event("Fx"):FireClient(player, ...) end
+
+local function alive(player)
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if hum and hrp and hum.Health > 0 then return hrp end
+	return nil
+end
+
+function Bases.baseOf(player) return byPlayer[player] end
+function Bases.all() return list end
+
+-- точка внутри базы?
+function Bases.inBase(rec, pos)
+	local p = rec.cf:PointToObjectSpace(pos)
+	return math.abs(p.X) <= HALF and math.abs(p.Z) <= HALF and p.Y < 40
+end
+
+-- база, в которой стоит точка (или nil)
+function Bases.at(pos)
+	for _, rec in ipairs(list) do
+		if Bases.inBase(rec, pos) then return rec end
+	end
+	return nil
+end
+
+function Bases.spawnCF(player)
+	local rec = byPlayer[player]
+	if not rec then return nil end
+	return rec.model.Spawn.CFrame
+end
+
+function Bases.incomeOf(player)
+	local p = S.Data.get(player)
+	if not p then return 0 end
+	local sum = 0
+	for _, e in pairs(p.slots) do sum = sum + Util.income(e.k, e.m) end
+	if player:GetAttribute("PassDoubleFear") then sum = sum * 2 end
+	return sum
+end
+
+---------------------------------------------------------------- клетки
+local function slotModel(rec, s) return rec.model.Slots:FindFirstChild("Slot_" .. s) end
+
+local function setBars(sm, visible)
+	for _, b in ipairs(sm.Bars:GetChildren()) do
+		b.Transparency = visible and 0 or 0.85
+	end
+end
+
+-- обновить вид и подсказки клетки
+function Bases.refreshSlot(rec, s)
+	local sm = slotModel(rec, s)
+	if not sm then return end
+	local owner = rec.owner
+	local p = owner and S.Data.get(owner)
+	local open = p ~= nil and s <= p.cages
+	local entry = p and open and p.slots[s] or nil
+	local nextBuy = p ~= nil and s == p.cages + 1 and s <= S.Data.maxCages(owner)
+	local pad = sm.Pad
+	local att = pad.PromptAtt
+
+	setBars(sm, open)
+	if entry then
+		sm.Rim.Color = Util.rarityOf(entry.k).color
+	elseif open then
+		sm.Rim.Color = Color3.fromRGB(85, 85, 92)
+	else
+		sm.Rim.Color = Color3.fromRGB(30, 30, 34)
+	end
+
+	-- монстр
+	local cur = rec.monsters[s]
+	if cur and (not entry or cur:GetAttribute("Key") ~= entry.k or cur:GetAttribute("Mutation") ~= entry.m) then
+		cur:Destroy()
+		cur = nil
+		rec.monsters[s] = nil
+	end
+	if entry and not cur then
+		local m = Monsters.build(entry.k, entry.m)
+		m.Name = "Monster"
+		m:PivotTo(sm.Anchor.CFrame)
+		local inc = Util.income(entry.k, entry.m)
+		if owner:GetAttribute("PassDoubleFear") then inc = inc * 2 end
+		Monsters.label(m, "+" .. Util.num(inc) .. " 💀/с", 45)
+		m.Parent = sm
+		CollectionService:AddTag(m, "CageMonster")
+		rec.monsters[s] = m
+	end
+
+	-- подсказки
+	local locked = rec.model:GetAttribute("Locked")
+	att.StealPrompt.Enabled = entry ~= nil and not locked
+	att.StealPrompt.ObjectText = entry and Util.fullName(entry.k, entry.m) or ""
+	att.SellPrompt.Enabled = entry ~= nil
+	att.SellPrompt.ObjectText = entry and ("+" .. Util.num(Util.sellPrice(entry.k, entry.m)) .. " 💀") or ""
+	att.BuyPrompt.Enabled = nextBuy
+	local price = Config.CagePrices[s] or 0
+	att.BuyPrompt.ObjectText = Util.num(price) .. " 💀"
+	pad.LockedGui.Enabled = nextBuy
+	pad.LockedGui.Text.Text = "🔒 " .. Util.num(price) .. " 💀"
+end
+
+function Bases.refreshAll(rec)
+	for s = 1, #rec.slots do Bases.refreshSlot(rec, s) end
+end
+
+-- force — пересоздать модели монстров (например, после геймпасса ×2 меняются подписи)
+function Bases.refreshPlayer(player, force)
+	local rec = byPlayer[player]
+	if not rec then return end
+	if force then
+		for s, m in pairs(rec.monsters) do
+			m:Destroy()
+			rec.monsters[s] = nil
+		end
+	end
+	Bases.refreshAll(rec)
+end
+
+-- первая свободная открытая клетка
+function Bases.freeSlot(player)
+	local p = S.Data.get(player)
+	if not p then return nil end
+	for s = 1, p.cages do
+		if not p.slots[s] then return s end
+	end
+	return nil
+end
+
+-- положить монстра в клетку; номер клетки или nil
+function Bases.place(player, entry)
+	local rec = byPlayer[player]
+	local p = S.Data.get(player)
+	local s = Bases.freeSlot(player)
+	if not rec or not p or not s then return nil end
+	p.slots[s] = { k = entry.k, m = entry.m or "" }
+	Bases.refreshSlot(rec, s)
+	return s
+end
+
+---------------------------------------------------------------- владельцы
+local function setOwnerVisuals(rec)
+	local m = rec.model
+	local owner = rec.owner
+	m:SetAttribute("OwnerId", owner and owner.UserId or 0)
+	m:SetAttribute("OwnerName", owner and owner.DisplayName or "")
+	m.SignBoard.Sign.OwnerText.Text = owner and ("База " .. owner.DisplayName) or "Свободная база"
+	m.Top.OwnerGui.NameText.Text = owner and owner.DisplayName or ""
+	m.Top.OwnerGui.Income.Text = ""
+end
+
+function Bases.assign(player)
+	if byPlayer[player] then return byPlayer[player] end
+	for _, rec in ipairs(list) do
+		if not rec.owner then
+			rec.owner = player
+			byPlayer[player] = rec
+			player:SetAttribute("BaseIndex", rec.index)
+			setOwnerVisuals(rec)
+			Bases.refreshAll(rec)
+			return rec
+		end
+	end
+	return nil
+end
+
+function Bases.release(player)
+	local rec = byPlayer[player]
+	if not rec then return end
+	byPlayer[player] = nil
+	rec.owner = nil
+	for s, m in pairs(rec.monsters) do
+		m:Destroy()
+		rec.monsters[s] = nil
+	end
+	Bases.unlock(rec)
+	setOwnerVisuals(rec)
+	Bases.refreshAll(rec)
+end
+
+---------------------------------------------------------------- замок
+function Bases.lock(rec)
+	local m = rec.model
+	if m:GetAttribute("Locked") then return false end
+	m:SetAttribute("Locked", true)
+	m:SetAttribute("LockEnds", S.Cycle.now() + Config.LockSeconds)
+	m.Door.Transparency = 0.35
+	m.Door.CanCollide = true
+	m.Door.LockGui.Enabled = true
+	m.LockPad.Color = Color3.fromRGB(255, 60, 70)
+	Bases.refreshAll(rec)
+	return true
+end
+
+function Bases.unlock(rec)
+	local m = rec.model
+	m:SetAttribute("Locked", false)
+	m:SetAttribute("LockEnds", 0)
+	m.Door.Transparency = 1
+	m.Door.CanCollide = false
+	m.Door.LockGui.Enabled = false
+	m.LockPad.Color = Color3.fromRGB(60, 255, 106)
+	if rec.owner then Bases.refreshAll(rec) end
+end
+
+---------------------------------------------------------------- действия у клеток
+local function near(player, part, dist)
+	local hrp = alive(player)
+	return hrp ~= nil and (hrp.Position - part.Position).Magnitude <= dist
+end
+
+function Bases.steal(thief, rec, s)
+	local owner = rec.owner
+	if not owner or owner == thief then return end
+	if rec.model:GetAttribute("Locked") then
+		toast(thief, "База заперта!", Color3.fromRGB(255, 90, 90))
+		return
+	end
+	if S.Carry.get(thief) then
+		toast(thief, "Руки заняты — сначала отнеси монстра на базу", Color3.fromRGB(255, 200, 90))
+		return
+	end
+	local sm = slotModel(rec, s)
+	if not sm or not near(thief, sm.Pad, 16) then return end
+	local p = S.Data.get(owner)
+	local entry = p and p.slots[s]
+	if not entry then return end
+	p.slots[s] = nil
+	Bases.refreshSlot(rec, s)
+	local ok = S.Carry.start(thief, { k = entry.k, m = entry.m }, { from = "steal", ownerId = owner.UserId, ownerName = owner.DisplayName })
+	if not ok then
+		p.slots[s] = entry
+		Bases.refreshSlot(rec, s)
+		return
+	end
+	local name = Util.fullName(entry.k, entry.m)
+	fx(owner, "stolen", name, thief.DisplayName)
+	toast(thief, "Утащил " .. name .. "! Беги на свою базу!", Color3.fromRGB(255, 220, 90))
+end
+
+function Bases.sell(player, rec, s)
+	if rec.owner ~= player then return end
+	local p = S.Data.get(player)
+	local entry = p and p.slots[s]
+	if not entry then return end
+	local sm = slotModel(rec, s)
+	if not sm or not near(player, sm.Pad, 16) then return end
+	local price = Util.sellPrice(entry.k, entry.m)
+	p.slots[s] = nil
+	S.Data.addFear(player, price)
+	Bases.refreshSlot(rec, s)
+	fx(player, "cash", price)
+	toast(player, "Продано: " .. Util.fullName(entry.k, entry.m) .. " за " .. Util.num(price) .. " 💀", Color3.fromRGB(255, 220, 90))
+end
+
+---------------------------------------------------------------- запуск
+function Bases.init(s, models)
+	S = s
+	for i, m in ipairs(models) do
+		local floor = m.Floor
+		local rec = {
+			index = i, model = m, owner = nil, monsters = {}, slots = {},
+			cf = CFrame.new(floor.Position.X, 0, floor.Position.Z) * floor.CFrame.Rotation,
+		}
+		for _, sm in ipairs(m.Slots:GetChildren()) do
+			rec.slots[sm:GetAttribute("Slot")] = sm
+		end
+		list[i] = rec
+		m.LockPad.Attachment.LockPrompt.Triggered:Connect(function(player)
+			if rec.owner ~= player then return end
+			if Bases.lock(rec) then
+				toast(player, "🔒 База заперта на " .. Config.LockSeconds .. " секунд", Color3.fromRGB(120, 255, 140))
+			else
+				toast(player, "База уже заперта", Color3.fromRGB(255, 200, 90))
+			end
+		end)
+		for idx, sm in pairs(rec.slots) do
+			local att = sm.Pad.PromptAtt
+			att.StealPrompt.Triggered:Connect(function(player) Bases.steal(player, rec, idx) end)
+			att.SellPrompt.Triggered:Connect(function(player) Bases.sell(player, rec, idx) end)
+			att.BuyPrompt.Triggered:Connect(function(player)
+				if rec.owner == player then S.Shop.buyCage(player) end
+			end)
+		end
+	end
+
+	-- доход каждую секунду и снятие замков
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			local ok, err = pcall(function()
+				local t = S.Cycle.now()
+				for _, rec in ipairs(list) do
+					local m = rec.model
+					if m:GetAttribute("Locked") and (m:GetAttribute("LockEnds") or 0) <= t then Bases.unlock(rec) end
+					local owner = rec.owner
+					if owner and owner.Parent then
+						local inc = Bases.incomeOf(owner)
+						if inc > 0 then S.Data.addFear(owner, inc) end
+						owner:SetAttribute("Income", inc)
+						m:SetAttribute("Income", inc)
+						m.Top.OwnerGui.Income.Text = "+" .. Util.num(inc) .. " 💀/с"
+					end
+				end
+			end)
+			if not ok then warn("[CN] Bases: " .. tostring(err)) end
+		end
+	end)
+end
+
+return Bases
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000010"><Properties><string name="Name">Carry</string><ProtectedString name="Source"><![CDATA[-- Переноска монстра на голове: пойманного в лесу или украденного с чужой базы.
+-- Пока несёшь — идёшь медленнее, и любой может «Отобрать» монстра (подсказка на твоём персонаже).
+-- Дошёл до своей базы — монстр сам садится в свободную клетку.
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local Shared = RS:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Util = require(Shared.Util)
+local Net = require(Shared.Net)
+local Monsters = require(Shared.Monsters)
+
+local Carry = {}
+local S
+local carrying = {}   -- player -> { entry = {k,m}, info = {...}, model }
+local stunUntil = {}  -- player -> время
+local fullWarn = {}   -- player -> время последнего «нет мест»
+local WALK = 16
+
+local function toast(player, text, color) Net.event("Toast"):FireClient(player, text, color) end
+local function fx(player, ...) Net.event("Fx"):FireClient(player, ...) end
+local function now() return S.Cycle.now() end
+
+local function parts(player)
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local head = char and char:FindFirstChild("Head")
+	if hum and hrp and head and hum.Health > 0 then return hum, hrp, head end
+	return nil
+end
+
+function Carry.get(player) return carrying[player] end
+
+-- скорость: оглушён -> 0, с монстром -> медленнее
+function Carry.updateSpeed(player)
+	local hum = parts(player)
+	if not hum then return end
+	if (stunUntil[player] or 0) > now() then
+		hum.WalkSpeed = 0
+		return
+	end
+	local st = carrying[player]
+	if st then
+		local tier = Util.rarityOf(st.entry.k).tier
+		hum.WalkSpeed = tier >= 4 and Config.CarryRareSpeed or Config.CarrySpeed
+	else
+		hum.WalkSpeed = WALK
+	end
+end
+
+function Carry.stun(player, seconds)
+	stunUntil[player] = now() + seconds
+	Carry.updateSpeed(player)
+	task.delay(seconds + 0.05, function()
+		if player.Parent then Carry.updateSpeed(player) end
+	end)
+end
+
+local function setPrompt(player, on)
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local p = hrp and hrp:FindFirstChild("TacklePrompt")
+	if p then p.Enabled = on end
+end
+
+-- начать нести; false, если персонажа нет
+function Carry.start(player, entry, info)
+	if carrying[player] then return false end
+	local hum, _, head = parts(player)
+	if not hum then return false end
+	local m, root = Monsters.build(entry.k, entry.m)
+	m.Name = "Carried_" .. player.Name
+	Monsters.label(m, "🎒 " .. player.DisplayName, 80)
+	m:PivotTo(head.CFrame * CFrame.new(0, head.Size.Y / 2 + 0.3, 0))
+	m:SetAttribute("CarrierId", player.UserId)
+	m.Parent = workspace.Carried
+	root.Anchored = false
+	local w = Instance.new("WeldConstraint")
+	w.Part0 = head
+	w.Part1 = root
+	w.Parent = root
+	carrying[player] = { entry = { k = entry.k, m = entry.m or "" }, info = info or {}, model = m, since = now() }
+	player:SetAttribute("Carrying", Util.fullName(entry.k, entry.m))
+	player:SetAttribute("CarryRarity", Util.rarityOf(entry.k).key)
+	setPrompt(player, true)
+	Carry.updateSpeed(player)
+	fx(player, "carry", Util.fullName(entry.k, entry.m))
+	return true
+end
+
+-- перестать нести (монстр исчезает); вернуть состояние
+local function stop(player)
+	local st = carrying[player]
+	if not st then return nil end
+	carrying[player] = nil
+	if st.model then st.model:Destroy() end
+	if player.Parent then
+		player:SetAttribute("Carrying", "")
+		player:SetAttribute("CarryRarity", "")
+		setPrompt(player, false)
+		Carry.updateSpeed(player)
+	end
+	return st
+end
+
+-- уронить: mode = "wild" (монстр убегает в лес рядом) или "leave" (игрок вышел/умер)
+function Carry.drop(player, mode, pos)
+	local st = carrying[player]
+	if not st then return end
+	if not pos then
+		local root = st.model and st.model.PrimaryPart
+		pos = root and root.Position or nil
+	end
+	stop(player)
+	-- украденный монстр при выходе вора возвращается хозяину, если тот на сервере
+	if mode == "leave" and st.info.from == "steal" then
+		local owner = Players:GetPlayerByUserId(st.info.ownerId or 0)
+		if owner and owner ~= player and S.Bases.place(owner, st.entry) then
+			toast(owner, Util.fullName(st.entry.k, st.entry.m) .. " вернулся к тебе!", Color3.fromRGB(120, 255, 140))
+			return
+		end
+	end
+	if pos and S.Wild then
+		S.Wild.spawn({ pos = Vector3.new(pos.X, 0, pos.Z), key = st.entry.k, mut = st.entry.m, fromDrop = true })
+	end
+end
+
+-- отнести на свою базу
+local function deliver(player, st)
+	local slot = S.Bases.place(player, st.entry)
+	if not slot then
+		if (fullWarn[player] or 0) < now() then
+			fullWarn[player] = now() + 4
+			toast(player, "Нет свободных клеток! Продай монстра или купи клетку", Color3.fromRGB(255, 120, 90))
+		end
+		return
+	end
+	stop(player)
+	local name = Util.fullName(st.entry.k, st.entry.m)
+	local r = Util.rarityOf(st.entry.k)
+	local p = S.Data.get(player)
+	local info = st.info
+	if info.from == "steal" and info.ownerId ~= player.UserId then
+		if r.tier >= Config.StealAnnounceTier then
+			S.Cycle.announce(string.format("🦹 %s украл %s у %s!", player.DisplayName, name, info.ownerName or "?"), r.color)
+		end
+		toast(player, "Украдено: " .. name .. "!", r.color)
+	elseif info.from == "steal" then
+		toast(player, "Вернул своего: " .. name, Color3.fromRGB(120, 255, 140))
+	else
+		if p then
+			p.caught = p.caught + 1
+			S.Data.sync(player)
+		end
+		if r.tier >= Config.AnnounceTier then
+			S.Cycle.announce(string.format("🔥 %s поймал: %s (%s, 1 к %s)!", player.DisplayName, name, r.name, Util.num(r.chance)), r.color)
+		end
+	end
+	fx(player, "delivered", name, r.key)
+end
+
+-- отобрать монстра у игрока
+local function tackle(thief, victim)
+	if thief == victim then return end
+	local st = carrying[victim]
+	if not st or carrying[thief] then return end
+	if (st.immune or 0) > now() then
+		toast(thief, "Не вышло — попробуй ещё раз через секунду", Color3.fromRGB(255, 200, 90))
+		return
+	end
+	local _, hrpT = parts(thief)
+	local _, hrpV = parts(victim)
+	if not hrpT or not hrpV or (hrpT.Position - hrpV.Position).Magnitude > 14 then return end
+	stop(victim)
+	local info = st.info
+	if info.from ~= "steal" then
+		-- пойманный в лесу становится «украденным» у того, кто его поймал
+		info = { from = "steal", ownerId = victim.UserId, ownerName = victim.DisplayName }
+	end
+	if Carry.start(thief, st.entry, info) then
+		carrying[thief].immune = now() + Config.TackleImmunity
+		Carry.stun(victim, 1)
+		local name = Util.fullName(st.entry.k, st.entry.m)
+		fx(victim, "tackled", name, thief.DisplayName)
+		toast(thief, "Отобрал " .. name .. "! Беги на базу!", Color3.fromRGB(255, 220, 90))
+	else
+		Carry.drop(victim, "wild", hrpV.Position)
+	end
+end
+
+-- новый персонаж: подсказка «Отобрать» и смерть
+function Carry.onCharacter(player, char)
+	local hrp = char:WaitForChild("HumanoidRootPart", 10)
+	local hum = char:WaitForChild("Humanoid", 10)
+	if not hrp or not hum then return end
+	local p = Instance.new("ProximityPrompt")
+	p.Name = "TacklePrompt"
+	p.ActionText = "Отобрать"
+	p.ObjectText = player.DisplayName
+	p.HoldDuration = Config.TackleHold
+	p.MaxActivationDistance = 9
+	p.RequiresLineOfSight = false
+	p.KeyboardKeyCode = Enum.KeyCode.F
+	p.Enabled = false
+	p:SetAttribute("For", "notself")
+	p:SetAttribute("UserId", player.UserId)
+	p.Parent = hrp
+	p.Triggered:Connect(function(thief) tackle(thief, player) end)
+	hum.Died:Connect(function()
+		Carry.drop(player, "leave", hrp.Position)
+	end)
+	stunUntil[player] = nil
+	Carry.updateSpeed(player)
+end
+
+function Carry.onLeave(player)
+	Carry.drop(player, "leave")
+	stunUntil[player] = nil
+	fullWarn[player] = nil
+end
+
+function Carry.init(s)
+	S = s
+	task.spawn(function()
+		while true do
+			task.wait(0.25)
+			local ok, err = pcall(function()
+				for player, st in pairs(carrying) do
+					local _, hrp = parts(player)
+					if not hrp or not st.model.Parent then
+						Carry.drop(player, "leave")
+					else
+						local rec = S.Bases.baseOf(player)
+						if rec and S.Bases.inBase(rec, hrp.Position) then deliver(player, st) end
+					end
+				end
+			end)
+			if not ok then warn("[CN] Carry: " .. tostring(err)) end
+		end
+	end)
+end
+
+return Carry
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000011"><Properties><string name="Name">Cycle</string><ProtectedString name="Source"><![CDATA[-- Смена дня и ночи, события ночи (Кровавая луна, Глитч-ночь, Туман), удача сервера.
+-- Состояние лежит в атрибутах ReplicatedStorage.State: Phase, PhaseEnds, Night, Event, ServerLuck, LuckEnds.
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local Shared = RS:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Net = require(Shared.Net)
+
+local Cycle = {}
+local S
+local state
+local forced = nil -- { phase = "day"|"night", event = key|nil }
+local rng = Random.new()
+
+local function now() return workspace:GetServerTimeNow() end
+
+function Cycle.announce(text, color)
+	Net.event("Announce"):FireAllClients(text, color)
+end
+
+function Cycle.isNight() return state:GetAttribute("Phase") == "night" end
+function Cycle.event() return state:GetAttribute("Event") or "" end
+
+-- удача: событие ночи × удача сервера (товар за Robux)
+function Cycle.luck()
+	local l = 1
+	local e = Config.EventIndex[Cycle.event()]
+	if e and Cycle.isNight() then l = l * e.luck end
+	if (state:GetAttribute("LuckEnds") or 0) > now() then l = l * (state:GetAttribute("ServerLuck") or 1) end
+	return l
+end
+
+function Cycle.addServerLuck(minutes, who)
+	local t = math.max(now(), state:GetAttribute("LuckEnds") or 0) + minutes * 60
+	state:SetAttribute("LuckEnds", t)
+	state:SetAttribute("ServerLuck", 2)
+	Cycle.announce(string.format("🍀 %s включил УДАЧУ ×2 для всего сервера на %d мин!", who, minutes), Color3.fromRGB(110, 255, 120))
+end
+
+-- фонарик на голове ночью
+function Cycle.applyLight(char)
+	local head = char and char:FindFirstChild("Head")
+	if not head then return end
+	local l = head:FindFirstChild("NightLight")
+	if Cycle.isNight() then
+		if not l then
+			l = Instance.new("PointLight")
+			l.Name = "NightLight"
+			l.Range = 22
+			l.Brightness = 1.1
+			l.Color = Color3.fromRGB(190, 210, 255)
+			l.Shadows = false
+			l.Parent = head
+		end
+	elseif l then
+		l:Destroy()
+	end
+end
+
+local function lightsAll()
+	for _, pl in ipairs(Players:GetPlayers()) do Cycle.applyLight(pl.Character) end
+end
+
+local function rollEvent()
+	local x = rng:NextNumber(0, 100)
+	local acc = 0
+	for _, e in ipairs(Config.Events) do
+		acc = acc + e.weight
+		if x < acc then return e.key end
+	end
+	return ""
+end
+
+local function startDay()
+	state:SetAttribute("Phase", "day")
+	state:SetAttribute("Event", "")
+	state:SetAttribute("PhaseEnds", now() + Config.DaySeconds)
+	Cycle.announce("☀ Наступил день. Редкие монстры спрятались — время строить базу!", Color3.fromRGB(255, 230, 140))
+	if S.Wild then S.Wild.onDay() end
+	lightsAll()
+end
+
+local function startNight(event)
+	local n = (state:GetAttribute("Night") or 0) + 1
+	state:SetAttribute("Night", n)
+	event = event or rollEvent()
+	state:SetAttribute("Phase", "night")
+	state:SetAttribute("Event", event)
+	state:SetAttribute("PhaseEnds", now() + Config.NightSeconds)
+	local e = Config.EventIndex[event]
+	if e then
+		Cycle.announce(string.format("🌙 НОЧЬ %d — %s: %s!", n, e.name, e.text), e.color)
+	else
+		Cycle.announce(string.format("🌙 НОЧЬ %d. Кошмары вышли на охоту...", n), Color3.fromRGB(150, 170, 255))
+	end
+	if S.Wild then S.Wild.onNight() end
+	lightsAll()
+end
+
+-- админ: сразу переключить фазу
+function Cycle.force(phase, event)
+	forced = { phase = phase, event = event }
+end
+
+function Cycle.init(s)
+	S = s
+	state = RS:FindFirstChild("State")
+	if not state then
+		state = Instance.new("Folder")
+		state.Name = "State"
+		state.Parent = RS
+	end
+	state:SetAttribute("Night", 0)
+	state:SetAttribute("ServerLuck", 1)
+	state:SetAttribute("LuckEnds", 0)
+	startDay()
+	task.spawn(function()
+		while true do
+			task.wait(0.25)
+			local ok, err = pcall(function()
+				if forced then
+					local f = forced
+					forced = nil
+					if f.phase == "night" then startNight(f.event) else startDay() end
+				elseif now() >= (state:GetAttribute("PhaseEnds") or 0) then
+					if Cycle.isNight() then startDay() else startNight() end
+				end
+				if (state:GetAttribute("ServerLuck") or 1) ~= 1 and (state:GetAttribute("LuckEnds") or 0) <= now() then
+					state:SetAttribute("ServerLuck", 1)
+					Cycle.announce("🍀 Удача сервера закончилась", Color3.fromRGB(200, 200, 200))
+				end
+			end)
+			if not ok then warn("[CN] Cycle: " .. tostring(err)) end
+		end
+	end)
+end
+
+Cycle.now = now
+return Cycle
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000012"><Properties><string name="Name">Data</string><ProtectedString name="Source"><![CDATA[-- Прогресс игроков: загрузка и сохранение в DataStore, атрибуты игрока для интерфейса и таблица лидеров.
+-- В неопубликованном Studio DataStore недоступен — игра работает, просто ничего не сохраняет.
+local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+local RunService = game:GetService("RunService")
+local RS = game:GetService("ReplicatedStorage")
+local Config = require(RS:WaitForChild("Shared").Config)
+
+local Data = {}
+local S
+local store = nil
+local profiles = {}
+
+local function defaults()
+	local baits = {}
+	for _, b in ipairs(Config.Baits) do baits[b.key] = 0 end
+	return { v = 1, fear = Config.StartFear, net = 1, cages = Config.StartCages, slots = {}, baits = baits, caught = 0, last = 0 }
+end
+
+-- из сохранения в рабочий вид: slots — массив {s,k,m} -> таблица slot -> {k,m}
+local function fromSaved(saved)
+	local p = defaults()
+	if type(saved) ~= "table" then return p end
+	p.fear = tonumber(saved.fear) or p.fear
+	p.net = math.clamp(tonumber(saved.net) or 1, 1, #Config.Nets)
+	p.cages = math.clamp(tonumber(saved.cages) or p.cages, Config.StartCages, Config.MaxCages + Config.PassCages)
+	p.caught = tonumber(saved.caught) or 0
+	p.last = tonumber(saved.last) or 0
+	if type(saved.baits) == "table" then
+		for k in pairs(p.baits) do p.baits[k] = math.max(0, math.floor(tonumber(saved.baits[k]) or 0)) end
+	end
+	if type(saved.slots) == "table" then
+		for _, e in ipairs(saved.slots) do
+			if type(e) == "table" and Config.MonsterIndex[e.k] and tonumber(e.s) then
+				p.slots[math.floor(e.s)] = { k = e.k, m = e.m or "" }
+			end
+		end
+	end
+	return p
+end
+
+local function toSaved(p)
+	local slots = {}
+	for s, e in pairs(p.slots) do table.insert(slots, { s = s, k = e.k, m = e.m }) end
+	table.sort(slots, function(a, b) return a.s < b.s end)
+	return { v = 1, fear = math.floor(p.fear), net = p.net, cages = p.cages, slots = slots, baits = p.baits, caught = p.caught, last = os.time() }
+end
+
+local function key(player) return "u_" .. player.UserId end
+
+function Data.init(s)
+	S = s
+	local ok, res = pcall(function() return DataStoreService:GetDataStore(Config.DataStoreName) end)
+	if ok then store = res else warn("[CN] DataStore недоступен, прогресс не сохраняется: " .. tostring(res)) end
+	-- автосохранение
+	task.spawn(function()
+		while true do
+			task.wait(90)
+			for _, pl in ipairs(Players:GetPlayers()) do
+				task.spawn(Data.save, pl)
+			end
+		end
+	end)
+	game:BindToClose(function()
+		if RunService:IsStudio() and not store then return end
+		for _, pl in ipairs(Players:GetPlayers()) do task.spawn(Data.save, pl) end
+		task.wait(2)
+	end)
+end
+
+-- загрузка (уступает поток); возвращает профиль
+function Data.load(player)
+	local saved, failed = nil, false
+	if store then
+		failed = true
+		for attempt = 1, 3 do
+			local ok, res = pcall(function() return store:GetAsync(key(player)) end)
+			if ok then
+				saved, failed = res, false
+				break
+			end
+			warn("[CN] загрузка не удалась (" .. attempt .. "): " .. tostring(res))
+			task.wait(1.5)
+		end
+	end
+	local p = fromSaved(saved)
+	p.isNew = saved == nil and not failed
+	p.noSave = failed -- чтобы не затереть настоящие данные пустыми
+	profiles[player] = p
+	-- таблица лидеров
+	local ls = Instance.new("Folder")
+	ls.Name = "leaderstats"
+	local fear = Instance.new("IntValue")
+	fear.Name = "💀 Страх"
+	fear.Parent = ls
+	local caught = Instance.new("IntValue")
+	caught.Name = "👻 Поймано"
+	caught.Parent = ls
+	ls.Parent = player
+	Data.sync(player)
+	return p
+end
+
+function Data.get(player) return profiles[player] end
+
+function Data.save(player)
+	local p = profiles[player]
+	if not p or p.noSave or not store then return end
+	local payload = toSaved(p)
+	local ok, err = pcall(function() store:SetAsync(key(player), payload) end)
+	if not ok then warn("[CN] сохранение не удалось: " .. tostring(err)) end
+end
+
+function Data.release(player)
+	Data.save(player)
+	profiles[player] = nil
+end
+
+-- максимум клеток с учётом геймпасса
+function Data.maxCages(player)
+	return Config.MaxCages + (player:GetAttribute("PassExtraCages") and Config.PassCages or 0)
+end
+
+-- атрибуты игрока для клиента
+function Data.sync(player)
+	local p = profiles[player]
+	if not p then return end
+	player:SetAttribute("Fear", math.floor(p.fear))
+	player:SetAttribute("Net", p.net)
+	player:SetAttribute("Cages", p.cages)
+	player:SetAttribute("MaxCages", Data.maxCages(player))
+	player:SetAttribute("Caught", p.caught)
+	for k, n in pairs(p.baits) do player:SetAttribute("Bait_" .. k, n) end
+	local ls = player:FindFirstChild("leaderstats")
+	if ls then
+		local f = ls:FindFirstChild("💀 Страх")
+		if f then f.Value = math.floor(p.fear) end
+		local c = ls:FindFirstChild("👻 Поймано")
+		if c then c.Value = p.caught end
+	end
+end
+
+function Data.addFear(player, n)
+	local p = profiles[player]
+	if not p then return end
+	p.fear = p.fear + n
+	local v = math.floor(p.fear)
+	player:SetAttribute("Fear", v)
+	local ls = player:FindFirstChild("leaderstats")
+	local f = ls and ls:FindFirstChild("💀 Страх")
+	if f then f.Value = v end
+end
+
+-- списать; false, если не хватает
+function Data.spend(player, n)
+	local p = profiles[player]
+	if not p or p.fear < n then return false end
+	Data.addFear(player, -n)
+	return true
+end
+
+return Data
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000013"><Properties><string name="Name">Monetize</string><ProtectedString name="Source"><![CDATA[-- Покупки за Robux: товар «Удача ×2 для всего сервера» и геймпассы (×2 Страха, +2 клетки).
+-- ID задаются в Config.Products / Config.Passes; 0 — товар выключен.
+local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+local RS = game:GetService("ReplicatedStorage")
+local Shared = RS:WaitForChild("Shared")
+local Config = require(Shared.Config)
+
+local Monetize = {}
+local S
+local granted = {} -- PurchaseId -> true (чтобы не выдать дважды)
+
+local function applyPass(player, name)
+	player:SetAttribute("Pass" .. name, true)
+	if name == "ExtraCages" then
+		S.Data.sync(player)
+		S.Bases.refreshPlayer(player)
+	elseif name == "DoubleFear" then
+		S.Bases.refreshPlayer(player, true)
+	end
+end
+
+function Monetize.checkPasses(player)
+	for name, p in pairs(Config.Passes) do
+		if p.id and p.id ~= 0 then
+			local ok, owns = pcall(function() return MarketplaceService:UserOwnsGamePassAsync(player.UserId, p.id) end)
+			if ok and owns then applyPass(player, name) end
+		end
+	end
+end
+
+function Monetize.init(s)
+	S = s
+	MarketplaceService.ProcessReceipt = function(info)
+		if granted[info.PurchaseId] then return Enum.ProductPurchaseDecision.PurchaseGranted end
+		local player = Players:GetPlayerByUserId(info.PlayerId)
+		if not player then return Enum.ProductPurchaseDecision.NotProcessedYet end
+		local luck = Config.Products.ServerLuck
+		if luck.id ~= 0 and info.ProductId == luck.id then
+			S.Cycle.addServerLuck(luck.minutes, player.DisplayName)
+			granted[info.PurchaseId] = true
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		end
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, purchased)
+		if not purchased then return end
+		for name, p in pairs(Config.Passes) do
+			if p.id ~= 0 and p.id == passId then applyPass(player, name) end
+		end
+	end)
+end
+
+return Monetize
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000014"><Properties><string name="Name">Shop</string><ProtectedString name="Source"><![CDATA[-- Лавка Ловца: сети (навсегда), приманки (запас обновляется каждые Config.RestockSeconds),
+-- клетки. Запас общий на сервер, но каждый игрок может купить до «запаса» штук сам.
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local Shared = RS:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Util = require(Shared.Util)
+local Net = require(Shared.Net)
+
+local Shop = {}
+local S
+local stock = {}
+local restockId = 0
+local bought = {} -- player -> { id = restockId, [key] = n }
+local rng = Random.new()
+
+local function toast(player, text, color) Net.event("Toast"):FireClient(player, text, color) end
+local RED = Color3.fromRGB(255, 110, 90)
+local GOLD = Color3.fromRGB(255, 220, 90)
+
+local function restock()
+	restockId = restockId + 1
+	for _, b in ipairs(Config.Baits) do
+		if rng:NextNumber() < b.inStock then stock[b.key] = rng:NextInteger(b.min, b.max) else stock[b.key] = 0 end
+	end
+	local state = RS:FindFirstChild("State")
+	if state then state:SetAttribute("RestockAt", S.Cycle.now() + Config.RestockSeconds) end
+	for _, b in ipairs(Config.Baits) do
+		if b.inStock < 0.5 and stock[b.key] > 0 then
+			S.Cycle.announce(string.format("🛒 В Лавке Ловца появилась %s %s!", b.icon, b.name), GOLD)
+		end
+	end
+end
+Shop.restock = restock
+
+local function boughtOf(player)
+	local t = bought[player]
+	if not t or t.id ~= restockId then
+		t = { id = restockId }
+		bought[player] = t
+	end
+	return t
+end
+
+local function left(player, key)
+	return math.max(0, (stock[key] or 0) - (boughtOf(player)[key] or 0))
+end
+
+function Shop.info(player)
+	local p = S.Data.get(player)
+	local l = {}
+	for _, b in ipairs(Config.Baits) do l[b.key] = left(player, b.key) end
+	return {
+		stock = stock, left = l, restockAt = RS.State:GetAttribute("RestockAt"),
+		net = p and p.net or 1, cages = p and p.cages or 0, maxCages = S.Data.maxCages(player),
+	}
+end
+
+function Shop.buyCage(player)
+	local p = S.Data.get(player)
+	if not p then return end
+	local n = p.cages + 1
+	if n > S.Data.maxCages(player) then
+		toast(player, "Больше клеток нет (геймпасс даёт ещё " .. Config.PassCages .. ")", RED)
+		return
+	end
+	local price = Config.CagePrices[n] or math.huge
+	if not S.Data.spend(player, price) then
+		toast(player, "Не хватает Страха: нужно " .. Util.num(price) .. " 💀", RED)
+		return
+	end
+	p.cages = n
+	S.Data.sync(player)
+	S.Bases.refreshPlayer(player)
+	Net.event("Fx"):FireClient(player, "cash", -price)
+	toast(player, "Новая клетка! Теперь их " .. n, GOLD)
+end
+
+local function buyNet(player)
+	local p = S.Data.get(player)
+	if not p then return end
+	local def = Config.Nets[p.net + 1]
+	if not def then
+		toast(player, "У тебя лучшая сеть!", GOLD)
+		return
+	end
+	if not S.Data.spend(player, def.price) then
+		toast(player, "Не хватает Страха: нужно " .. Util.num(def.price) .. " 💀", RED)
+		return
+	end
+	p.net = def.level
+	S.Data.sync(player)
+	Net.event("Fx"):FireClient(player, "cash", -def.price)
+	toast(player, "🕸 " .. def.name .. "! Теперь ловишь монстров сети " .. def.level, GOLD)
+end
+
+local function buyBait(player, key)
+	local def = Config.BaitIndex[key]
+	local p = S.Data.get(player)
+	if not def or not p then return end
+	if left(player, key) <= 0 then
+		toast(player, "Закончилось! Жди обновления лавки", RED)
+		return
+	end
+	if not S.Data.spend(player, def.price) then
+		toast(player, "Не хватает Страха: нужно " .. Util.num(def.price) .. " 💀", RED)
+		return
+	end
+	local t = boughtOf(player)
+	t[key] = (t[key] or 0) + 1
+	p.baits[key] = (p.baits[key] or 0) + 1
+	S.Data.sync(player)
+	Net.event("Fx"):FireClient(player, "cash", -def.price)
+	toast(player, def.icon .. " Куплено: " .. def.name, GOLD)
+end
+
+function Shop.buy(player, what, key)
+	if what == "net" then buyNet(player)
+	elseif what == "bait" then buyBait(player, key)
+	elseif what == "cage" then Shop.buyCage(player)
+	end
+end
+
+function Shop.init(s, shopCounter)
+	S = s
+	restock()
+	Net.func("GetShop").OnServerInvoke = function(player) return Shop.info(player) end
+	local prompt = shopCounter:FindFirstChild("ShopPrompt", true)
+	if prompt then
+		prompt.Triggered:Connect(function(player) Net.event("Fx"):FireClient(player, "openShop") end)
+	end
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			local at = RS.State:GetAttribute("RestockAt") or 0
+			if S.Cycle.now() >= at then
+				local ok, err = pcall(restock)
+				if not ok then warn("[CN] Shop: " .. tostring(err)) end
+			end
+		end
+	end)
+	Players.PlayerRemoving:Connect(function(pl) bought[pl] = nil end)
+end
+
+return Shop
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000015"><Properties><string name="Name">Wild</string><ProtectedString name="Source"><![CDATA[-- Дикие монстры в лесу: появление (днём редко и только до «Редкого», ночью часто и любые),
+-- блуждание, погоня и испуг игроков ночью, ловля (держать E), приманки, монстр-подсказка для новичка.
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local RS = game:GetService("ReplicatedStorage")
+local Shared = RS:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Util = require(Shared.Util)
+local Net = require(Shared.Net)
+local Monsters = require(Shared.Monsters)
+
+local Wild = {}
+local S
+local wild = {}     -- model -> состояние
+local count = 0
+local rng = Random.new()
+local scareCd = {}  -- player -> время
+local MAP = Config.Map
+local W = Config.Wild
+
+local function toast(player, text, color) Net.event("Toast"):FireClient(player, text, color) end
+local function now() return S.Cycle.now() end
+
+local function hrpOf(player)
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if hum and hrp and hum.Health > 0 then return hrp end
+	return nil
+end
+
+local function flat(v) return Vector3.new(v.X, 0, v.Z) end
+
+-- точка внутри кольца леса
+local function clampForest(p)
+	local f = flat(p)
+	local r = f.Magnitude
+	if r < 0.01 then return Vector3.new(MAP.ForestMin + 5, 0, 0) end
+	local nr = math.clamp(r, MAP.ForestMin, MAP.ForestMax)
+	return f.Unit * nr
+end
+
+local function randomForestPoint()
+	local r = math.sqrt(rng:NextNumber(MAP.ForestMin ^ 2, MAP.ForestMax ^ 2))
+	local a = rng:NextNumber(0, math.pi * 2)
+	return Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+end
+
+-- игрок в безопасности (у костра или на базе)
+local function isSafe(pos)
+	if flat(pos).Magnitude < MAP.SafeRadius + 2 then return true end
+	return S.Bases.at(pos) ~= nil
+end
+
+function Wild.count() return count end
+
+function Wild.remove(model)
+	if wild[model] then
+		wild[model] = nil
+		count = count - 1
+	end
+	if model.Parent then model:Destroy() end
+end
+
+-- opts: pos, key, mut, luck, gold, blood, reserved(player), maxTier, life, idle, fromDrop
+function Wild.spawn(opts)
+	opts = opts or {}
+	local key, mut = opts.key, opts.mut
+	if not key then
+		local maxTier = opts.maxTier or (S.Cycle.isNight() and #Config.Rarities or 3)
+		local r = Util.rollRarity(rng, S.Cycle.luck() * (opts.luck or 1), maxTier)
+		key = Util.rollMonster(rng, r.key).key
+		mut = Util.rollMutation(rng, { event = S.Cycle.isNight() and S.Cycle.event() or "", gold = opts.gold, blood = opts.blood })
+	end
+	local def = Config.MonsterIndex[key]
+	local r = Config.RarityIndex[def.rarity]
+	local pos = opts.pos or randomForestPoint()
+	local m, root = Monsters.build(key, mut)
+	m.Name = "Wild_" .. key
+	m:PivotTo(CFrame.new(pos.X, 0.15, pos.Z) * CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0))
+	local line2 = r.tier > 1 and ("1 к " .. Util.num(r.chance)) or ""
+	if opts.reserved then line2 = "🎯 для " .. opts.reserved.DisplayName end
+	Monsters.label(m, line2, 90)
+	local att = Instance.new("Attachment")
+	att.Name = "PromptAtt"
+	att.Position = Vector3.new(0, def.size * 0.5, 0)
+	att.Parent = root
+	local p = Instance.new("ProximityPrompt")
+	p.Name = "CatchPrompt"
+	p.ActionText = "Поймать"
+	p.ObjectText = Util.fullName(key, mut) .. " · сеть " .. r.net .. "+"
+	p.HoldDuration = r.hold
+	p.MaxActivationDistance = 11
+	p.RequiresLineOfSight = false
+	p.KeyboardKeyCode = Enum.KeyCode.E
+	p.Parent = att
+	m:SetAttribute("Wild", true)
+	m:SetAttribute("NeedNet", r.net)
+	m.Parent = workspace.Wild
+	local st = {
+		model = m, root = root, key = key, mut = mut or "", rarity = r, pos = flat(pos), dir = Vector3.new(0, 0, -1),
+		target = nil, speed = r.speed, born = now(), life = opts.life or rng:NextNumber(W.LifeMin, W.LifeMax),
+		reserved = opts.reserved, reservedUntil = now() + W.ReserveSeconds, idle = opts.idle, phase = rng:NextNumber(0, 6),
+		fromBait = opts.reserved ~= nil and not opts.idle,
+	}
+	wild[m] = st
+	count = count + 1
+	p.Triggered:Connect(function(player) Wild.catch(player, m) end)
+	if r.tier >= Config.AnnounceTier and not opts.fromDrop then
+		S.Cycle.announce(string.format("⚠ В лесу появился %s: %s!", string.upper(r.name), Util.fullName(key, mut)), r.color)
+	end
+	return m
+end
+
+function Wild.catch(player, m)
+	local st = wild[m]
+	if not st then return end
+	local hrp = hrpOf(player)
+	if not hrp or (flat(hrp.Position) - st.pos).Magnitude > 16 then return end
+	if S.Carry.get(player) then
+		toast(player, "Руки заняты — отнеси монстра на базу", Color3.fromRGB(255, 200, 90))
+		return
+	end
+	local net = player:GetAttribute("Net") or 1
+	if net < st.rarity.net then
+		toast(player, "Нужна сеть " .. st.rarity.net .. " уровня! Купи её в Лавке Ловца у костра", Color3.fromRGB(255, 120, 90))
+		return
+	end
+	if st.reserved and st.reserved ~= player and st.reserved.Parent and now() < st.reservedUntil then
+		toast(player, "Это монстр из чужой приманки (ещё " .. math.ceil(st.reservedUntil - now()) .. " с)", Color3.fromRGB(255, 200, 90))
+		return
+	end
+	local key, mut, pos = st.key, st.mut, st.pos
+	Wild.remove(m)
+	local ok = S.Carry.start(player, { k = key, m = mut }, { from = "wild" })
+	if not ok then
+		Wild.spawn({ pos = pos, key = key, mut = mut, fromDrop = true })
+		return
+	end
+	Net.event("Fx"):FireClient(player, "caught", Util.fullName(key, mut), st.rarity.key)
+end
+
+---------------------------------------------------------------- приманки и подсказка новичку
+function Wild.useBait(player, baitKey)
+	local def = Config.BaitIndex[baitKey]
+	local p = S.Data.get(player)
+	if not def or not p or (p.baits[baitKey] or 0) <= 0 then return end
+	local hrp = hrpOf(player)
+	if not hrp then return end
+	if isSafe(hrp.Position) then
+		toast(player, "Приманку можно ставить только в лесу", Color3.fromRGB(255, 200, 90))
+		return
+	end
+	p.baits[baitKey] = p.baits[baitKey] - 1
+	S.Data.sync(player)
+	local pos = flat(hrp.Position)
+	local bait = Instance.new("Part")
+	bait.Name = "Bait"
+	bait.Shape = Enum.PartType.Ball
+	bait.Size = Vector3.new(1.2, 1.2, 1.2)
+	bait.Material = Enum.Material.Neon
+	bait.Color = def.blood and Color3.fromRGB(220, 20, 40) or (def.gold and Color3.fromRGB(255, 210, 60) or Color3.fromRGB(255, 140, 80))
+	bait.Anchored = true
+	bait.CanCollide = false
+	bait.CanQuery = false
+	bait.CFrame = CFrame.new(pos + Vector3.new(0, 0.6, 0))
+	bait.Parent = workspace.Wild
+	toast(player, def.icon .. " " .. def.name .. ": кто-то идёт на запах...", Color3.fromRGB(255, 220, 140))
+	task.delay(Config.BaitDelay, function()
+		if bait.Parent then bait:Destroy() end
+		local a = rng:NextNumber(0, math.pi * 2)
+		local sp = pos + Vector3.new(math.cos(a), 0, math.sin(a)) * 7
+		Wild.spawn({ pos = sp, luck = def.luck, gold = def.gold, blood = def.blood, reserved = player, maxTier = #Config.Rarities })
+	end)
+end
+
+function Wild.spawnHelper(player)
+	local rec = S.Bases.baseOf(player)
+	if not rec then return end
+	local pos = (rec.cf * CFrame.new(0, 0, -(Config.Map.BaseSize / 2 + 16))).Position
+	Wild.spawn({ pos = pos, key = "slipper", mut = "", reserved = player, life = 600, idle = true, fromDrop = true })
+	toast(player, "👋 Перед твоей базой — первый монстр! Подойди и держи E, чтобы поймать", Color3.fromRGB(120, 255, 140))
+end
+
+---------------------------------------------------------------- смена фаз
+function Wild.onDay()
+	for m, st in pairs(wild) do
+		if st.rarity.nightOnly and not st.fromBait then
+			Wild.remove(m)
+		else
+			st.life = math.min(st.life, now() - st.born + rng:NextNumber(20, 60))
+		end
+	end
+end
+
+function Wild.onNight() end
+
+---------------------------------------------------------------- движение
+local function nearestPlayer(pos, range)
+	local best, bestD = nil, range
+	for _, pl in ipairs(Players:GetPlayers()) do
+		local hrp = hrpOf(pl)
+		if hrp then
+			local d = (flat(hrp.Position) - pos).Magnitude
+			if d < bestD and not isSafe(hrp.Position) then best, bestD = pl, d end
+		end
+	end
+	return best, bestD
+end
+
+local function step(st, dt, t)
+	if st.idle then
+		local bob = math.abs(math.sin(t * 3 + st.phase)) * 0.4
+		st.root.CFrame = CFrame.lookAt(st.pos + Vector3.new(0, 0.15 + bob, 0), st.pos + st.dir + Vector3.new(0, 0.15 + bob, 0))
+		return
+	end
+	local night = S.Cycle.isNight()
+	local speed = st.speed
+	local goal = st.target
+	-- редкие ночью идут на игрока, мелкие убегают
+	local pl, d = nearestPlayer(st.pos, night and 26 or 14)
+	if pl then
+		local hrp = hrpOf(pl)
+		local pp = flat(hrp.Position)
+		if night and st.rarity.tier >= 3 then
+			goal = pp
+			if pp.Magnitude > MAP.ForestMax + 20 then goal = pp.Unit * (MAP.ForestMax + 20) end
+			speed = speed * 1.1
+			if d < 3 then speed = 0 end
+		else
+			local away = st.pos - pp
+			if away.Magnitude < 0.1 then away = st.dir end
+			goal = clampForest(st.pos + away.Unit * 20)
+			speed = speed * 1.2
+		end
+	elseif not goal or (goal - st.pos).Magnitude < 2 then
+		st.target = clampForest(st.pos + Vector3.new(rng:NextNumber(-35, 35), 0, rng:NextNumber(-35, 35)))
+		goal = st.target
+	end
+	local to = goal - st.pos
+	if to.Magnitude > 0.1 and speed > 0 then
+		st.dir = to.Unit
+		local np = st.pos + st.dir * math.min(speed * dt, to.Magnitude)
+		-- не заходить к костру
+		if flat(np).Magnitude < MAP.SafeRadius + 4 then np = flat(np).Unit * (MAP.SafeRadius + 4) end
+		st.pos = np
+	end
+	local hop = math.abs(math.sin(t * 7 + st.phase)) * (st.rarity.tier <= 2 and 0.7 or 0.25)
+	local y = 0.15 + hop
+	st.root.CFrame = CFrame.lookAt(st.pos + Vector3.new(0, y, 0), st.pos + st.dir + Vector3.new(0, y, 0))
+end
+
+-- испуг: монстр рядом ночью может напугать — оглушение и падение монстра с головы
+local function scare(player, st)
+	scareCd[player] = now() + W.ScareCooldown
+	local hrp = hrpOf(player)
+	S.Carry.stun(player, W.StunSeconds)
+	if S.Carry.get(player) then S.Carry.drop(player, "wild", hrp and hrp.Position) end
+	Net.event("Fx"):FireClient(player, "scare", st.key, st.rarity.key)
+end
+
+function Wild.init(s)
+	S = s
+	RunService.Heartbeat:Connect(function(dt)
+		local t = now()
+		for m, st in pairs(wild) do
+			local ok, err = pcall(step, st, dt, t)
+			if not ok then
+				warn("[CN] Wild step: " .. tostring(err))
+				Wild.remove(m)
+			elseif t > st.born + st.life then
+				Wild.remove(m)
+			end
+		end
+	end)
+	-- появление
+	task.spawn(function()
+		local acc = 0
+		while true do
+			task.wait(0.5)
+			acc = acc + 0.5
+			local ok, err = pcall(function()
+				local night = S.Cycle.isNight()
+				local interval = night and W.NightInterval or W.DayInterval
+				local max = night and W.NightMax or W.DayMax
+				if night and S.Cycle.event() == "fog" then max = max + W.FogBonus end
+				if acc >= interval then
+					acc = 0
+					if count < max and #Players:GetPlayers() > 0 then
+						-- чаще рядом с игроками в лесу
+						local pos = nil
+						local list = Players:GetPlayers()
+						local pl = list[rng:NextInteger(1, #list)]
+						local hrp = hrpOf(pl)
+						if hrp and rng:NextNumber() < 0.7 then
+							local a = rng:NextNumber(0, math.pi * 2)
+							local cand = clampForest(flat(hrp.Position) + Vector3.new(math.cos(a), 0, math.sin(a)) * rng:NextNumber(28, 60))
+							if (cand - flat(hrp.Position)).Magnitude > 20 then pos = cand end
+						end
+						Wild.spawn({ pos = pos })
+					end
+				end
+				-- испуг
+				if night then
+					for _, pl2 in ipairs(Players:GetPlayers()) do
+						local h = hrpOf(pl2)
+						if h and (scareCd[pl2] or 0) < now() and not isSafe(h.Position) then
+							for _, st in pairs(wild) do
+								if not st.idle and (flat(h.Position) - st.pos).Magnitude < W.ScareRange and rng:NextNumber() < st.rarity.scare * 0.5 then
+									scare(pl2, st)
+									break
+								end
+							end
+						end
+					end
+				end
+			end)
+			if not ok then warn("[CN] Wild spawn: " .. tostring(err)) end
+		end
+	end)
+	Players.PlayerRemoving:Connect(function(pl) scareCd[pl] = nil end)
+end
+
+return Wild
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000016"><Properties><string name="Name">World</string><ProtectedString name="Source"><![CDATA[-- Строит карту при запуске сервера: земля, тёмный лес с тропинками, поляна с костром и лавкой
+-- в центре, 8 баз по кругу. World.build() -> { bases = { Model... }, shop = Part }.
+-- База смотрит дверью на центр карты (это её локальное −Z). Клетки — у задней стены.
+local RS = game:GetService("ReplicatedStorage")
+local Shared = RS:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local B = require(Shared.Build)
+
+local World = {}
+
+local MAP = Config.Map
+local rad = math.rad
+local hex = Color3.fromHex
+
+local BASE_COLORS = { "#3d5a80", "#7a3b3b", "#3b7a52", "#7a6a3b", "#5a3b7a", "#3b6f7a", "#7a3b66", "#4f4f4f" }
+
+-- клетки: 2 ряда по 6, сначала центральные у задней стены
+local SLOT_X = { -5, 5, -15, 15, -25, 25 }
+local SLOT_ROWS = { 22, 8 }
+local function slotOffsets()
+	local out = {}
+	for _, z in ipairs(SLOT_ROWS) do
+		for _, x in ipairs(SLOT_X) do table.insert(out, Vector3.new(x, 0, z)) end
+	end
+	return out
+end
+World.SlotOffsets = slotOffsets()
+
+---------------------------------------------------------------- лес
+local function tree(parent, rng, x, z)
+	local m = B.model(parent, "Tree")
+	local h = rng:NextNumber(14, 24)
+	local d = rng:NextNumber(1.6, 2.8)
+	local dead = rng:NextNumber() < 0.3
+	local bark = dead and hex("#3b3330") or hex("#4a3628")
+	B.vcyl(m, "Trunk", h, d, CFrame.new(x, h / 2, z), bark, Enum.Material.Wood)
+	if dead then
+		for i = 1, rng:NextInteger(2, 4) do
+			local y = h * rng:NextNumber(0.5, 0.9)
+			local yaw = rng:NextNumber(0, 360)
+			local len = rng:NextNumber(4, 7)
+			local cf = CFrame.new(x, y, z) * CFrame.Angles(0, rad(yaw), rad(rng:NextNumber(20, 45))) * CFrame.new(len / 2, 0, 0)
+			B.part(m, "Branch", Vector3.new(len, 0.6, 0.6), cf, bark, Enum.Material.Wood)
+		end
+	else
+		local leaf = rng:NextNumber() < 0.5 and hex("#1f3b24") or hex("#24432a")
+		B.ball(m, "Leaves", rng:NextNumber(9, 13), CFrame.new(x, h, z), leaf, Enum.Material.Grass)
+		B.ball(m, "Leaves", rng:NextNumber(6, 9), CFrame.new(x + rng:NextNumber(-3, 3), h + 3.5, z + rng:NextNumber(-3, 3)), leaf, Enum.Material.Grass)
+	end
+	return m
+end
+
+local function mushroom(parent, rng, x, z)
+	local colors = { hex("#40e0ff"), hex("#b06bff"), hex("#7dff6b") }
+	local col = colors[rng:NextInteger(1, #colors)]
+	B.vcyl(parent, "Stem", 0.8, 0.3, CFrame.new(x, 0.4, z), hex("#d8d0c0"))
+	B.vcyl(parent, "Cap", 0.4, 1.2, CFrame.new(x, 0.9, z), col, Enum.Material.Neon)
+end
+
+-- расстояние от точки до ближайшей тропы (лучи от центра к базам)
+local function pathDist(x, z)
+	local best = math.huge
+	for i = 1, MAP.BaseCount do
+		local a = rad((i - 1) * 360 / MAP.BaseCount)
+		local dx, dz = math.cos(a), math.sin(a)
+		local along = x * dx + z * dz
+		if along > 0 then
+			local px, pz = x - dx * along, z - dz * along
+			best = math.min(best, math.sqrt(px * px + pz * pz))
+		end
+	end
+	return best
+end
+
+local function buildForest(map)
+	local rng = Random.new(20261011)
+	local forest = B.model(map, "Forest")
+	local trees = 0
+	local tries = 0
+	while trees < 170 and tries < 3000 do
+		tries = tries + 1
+		local r = math.sqrt(rng:NextNumber(MAP.ForestMin ^ 2, MAP.ForestMax ^ 2))
+		local a = rng:NextNumber(0, math.pi * 2)
+		local x, z = math.cos(a) * r, math.sin(a) * r
+		if pathDist(x, z) > 9 then
+			tree(forest, rng, x, z)
+			trees = trees + 1
+		end
+	end
+	local props = B.model(map, "Props")
+	for _ = 1, 40 do
+		local r = rng:NextNumber(MAP.SafeRadius + 6, MAP.ForestMax + 20)
+		local a = rng:NextNumber(0, math.pi * 2)
+		local x, z = math.cos(a) * r, math.sin(a) * r
+		if pathDist(x, z) > 7 then
+			local s = rng:NextNumber(2, 5)
+			local cf = CFrame.new(x, s * 0.25, z) * CFrame.Angles(rng:NextNumber(-0.3, 0.3), rng:NextNumber(0, 6.28), rng:NextNumber(-0.3, 0.3))
+			B.part(props, "Rock", Vector3.new(s * 1.3, s * 0.7, s), cf, hex("#55585e"), Enum.Material.Slate)
+		end
+	end
+	for _ = 1, 90 do
+		local r = rng:NextNumber(MAP.SafeRadius + 4, MAP.ForestMax)
+		local a = rng:NextNumber(0, math.pi * 2)
+		mushroom(props, rng, math.cos(a) * r, math.sin(a) * r)
+	end
+end
+
+local function buildPaths(map)
+	local paths = B.model(map, "Paths")
+	local from, to = MAP.SafeRadius - 2, MAP.BaseRadius - MAP.BaseSize / 2 + 2
+	for i = 1, MAP.BaseCount do
+		local a = (i - 1) * 360 / MAP.BaseCount
+		local dir = Vector3.new(math.cos(rad(a)), 0, math.sin(rad(a)))
+		local mid = dir * ((from + to) / 2)
+		local cf = CFrame.lookAt(Vector3.new(mid.X, 0.05, mid.Z), Vector3.new(mid.X, 0.05, mid.Z) + dir)
+		B.part(paths, "Path", Vector3.new(10, 0.1, to - from), cf, hex("#5e4f3c"), Enum.Material.Ground, { CanQuery = false })
+		-- фонари вдоль тропы
+		for k = 1, 3 do
+			local p = dir * (from + (to - from) * k / 4) + Vector3.new(-dir.Z, 0, dir.X) * 6.5
+			B.vcyl(paths, "LampPost", 9, 0.5, CFrame.new(p.X, 4.5, p.Z), hex("#2b2b2b"), Enum.Material.Metal)
+			local lamp = B.part(paths, "Lamp", Vector3.new(1.4, 1.4, 1.4), CFrame.new(p.X, 9.4, p.Z), hex("#ffcf7a"), Enum.Material.Neon)
+			B.light(lamp, "PointLight", { Range = 18, Brightness = 1.3, Color = hex("#ffc27a"), Shadows = false })
+		end
+	end
+end
+
+---------------------------------------------------------------- центр: костёр и лавка
+local function buildClearing(map)
+	local c = B.model(map, "Clearing")
+	B.vcyl(c, "Ground", 0.2, MAP.SafeRadius * 2, CFrame.new(0, 0.1, 0), hex("#5b4a36"), Enum.Material.Ground)
+	local fire = B.part(c, "Campfire", Vector3.new(4, 1, 4), CFrame.new(0, 0.7, 0), hex("#3a2a1c"), Enum.Material.Wood)
+	B.cyl(c, "Log", 6, 1, CFrame.new(0, 0.8, 0) * CFrame.Angles(0, rad(30), 0), hex("#5a3d26"), Enum.Material.Wood)
+	B.cyl(c, "Log", 6, 1, CFrame.new(0, 0.8, 0) * CFrame.Angles(0, rad(-30), 0), hex("#5a3d26"), Enum.Material.Wood)
+	for i = 0, 9 do
+		local a = rad(i * 36)
+		B.ball(c, "Stone", 1.4, CFrame.new(math.cos(a) * 3.6, 0.5, math.sin(a) * 3.6), hex("#6b6f75"), Enum.Material.Slate)
+	end
+	local f = Instance.new("Fire")
+	f.Size = 7
+	f.Heat = 12
+	f.Color = hex("#ff8a2a")
+	f.SecondaryColor = hex("#ffd84a")
+	f.Parent = fire
+	B.light(fire, "PointLight", { Range = 45, Brightness = 2.2, Color = hex("#ffb36b") })
+	-- брёвна-скамейки
+	for i = 0, 3 do
+		local a = rad(45 + i * 90)
+		local cf = CFrame.new(math.cos(a) * 11, 0.8, math.sin(a) * 11) * CFrame.Angles(0, -(a + rad(90)), 0)
+		B.cyl(c, "Bench", 7, 1.6, cf, hex("#5a3d26"), Enum.Material.Wood)
+	end
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Name = "Spawn"
+	spawn.Size = Vector3.new(8, 0.4, 8)
+	spawn.CFrame = CFrame.new(0, 0.3, 16)
+	spawn.Anchored = true
+	spawn.Neutral = true
+	spawn.Duration = 0
+	spawn.Transparency = 1
+	spawn.CanCollide = false
+	spawn.Parent = c
+	-- безопасная зона (для клиента и монстров)
+	B.marker(c, "SafeZone", Vector3.new(MAP.SafeRadius * 2, 20, MAP.SafeRadius * 2), CFrame.new(0, 10, 0))
+	return c
+end
+
+local function buildShop(map)
+	local s = B.model(map, "Shop")
+	local base = CFrame.new(0, 0, -20) -- лавка смотрит на костёр (+Z)
+	local wood = hex("#7a5232")
+	local counter = B.part(s, "Counter", Vector3.new(12, 3.5, 3), base * CFrame.new(0, 1.75, 0), wood, Enum.Material.WoodPlanks)
+	B.part(s, "Top", Vector3.new(12.6, 0.4, 3.6), base * CFrame.new(0, 3.7, 0), hex("#5a3a22"), Enum.Material.Wood)
+	for _, x in ipairs({ -5.8, 5.8 }) do
+		B.part(s, "Pole", Vector3.new(0.6, 10, 0.6), base * CFrame.new(x, 5, -2.5), hex("#4a3020"), Enum.Material.Wood)
+		B.part(s, "Pole", Vector3.new(0.6, 8, 0.6), base * CFrame.new(x, 4, 1.4), hex("#4a3020"), Enum.Material.Wood)
+	end
+	-- полосатый навес
+	for i = 0, 5 do
+		local col = (i % 2 == 0) and hex("#6b2fa0") or hex("#2a2140")
+		B.part(s, "Awning", Vector3.new(2.2, 0.3, 5.4), base * CFrame.new(-5.5 + i * 2.2, 9, -0.6) * CFrame.Angles(rad(-14), 0, 0), col, Enum.Material.Fabric)
+	end
+	local board = B.part(s, "SignBoard", Vector3.new(12, 2.4, 0.4), base * CFrame.new(0, 10.6, 1.8), hex("#1a1426"), Enum.Material.Wood)
+	B.sign(board, Enum.NormalId.Back, "🛒 ЛАВКА ЛОВЦА", { TextColor3 = hex("#ffd84a"), Font = Enum.Font.GothamBlack })
+	-- продавец в капюшоне
+	local cloak = hex("#231a33")
+	B.part(s, "Keeper", Vector3.new(2.4, 4.2, 1.6), base * CFrame.new(0, 3.6, -2.6), cloak, Enum.Material.Fabric)
+	B.ball(s, "Hood", 2.2, base * CFrame.new(0, 6.4, -2.6), cloak, Enum.Material.Fabric)
+	local e1 = B.ball(s, "Eye", 0.35, base * CFrame.new(-0.4, 6.4, -1.6), hex("#ffe14a"), Enum.Material.Neon)
+	local e2 = B.ball(s, "Eye", 0.35, base * CFrame.new(0.4, 6.4, -1.6), hex("#ffe14a"), Enum.Material.Neon)
+	e1.CanCollide, e2.CanCollide = false, false
+	-- товары на прилавке
+	for i = 0, 4 do
+		B.ball(s, "Jar", 0.9, base * CFrame.new(-4 + i * 2, 4.4, 0.3), (i % 2 == 0) and hex("#ffcf40") or hex("#ff4a6a"), Enum.Material.Glass, { Transparency = 0.2 })
+	end
+	B.light(board, "PointLight", { Range = 20, Brightness = 1.2, Color = hex("#c79bff"), Shadows = false })
+	local att = Instance.new("Attachment")
+	att.Position = Vector3.new(0, 1.5, 1.5)
+	att.Parent = counter
+	B.prompt(att, "ShopPrompt", "Открыть лавку", "Лавка Ловца", { MaxActivationDistance = 14, HoldDuration = 0 })
+	return counter
+end
+
+---------------------------------------------------------------- базы
+local function buildBase(folder, i)
+	local a = rad((i - 1) * 360 / MAP.BaseCount)
+	local center = Vector3.new(math.cos(a) * MAP.BaseRadius, 0, math.sin(a) * MAP.BaseRadius)
+	local cf = CFrame.lookAt(center, Vector3.new(0, 0, 0))
+	local half = MAP.BaseSize / 2
+	local col = hex(BASE_COLORS[(i - 1) % #BASE_COLORS + 1])
+	local m = B.model(folder, "Base_" .. i)
+	m:SetAttribute("Index", i)
+	m:SetAttribute("OwnerId", 0)
+	m:SetAttribute("OwnerName", "")
+	m:SetAttribute("Locked", false)
+	m:SetAttribute("LockEnds", 0)
+	m:SetAttribute("Income", 0)
+
+	B.part(m, "Floor", Vector3.new(MAP.BaseSize, 1, MAP.BaseSize), cf * CFrame.new(0, 0.5, 0), col:Lerp(Color3.new(0, 0, 0), 0.35), Enum.Material.Concrete)
+	B.marker(m, "Zone", Vector3.new(MAP.BaseSize, 24, MAP.BaseSize), cf * CFrame.new(0, 12, 0))
+	local h, th = MAP.WallHeight, 2
+	local wallCol = col:Lerp(Color3.fromRGB(30, 30, 35), 0.5)
+	local walls = B.model(m, "Walls")
+	local function w(x0, z0, x1, z1, openings)
+		local p0 = (cf * CFrame.new(x0, 1, z0)).Position
+		local p1 = (cf * CFrame.new(x1, 1, z1)).Position
+		B.wall(walls, "Wall", p0, p1, h, th, wallCol, Enum.Material.Brick, openings)
+	end
+	local e = half - th / 2
+	w(-half, e, half, e)                 -- задняя
+	w(-e, -half, -e, half)               -- левая
+	w(e, -half, e, half)                 -- правая
+	w(-half, -e, half, -e, { { at = half, w = 12, y0 = 0, y1 = h } }) -- передняя с проёмом
+	-- край стены (чтобы не смотрелось плоско)
+	for _, x in ipairs({ -6.6, 6.6 }) do
+		B.part(m, "DoorPost", Vector3.new(1.2, h + 1, 2.6), cf * CFrame.new(x, 1 + (h + 1) / 2, -e), col, Enum.Material.Metal)
+	end
+	local door = B.part(m, "Door", Vector3.new(12, h, 0.8), cf * CFrame.new(0, 1 + h / 2, -e), hex("#ff2a3a"), Enum.Material.Neon,
+		{ Transparency = 1, CanCollide = false, CanQuery = false, CastShadow = false })
+	local lockGui = Instance.new("BillboardGui")
+	lockGui.Name = "LockGui"
+	lockGui.Size = UDim2.new(0, 160, 0, 50)
+	lockGui.StudsOffset = Vector3.new(0, h / 2 + 2, 0)
+	lockGui.MaxDistance = 120
+	lockGui.Enabled = false
+	lockGui.Parent = door
+	local lt = Instance.new("TextLabel")
+	lt.Name = "Text"
+	lt.Size = UDim2.fromScale(1, 1)
+	lt.BackgroundTransparency = 1
+	lt.Font = Enum.Font.GothamBlack
+	lt.TextScaled = true
+	lt.TextColor3 = hex("#ff5a6a")
+	lt.TextStrokeTransparency = 0.3
+	lt.Text = "🔒"
+	lt.Parent = lockGui
+
+	-- вывеска над дверью
+	local sign = B.part(m, "SignBoard", Vector3.new(16, 3.2, 0.6), cf * CFrame.new(0, 1 + h + 1.6, -e), hex("#14121c"), Enum.Material.Wood)
+	local _, signText = B.sign(sign, Enum.NormalId.Front, "Свободная база", { TextColor3 = hex("#ffe9a0"), Font = Enum.Font.GothamBlack })
+	signText.Name = "OwnerText"
+	-- имя и доход высоко над базой
+	local top = B.marker(m, "Top", Vector3.new(1, 1, 1), cf * CFrame.new(0, 30, 0))
+	local bg = Instance.new("BillboardGui")
+	bg.Name = "OwnerGui"
+	bg.Size = UDim2.new(0, 260, 0, 70)
+	bg.MaxDistance = 450
+	bg.LightInfluence = 0
+	bg.Parent = top
+	local n = Instance.new("TextLabel")
+	n.Name = "NameText"
+	n.Size = UDim2.new(1, 0, 0.6, 0)
+	n.BackgroundTransparency = 1
+	n.Font = Enum.Font.GothamBlack
+	n.TextScaled = true
+	n.TextColor3 = Color3.new(1, 1, 1)
+	n.TextStrokeTransparency = 0.2
+	n.Text = ""
+	n.Parent = bg
+	local inc = n:Clone()
+	inc.Name = "Income"
+	inc.Position = UDim2.new(0, 0, 0.6, 0)
+	inc.Size = UDim2.new(1, 0, 0.4, 0)
+	inc.TextColor3 = hex("#ffd84a")
+	inc.Parent = bg
+	-- метка «ТВОЯ БАЗА» (клиент включает её хозяину, когда он несёт монстра)
+	local hm = Instance.new("BillboardGui")
+	hm.Name = "HomeMarker"
+	hm.Size = UDim2.new(0, 200, 0, 50)
+	hm.AlwaysOnTop = true
+	hm.MaxDistance = 2000
+	hm.LightInfluence = 0
+	hm.Enabled = false
+	hm.Parent = top
+	local ht = n:Clone()
+	ht.Name = "Text"
+	ht.Size = UDim2.fromScale(1, 1)
+	ht.Text = "🏠 ТВОЯ БАЗА"
+	ht.TextColor3 = hex("#7dff6b")
+	ht.Parent = hm
+
+	-- замок
+	local pad = B.part(m, "LockPad", Vector3.new(5, 0.4, 5), cf * CFrame.new(-22, 1.2, -22), hex("#3cff6a"), Enum.Material.Neon)
+	local post = B.part(m, "LockPost", Vector3.new(1, 4, 1), cf * CFrame.new(-22, 3, -25), hex("#2b2b30"), Enum.Material.Metal)
+	B.sign(post, Enum.NormalId.Front, "🔒", nil, { PixelsPerStud = 50 })
+	local lockAtt = Instance.new("Attachment")
+	lockAtt.Position = Vector3.new(0, 2, 0)
+	lockAtt.Parent = pad
+	local lp = B.prompt(lockAtt, "LockPrompt", "Запереть базу", Config.LockSeconds .. " секунд", { HoldDuration = 0, MaxActivationDistance = 9 })
+	lp:SetAttribute("For", "owner")
+
+	B.marker(m, "Spawn", Vector3.new(2, 1, 2), cf * CFrame.new(0, 4, -16))
+
+	-- фонари в углах
+	for _, x in ipairs({ -half + 3, half - 3 }) do
+		B.vcyl(m, "LampPost", 10, 0.6, cf * CFrame.new(x, 6, -half + 3), hex("#2b2b2b"), Enum.Material.Metal)
+		local lamp = B.part(m, "Lamp", Vector3.new(1.6, 1.6, 1.6), cf * CFrame.new(x, 11.4, -half + 3), col:Lerp(Color3.new(1, 1, 1), 0.5), Enum.Material.Neon)
+		B.light(lamp, "PointLight", { Range = 34, Brightness = 1.4, Color = col:Lerp(Color3.new(1, 1, 1), 0.6), Shadows = false })
+	end
+
+	-- клетки
+	local slots = B.folder(m, "Slots")
+	for s, off in ipairs(World.SlotOffsets) do
+		local sm = B.model(slots, "Slot_" .. s)
+		sm:SetAttribute("Slot", s)
+		local scf = cf * CFrame.new(off.X, 0, off.Z)
+		B.part(sm, "Rim", Vector3.new(8.6, 0.6, 8.6), scf * CFrame.new(0, 1.3, 0), hex("#55555c"), Enum.Material.Neon)
+		local padPart = B.part(sm, "Pad", Vector3.new(8, 1, 8), scf * CFrame.new(0, 1.5, 0), hex("#2d2d33"), Enum.Material.DiamondPlate)
+		B.marker(sm, "Anchor", Vector3.new(1, 1, 1), scf * CFrame.new(0, 2.05, 0))
+		local bars = B.model(sm, "Bars")
+		for _, c in ipairs({ { -3.8, -3.8 }, { 3.8, -3.8 }, { -3.8, 3.8 }, { 3.8, 3.8 } }) do
+			B.part(bars, "Bar", Vector3.new(0.4, 9, 0.4), scf * CFrame.new(c[1], 6.5, c[2]), hex("#5d5d66"), Enum.Material.Metal, { CanCollide = false })
+		end
+		B.part(bars, "Bar", Vector3.new(8, 0.4, 0.4), scf * CFrame.new(0, 11, -3.8), hex("#5d5d66"), Enum.Material.Metal, { CanCollide = false })
+		B.part(bars, "Bar", Vector3.new(8, 0.4, 0.4), scf * CFrame.new(0, 11, 3.8), hex("#5d5d66"), Enum.Material.Metal, { CanCollide = false })
+		B.part(bars, "Bar", Vector3.new(0.4, 0.4, 8), scf * CFrame.new(-3.8, 11, 0), hex("#5d5d66"), Enum.Material.Metal, { CanCollide = false })
+		B.part(bars, "Bar", Vector3.new(0.4, 0.4, 8), scf * CFrame.new(3.8, 11, 0), hex("#5d5d66"), Enum.Material.Metal, { CanCollide = false })
+		local att = Instance.new("Attachment")
+		att.Name = "PromptAtt"
+		att.Position = Vector3.new(0, 3, -3)
+		att.Parent = padPart
+		local steal = B.prompt(att, "StealPrompt", "Украсть", "", { HoldDuration = Config.StealHold, MaxActivationDistance = 10, Enabled = false })
+		steal:SetAttribute("For", "others")
+		local sell = B.prompt(att, "SellPrompt", "Продать", "", { HoldDuration = Config.SellHold, MaxActivationDistance = 10, Enabled = false })
+		sell:SetAttribute("For", "owner")
+		local buy = B.prompt(att, "BuyPrompt", "Купить клетку", "", { HoldDuration = 0, MaxActivationDistance = 10, Enabled = false })
+		buy:SetAttribute("For", "owner")
+		local lg = Instance.new("BillboardGui")
+		lg.Name = "LockedGui"
+		lg.Size = UDim2.new(0, 150, 0, 40)
+		lg.StudsOffset = Vector3.new(0, 2.5, 0)
+		lg.MaxDistance = 60
+		lg.Enabled = false
+		lg.Parent = padPart
+		local lgt = n:Clone()
+		lgt.Name = "Text"
+		lgt.Size = UDim2.fromScale(1, 1)
+		lgt.TextColor3 = hex("#c8c8d0")
+		lgt.Text = "🔒"
+		lgt.Parent = lg
+	end
+	return m
+end
+
+function World.build()
+	local map = B.folder(workspace, "Map")
+	local ground = B.part(map, "Ground", Vector3.new(1000, 2, 1000), CFrame.new(0, -1, 0), hex("#2b3d27"), Enum.Material.Grass)
+	ground.Locked = true
+	for _, s in ipairs({ { 0, 480, 1000, 1 }, { 0, -480, 1000, 1 }, { 480, 0, 1, 1000 }, { -480, 0, 1, 1000 } }) do
+		B.part(map, "Border", Vector3.new(s[3], 200, s[4]), CFrame.new(s[1], 100, s[2]), nil, nil, { Transparency = 1, CanQuery = false })
+	end
+	buildForest(map)
+	buildPaths(map)
+	buildClearing(map)
+	local shop = buildShop(map)
+	local folder = B.folder(workspace, "Bases")
+	local bases = {}
+	for i = 1, MAP.BaseCount do bases[i] = buildBase(folder, i) end
+	B.folder(workspace, "Wild")
+	B.folder(workspace, "Carried")
+	return { bases = bases, shop = shop }
+end
+
+return World
+]]></ProtectedString></Properties></Item></Item></Item>
+<Item class="StarterPlayer" referent="RBX0000001B"><Properties><string name="Name">StarterPlayer</string><float name="CameraMaxZoomDistance">70</float><float name="CharacterWalkSpeed">16</float><float name="CharacterJumpHeight">7.2</float></Properties><Item class="StarterPlayerScripts" referent="RBX0000001A"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX00000019"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Запуск клиента: картинка мира (свет, подсказки, клетки) и интерфейс.
+local RS = game:GetService("ReplicatedStorage")
+local Client = RS:WaitForChild("Client")
+
+local Visuals = require(Client:WaitForChild("Visuals"))
+local UI = require(Client:WaitForChild("UI"))
+
+Visuals.init()
+UI.init()
+]]></ProtectedString></Properties></Item></Item></Item>
+<Item class="SoundService" referent="RBX0000001C"><Properties><string name="Name">SoundService</string><bool name="RespectFilteringEnabled">true</bool></Properties></Item>
+</roblox>
