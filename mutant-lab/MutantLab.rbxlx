@@ -1,0 +1,3741 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+<External>null</External>
+<External>nil</External>
+<Item class="Workspace" referent="RBX00000001"><Properties><string name="Name">Workspace</string><bool name="StreamingEnabled">false</bool></Properties></Item>
+<Item class="Lighting" referent="RBX00000002"><Properties><string name="Name">Lighting</string><token name="Technology">4</token><token name="LightingStyle">0</token><bool name="PrioritizeLightingQuality">true</bool><bool name="GlobalShadows">true</bool><float name="ShadowSoftness">0.3</float><float name="EnvironmentDiffuseScale">1</float><float name="EnvironmentSpecularScale">0.6</float><float name="Brightness">2.6</float><float name="ClockTime">14.2</float><Color3 name="Ambient"><R>0.35</R><G>0.38</G><B>0.43</B></Color3><Color3 name="OutdoorAmbient"><R>0.53</R><G>0.55</G><B>0.59</B></Color3><float name="ExposureCompensation">0.1</float></Properties></Item>
+<Item class="ReplicatedStorage" referent="RBX00000007"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="Folder" referent="RBX00000006"><Properties><string name="Name">Shared</string></Properties><Item class="ModuleScript" referent="RBX00000003"><Properties><string name="Name">Build</string><ProtectedString name="Source"><![CDATA[-- Помощники постройки (сервер и клиент): детали, клинья, цилиндры, стены с проёмами,
+-- свет, подсказки ProximityPrompt, надписи, текстуры. Все детали по умолчанию закреплены (Anchored).
+local B = {}
+
+local function apply(o, props)
+	if props then
+		for k, v in pairs(props) do
+			if k ~= "Parent" then o[k] = v end
+		end
+	end
+end
+B.apply = apply
+
+-- цвет: Color3, "#RRGGBB" или r, g, b (0..255)
+function B.color(r, g, b)
+	if typeof(r) == "Color3" then return r end
+	if type(r) == "string" then return Color3.fromHex(r) end
+	return Color3.fromRGB(r, g, b)
+end
+
+-- ID ассета из Config: "" -> "", "123" -> "rbxassetid://123", "rbxasset://..." -> как есть
+function B.asset(id)
+	if id == nil or id == "" then return "" end
+	if tonumber(id) then return "rbxassetid://" .. tostring(id) end
+	return tostring(id)
+end
+
+-- материал по имени с запасным вариантом (новые материалы вроде Carpet, Plaster, RoofShingles,
+-- CeramicTiles, Leather, Rubber, Cardboard, ClayRoofTiles есть не во всех версиях)
+function B.mat(name, fallback)
+	local ok, m = pcall(function() return Enum.Material[name] end)
+	if ok and m then return m end
+	return fallback or Enum.Material.SmoothPlastic
+end
+
+function B.make(class, props, parent)
+	local o = Instance.new(class)
+	apply(o, props)
+	o.Parent = parent or (props and props.Parent)
+	return o
+end
+
+function B.model(parent, name)
+	local m = Instance.new("Model")
+	m.Name = name or "Model"
+	m.Parent = parent
+	return m
+end
+
+function B.folder(parent, name)
+	local f = Instance.new("Folder")
+	f.Name = name or "Folder"
+	f.Parent = parent
+	return f
+end
+
+local function basePart(class, parent, name, size, cf, color, material, props)
+	local p = Instance.new(class)
+	p.Name = name or class
+	p.Anchored = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Size = size
+	p.CFrame = cf
+	if color then p.Color = B.color(color) end
+	p.Material = material or Enum.Material.SmoothPlastic
+	apply(p, props)
+	p.Parent = parent
+	return p
+end
+
+-- прямоугольная деталь: size — Vector3, cf — CFrame центра
+function B.part(parent, name, size, cf, color, material, props)
+	return basePart("Part", parent, name, size, cf, color, material, props)
+end
+
+-- клин: наклонная грань идёт от верхнего заднего (+Z) ребра к нижнему переднему (−Z)
+function B.wedge(parent, name, size, cf, color, material, props)
+	return basePart("WedgePart", parent, name, size, cf, color, material, props)
+end
+
+function B.cornerWedge(parent, name, size, cf, color, material, props)
+	return basePart("CornerWedgePart", parent, name, size, cf, color, material, props)
+end
+
+-- цилиндр: ось вдоль X у cf; length — длина, d — диаметр
+function B.cyl(parent, name, length, d, cf, color, material, props)
+	local p = basePart("Part", parent, name, Vector3.new(length, d, d), cf, color, material, props)
+	p.Shape = Enum.PartType.Cylinder
+	return p
+end
+
+-- вертикальный цилиндр (ось вверх) с центром в cf
+function B.vcyl(parent, name, height, d, cf, color, material, props)
+	return B.cyl(parent, name, height, d, cf * CFrame.Angles(0, 0, math.rad(90)), color, material, props)
+end
+
+function B.ball(parent, name, d, cf, color, material, props)
+	local p = basePart("Part", parent, name, Vector3.new(d, d, d), cf, color, material, props)
+	p.Shape = Enum.PartType.Ball
+	return p
+end
+
+-- невидимая служебная деталь (зоны, точки появления, якоря)
+function B.marker(parent, name, size, cf, props)
+	local p = basePart("Part", parent, name, size or Vector3.new(1, 1, 1), cf, nil, nil, props)
+	p.Transparency = 1
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	apply(p, props)
+	return p
+end
+
+-- Стена от точки a до точки b (обе — низ стены на полу), высота h, толщина th.
+-- openings: { { at = расстояние от a до центра проёма, w = ширина, y0 = низ проёма, y1 = верх проёма }, ... }
+-- Собирает стену из кусков вокруг проёмов (двери, окна). Возвращает Model.
+-- Совет: внешние стены не тоньше 1 стада, иначе свет «протекает» сквозь них.
+function B.wall(parent, name, a, b, h, th, color, material, openings, props)
+	local m = B.model(parent, name)
+	local flat = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+	local len = flat.Magnitude
+	if len < 0.01 then return m end
+	local frame = CFrame.fromMatrix(a, flat.Unit, Vector3.yAxis)
+	local function seg(x0, x1, y0, y1)
+		if x1 - x0 < 0.02 or y1 - y0 < 0.02 then return end
+		B.part(m, "Wall", Vector3.new(x1 - x0, y1 - y0, th), frame * CFrame.new((x0 + x1) / 2, (y0 + y1) / 2, 0), color, material, props)
+	end
+	local list = {}
+	for _, o in ipairs(openings or {}) do table.insert(list, o) end
+	table.sort(list, function(p, q) return p.at < q.at end)
+	local cursor = 0
+	for _, o in ipairs(list) do
+		local x0, x1 = o.at - o.w / 2, o.at + o.w / 2
+		if x0 > cursor then seg(cursor, x0, 0, h) end
+		if (o.y0 or 0) > 0 then seg(math.max(x0, cursor), x1, 0, o.y0) end
+		if (o.y1 or h) < h then seg(math.max(x0, cursor), x1, o.y1, h) end
+		cursor = math.max(cursor, x1)
+	end
+	seg(cursor, len, 0, h)
+	return m
+end
+
+-- источник света: class = "PointLight" | "SpotLight" | "SurfaceLight"; тени выключены по умолчанию
+-- (на открытой карте сотни фонарей — тени от каждого слишком дороги)
+function B.light(parent, class, props)
+	local l = Instance.new(class)
+	l.Shadows = false
+	apply(l, props)
+	l.Parent = parent
+	return l
+end
+
+-- подсказка взаимодействия (клавиша E по умолчанию)
+function B.prompt(parent, name, action, object, props)
+	local p = Instance.new("ProximityPrompt")
+	p.Name = name or "Prompt"
+	p.ActionText = action or ""
+	p.ObjectText = object or ""
+	p.MaxActivationDistance = 8
+	p.RequiresLineOfSight = false
+	p.KeyboardKeyCode = Enum.KeyCode.E
+	apply(p, props)
+	p.Parent = parent
+	return p
+end
+
+-- надпись на грани детали (вывески, таблички, экраны)
+function B.sign(part, face, text, props, guiProps)
+	local g = Instance.new("SurfaceGui")
+	g.Name = "Sign"
+	g.Face = face or Enum.NormalId.Front
+	g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	g.PixelsPerStud = 40
+	g.LightInfluence = 1
+	apply(g, guiProps)
+	g.Parent = part
+	local l = Instance.new("TextLabel")
+	l.Size = UDim2.fromScale(1, 1)
+	l.BackgroundTransparency = 1
+	l.Text = text or ""
+	l.TextScaled = true
+	l.Font = Enum.Font.GothamBold
+	l.TextColor3 = Color3.new(1, 1, 1)
+	apply(l, props)
+	l.Parent = g
+	return g, l
+end
+
+-- повторяющаяся текстура (обои, плитка); id из Config.Images; пустой id — ничего не делаем
+function B.texture(part, face, id, studsU, studsV, props)
+	local url = B.asset(id)
+	if url == "" then return nil end
+	local t = Instance.new("Texture")
+	t.Texture = url
+	t.Face = face or Enum.NormalId.Front
+	t.StudsPerTileU = studsU or 4
+	t.StudsPerTileV = studsV or 4
+	apply(t, props)
+	t.Parent = part
+	return t
+end
+
+-- одиночная картинка (плакат, лицо)
+function B.decal(part, face, id, props)
+	local url = B.asset(id)
+	if url == "" then return nil end
+	local d = Instance.new("Decal")
+	d.Texture = url
+	d.Face = face or Enum.NormalId.Front
+	apply(d, props)
+	d.Parent = part
+	return d
+end
+
+function B.weld(a, b)
+	local w = Instance.new("WeldConstraint")
+	w.Part0 = a
+	w.Part1 = b
+	w.Parent = a
+	return w
+end
+
+function B.attrs(inst, t)
+	for k, v in pairs(t) do inst:SetAttribute(k, v) end
+	return inst
+end
+
+-- CFrame: позиция + поворот вокруг вертикали в градусах
+function B.at(x, y, z, yawDeg)
+	return CFrame.new(x, y, z) * CFrame.Angles(0, math.rad(yawDeg or 0), 0)
+end
+
+-- эллипсоид (шляпки грибов, капли слизи, тарелка): деталь с SpecialMesh Sphere, растянутым по размеру детали.
+-- Столкновения у такой детали — по её коробке, поэтому на шляпку гриба можно запрыгнуть.
+function B.ellipsoid(parent, name, size, cf, color, material, props)
+	local p = basePart("Part", parent, name, size, cf, color, material, props)
+	local m = Instance.new("SpecialMesh")
+	m.MeshType = Enum.MeshType.Sphere
+	m.Parent = p
+	return p
+end
+
+-- брус от точки a до точки b (трубы, балки, ветки): cyl = true — цилиндр, иначе квадратное сечение
+function B.between(parent, name, a, b, d, color, material, cyl, props)
+	local len = (b - a).Magnitude
+	if len < 0.01 then return nil end
+	local mid = (a + b) / 2
+	local cf = CFrame.lookAt(mid, b)
+	if cyl then
+		return B.cyl(parent, name, len, d, cf * CFrame.Angles(0, math.rad(90), 0), color, material, props)
+	end
+	return B.part(parent, name, Vector3.new(d, d, len), cf, color, material, props)
+end
+
+-- кольцо из n брусков по окружности радиуса r вокруг cf (ось кольца — UpVector у cf).
+-- skip(угол в градусах) -> true пропускает сегмент (проходы в стенах).
+function B.ring(parent, name, cf, r, n, h, th, color, material, skip, props)
+	local m = B.model(parent, name)
+	local seg = 2 * math.pi * r / n
+	for i = 0, n - 1 do
+		local a = 360 * i / n
+		if not (skip and skip(a)) then
+			local c = cf * CFrame.Angles(0, math.rad(a), 0) * CFrame.new(0, 0, -r)
+			B.part(m, name, Vector3.new(seg * 1.04, h, th), c, color, material, props)
+		end
+	end
+	return m
+end
+
+-- метка для клиентских анимаций (Spin / Bob / Pulse) — см. MapFx
+function B.tag(inst, tag, attrs)
+	inst:AddTag(tag)
+	if attrs then B.attrs(inst, attrs) end
+	return inst
+end
+
+-- частицы: props поверх разумных значений по умолчанию
+function B.particles(parent, props)
+	local e = Instance.new("ParticleEmitter")
+	e.LightEmission = 0.6
+	e.Rate = 6
+	apply(e, props)
+	e.Parent = parent
+	return e
+end
+
+-- плавающая надпись над деталью
+function B.billboard(part, text, color, offsetY, size, maxDist)
+	local g = Instance.new("BillboardGui")
+	g.Name = "Label"
+	g.Size = size or UDim2.fromOffset(260, 60)
+	g.StudsOffset = Vector3.new(0, offsetY or 4, 0)
+	g.MaxDistance = maxDist or 150
+	g.LightInfluence = 0
+	g.Parent = part
+	local l = Instance.new("TextLabel")
+	l.Size = UDim2.fromScale(1, 1)
+	l.BackgroundTransparency = 1
+	l.Text = text
+	l.TextScaled = true
+	l.Font = Enum.Font.GothamBlack
+	l.TextColor3 = color or Color3.new(1, 1, 1)
+	l.TextStrokeTransparency = 0.2
+	l.TextStrokeColor3 = Color3.fromRGB(20, 20, 30)
+	l.Parent = g
+	return g, l
+end
+
+return B
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000004"><Properties><string name="Name">MapData</string><ProtectedString name="Source"><![CDATA[-- Описание карты «Mutant Lab»: где что стоит, уровни земли, цены зон, атмосфера.
+-- Общий модуль: сервер строит по нему карту, клиент — определяет, в какой зоне игрок.
+--
+-- Оси: север = −Z (туда идут зоны), восток = +X (арена босса), юг = +Z (лаборатории игроков),
+-- запад = −X (башня ребёрта). Земля в центре — на высоте 0.
+local D = {}
+
+D.SEA = -3              -- уровень моря
+D.HUB_R = 80            -- радиус центральной площади
+D.ZONE_HALF_W = 120     -- зоны идут коридором шириной 240 (x от −120 до 120)
+
+-- Зоны собирательства: z0 — южная граница (вход), z1 — северная, level — высота земли
+D.Zones = {
+	{ id = "Mushroom", title = "ГРИБНОЙ ЛЕС", name = "Грибной лес", z0 = -170, z1 = -370, level = 0, price = 0,
+		accent = Color3.fromRGB(190, 110, 255) },
+	{ id = "Swamp", title = "СЛИЗИСТОЕ БОЛОТО", name = "Слизистое болото", z0 = -370, z1 = -570, level = 6, price = 1000,
+		accent = Color3.fromRGB(120, 255, 80) },
+	{ id = "Crystal", title = "КРИСТАЛЬНЫЕ ПЕЩЕРЫ", name = "Кристальные пещеры", z0 = -570, z1 = -770, level = 12, price = 15000,
+		accent = Color3.fromRGB(90, 220, 255) },
+	{ id = "Junkyard", title = "СВАЛКА РОБОТОВ", name = "Свалка роботов", z0 = -770, z1 = -970, level = 18, price = 200000,
+		accent = Color3.fromRGB(255, 170, 60) },
+	{ id = "Crater", title = "РАДИОАКТИВНЫЙ КРАТЕР", name = "Радиоактивный кратер", z0 = -970, z1 = -1170, level = 24, price = 3000000,
+		accent = Color3.fromRGB(170, 255, 40) },
+}
+D.ZoneById = {}
+for i, z in ipairs(D.Zones) do
+	z.index = i
+	D.ZoneById[z.id] = z
+end
+
+-- Лаборатории игроков: дуга к югу от площади
+D.Plots = { count = 6, radius = 175, spread = 112, size = 54 }
+
+-- Остров босса за рекой (восток) и башня ребёрта (запад)
+D.Boss = { center = Vector3.new(310, 0, 0), radius = 55 }
+D.River = { x = 215, width = 24, zTurn = -100 }
+D.Rebirth = { center = Vector3.new(-215, 0, 0) }
+D.Ufo = { center = Vector3.new(-250, 0, 205) }
+
+-- Суша: прямоугольники { x0, x1, z0, z1 } (центральный остров и коридор зон)
+D.Island = {
+	{ -340, 420, -130, 330 },
+	{ -175, 175, -1200, -60 },
+}
+
+-- Атмосфера по областям (клиент плавно переключает при переходе)
+local function rgb(r, g, b) return Color3.fromRGB(r, g, b) end
+D.Ambience = {
+	Hub = { density = 0.27, haze = 1.2, color = rgb(205, 228, 220), decay = rgb(120, 170, 150), glare = 0.2,
+		tint = rgb(255, 255, 255), saturation = 0.15, contrast = 0.05, brightness = 0 },
+	Mushroom = { density = 0.32, haze = 1.8, color = rgb(222, 200, 255), decay = rgb(150, 105, 205), glare = 0.1,
+		tint = rgb(252, 244, 255), saturation = 0.25, contrast = 0.05, brightness = 0 },
+	Swamp = { density = 0.46, haze = 3, color = rgb(175, 212, 145), decay = rgb(80, 120, 60), glare = 0,
+		tint = rgb(236, 255, 226), saturation = 0.1, contrast = 0.06, brightness = -0.03 },
+	Crystal = { density = 0.42, haze = 2, color = rgb(145, 175, 235), decay = rgb(60, 72, 140), glare = 0.3,
+		tint = rgb(218, 232, 255), saturation = 0.22, contrast = 0.1, brightness = -0.06 },
+	Junkyard = { density = 0.38, haze = 2.6, color = rgb(232, 205, 165), decay = rgb(150, 112, 72), glare = 0.2,
+		tint = rgb(255, 246, 228), saturation = -0.05, contrast = 0.08, brightness = 0 },
+	Crater = { density = 0.46, haze = 2.6, color = rgb(205, 240, 145), decay = rgb(100, 140, 40), glare = 0.1,
+		tint = rgb(236, 255, 212), saturation = 0.15, contrast = 0.12, brightness = -0.04 },
+	Boss = { density = 0.33, haze = 1.6, color = rgb(235, 190, 190), decay = rgb(145, 75, 75), glare = 0.2,
+		tint = rgb(255, 242, 242), saturation = 0.2, contrast = 0.1, brightness = 0 },
+	Rebirth = { density = 0.3, haze = 1.6, color = rgb(222, 200, 255), decay = rgb(130, 90, 190), glare = 0.3,
+		tint = rgb(248, 240, 255), saturation = 0.2, contrast = 0.06, brightness = 0 },
+}
+
+-- Названия областей для всплывающей надписи
+D.AreaNames = {
+	Hub = "Лаб-Сити", Plots = "Лаборатории", Boss = "Арена босса", Rebirth = "Башня ребёрта",
+}
+for _, z in ipairs(D.Zones) do D.AreaNames[z.id] = z.name end
+
+local function flatDist(a, b)
+	local dx, dz = a.X - b.X, a.Z - b.Z
+	return math.sqrt(dx * dx + dz * dz)
+end
+
+-- В какой области точка: возвращает ключ ("Hub", "Mushroom", ...) и ключ атмосферы
+function D.areaAt(pos)
+	if math.abs(pos.X) < D.ZONE_HALF_W + 40 then
+		for _, z in ipairs(D.Zones) do
+			if pos.Z <= z.z0 and pos.Z > z.z1 then return z.id, z.id end
+		end
+	end
+	if flatDist(pos, D.Boss.center) < D.Boss.radius + 30 then return "Boss", "Boss" end
+	if flatDist(pos, D.Rebirth.center) < 45 then return "Rebirth", "Rebirth" end
+	local r = flatDist(pos, Vector3.zero)
+	if r < D.HUB_R + 6 then return "Hub", "Hub" end
+	if pos.Z > 60 and r > D.Plots.radius - 45 and r < D.Plots.radius + 45 then return "Plots", "Hub" end
+	return "Wild", "Hub"
+end
+
+-- Высота земли зоны (для расстановки предметов)
+function D.levelAt(z)
+	for _, zone in ipairs(D.Zones) do
+		if z <= zone.z0 and z > zone.z1 then return zone.level end
+	end
+	if z <= D.Zones[#D.Zones].z1 then return D.Zones[#D.Zones].level end
+	return 0
+end
+
+return D
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000005"><Properties><string name="Name">Rng</string><ProtectedString name="Source"><![CDATA[-- Свой генератор случайных чисел (Парк — Миллер). Даёт одинаковую последовательность в Roblox
+-- и в песочнице tools/run_map.py, поэтому превью карты совпадает с тем, что строится в игре.
+local Rng = {}
+Rng.__index = Rng
+
+function Rng.new(seed)
+	return setmetatable({ s = math.floor(seed) % 2147483646 + 1 }, Rng)
+end
+
+-- число в [0, 1)
+function Rng:next()
+	self.s = (self.s * 16807) % 2147483647
+	return self.s / 2147483647
+end
+
+function Rng:range(a, b)
+	return a + (b - a) * self:next()
+end
+
+function Rng:int(a, b)
+	return a + math.floor(self:next() * (b - a + 1))
+end
+
+function Rng:chance(p)
+	return self:next() < p
+end
+
+function Rng:pick(list)
+	return list[self:int(1, #list)]
+end
+
+-- угол в радианах
+function Rng:angle()
+	return self:next() * 2 * math.pi
+end
+
+return Rng
+]]></ProtectedString></Properties></Item></Item></Item>
+<Item class="ServerScriptService" referent="RBX00000018"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="Script" referent="RBX00000008"><Properties><string name="Name">Main</string><ProtectedString name="Source"><![CDATA[-- Точка входа сервера. Пока игра — это только карта.
+-- Персонажи не появляются, пока карта не построена (иначе игрок упадёт в пустоту).
+-- Если карта уже сохранена в месте (собрана заранее командой в Studio, см. README) — не строим заново.
+local Players = game:GetService("Players")
+local Map = require(script.Parent.Map)
+
+Players.CharacterAutoLoads = false
+
+if workspace:FindFirstChild("Map") then
+	workspace:SetAttribute("MapReady", true)
+else
+	Map.build()
+end
+
+Players.CharacterAutoLoads = true
+for _, plr in ipairs(Players:GetPlayers()) do
+	if not plr.Character then
+		task.spawn(function() plr:LoadCharacter() end)
+	end
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000017"><Properties><string name="Name">Map</string><ProtectedString name="Source"><![CDATA[-- Сборка всей карты. Порядок: рельеф → небо → постройки. Детали собираются в папку Map,
+-- которая кладётся в workspace в самом конце (так Roblox строит быстрее).
+-- Можно вызвать и в режиме редактирования из Command Bar (см. README) — старая карта и рельеф стираются.
+local Map = {}
+
+function Map.build()
+	local folder = script
+	local t0 = os.clock()
+	local old = workspace:FindFirstChild("Map")
+	if old then old:Destroy() end
+	workspace.Terrain:Clear()
+	local root = Instance.new("Folder")
+	root.Name = "Map"
+
+	require(folder.Terrain).build()
+	require(folder.Sky).setup()
+	require(folder.Hub).build(root)
+	require(folder.Plots).build(root)
+	require(folder.Zones).build(root)
+	require(folder.BossArena).build(root)
+	require(folder.RebirthTower).build(root)
+	require(folder.Island).build(root)
+
+	root.Parent = workspace
+	workspace:SetAttribute("MapReady", true)
+	print(string.format("[Map] карта построена за %.2f с", os.clock() - t0))
+	return root
+end
+
+return Map
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX00000009"><Properties><string name="Name">BossArena</string><ProtectedString name="Source"><![CDATA[-- Остров босса: мост через реку и колизей. Внутри — площадка призыва мирового босса,
+-- светящееся кольцо рун, жаровни, гигантские кости; снаружи — трибуны и табло с таймером.
+local RS = game:GetService("ReplicatedStorage")
+local B = require(RS.Shared.Build)
+local D = require(RS.Shared.MapData)
+local Rng = require(RS.Shared.Rng)
+local P = require(script.Parent.Props)
+
+local Arena = {}
+local C, rgb = P.C, P.rgb
+local M = Enum.Material
+
+local RED = rgb(255, 70, 60)
+local STONE = rgb(150, 140, 128)
+local STONE_DARK = rgb(112, 104, 96)
+
+local function bridge(m)
+	local g = B.model(m, "Bridge")
+	local r = D.River
+	local x0, x1 = r.x - r.width / 2 - 10, r.x + r.width / 2 + 10
+	local n = 8
+	local prev
+	for i = 0, n do
+		local t = i / n
+		local x = x0 + (x1 - x0) * t
+		local y = 0.4 + math.sin(t * math.pi) * 2.4
+		local p = Vector3.new(x, y, 0)
+		if prev then
+			local mid = (prev + p) / 2
+			local len = (p - prev).Magnitude
+			B.part(g, "Deck", Vector3.new(len + 0.3, 1, 16), CFrame.lookAt(mid, p) * CFrame.Angles(0, math.rad(90), 0),
+				C.wood, M.WoodPlanks)
+			for _, z in ipairs({ -8.4, 8.4 }) do
+				B.part(g, "Rail", Vector3.new(len + 0.3, 0.6, 0.6), CFrame.lookAt(mid + Vector3.new(0, 3.2, z), p + Vector3.new(0, 3.2, z)) * CFrame.Angles(0, math.rad(90), 0),
+					STONE, M.Slate)
+			end
+		end
+		for _, z in ipairs({ -8.4, 8.4 }) do
+			B.part(g, "Baluster", Vector3.new(1, 3.4, 1), CFrame.new(p + Vector3.new(0, 1.7, z)), STONE_DARK, M.Slate)
+		end
+		prev = p
+	end
+	-- опоры в воде и фонари на концах
+	for _, x in ipairs({ r.x - 6, r.x + 6 }) do
+		B.part(g, "Pier", Vector3.new(3, 8, 14), CFrame.new(x, -3, 0), STONE_DARK, M.Slate)
+	end
+	for _, x in ipairs({ x0, x1 }) do
+		for _, z in ipairs({ -8.4, 8.4 }) do
+			P.lamp(g, Vector3.new(x, 0, z), RED, 9)
+		end
+	end
+	return g
+end
+
+local function brazier(m, pos)
+	local g = B.model(m, "Brazier")
+	B.vcyl(g, "Stand", 4, 1.4, CFrame.new(pos + Vector3.new(0, 2, 0)), C.metalDark, M.Metal)
+	B.vcyl(g, "Bowl", 1.4, 4, CFrame.new(pos + Vector3.new(0, 4.6, 0)), rgb(60, 50, 44), M.Metal)
+	local coals = B.vcyl(g, "Coals", 0.3, 3.4, CFrame.new(pos + Vector3.new(0, 5.35, 0)), rgb(255, 120, 40), M.Neon)
+	local f = Instance.new("Fire")
+	f.Heat = 8
+	f.Size = 4
+	f.Color = rgb(255, 140, 50)
+	f.SecondaryColor = rgb(255, 60, 30)
+	f.Parent = coals
+	B.light(coals, "PointLight", { Range = 22, Brightness = 2, Color = rgb(255, 140, 70) })
+	return g
+end
+
+local function bone(m, a, b, d)
+	local g = B.model(m, "Bone")
+	B.between(g, "Shaft", a, b, d, rgb(235, 228, 205), M.SmoothPlastic, true)
+	local dir = (b - a).Unit
+	local side = dir:Cross(Vector3.yAxis).Unit
+	for _, p in ipairs({ a, b }) do
+		B.ball(g, "Knob", d * 1.5, CFrame.new(p + side * d * 0.5), rgb(235, 228, 205), M.SmoothPlastic)
+		B.ball(g, "Knob", d * 1.5, CFrame.new(p - side * d * 0.5), rgb(235, 228, 205), M.SmoothPlastic)
+	end
+	return g
+end
+
+function Arena.build(root)
+	local m = B.model(root, "BossArena")
+	local c = D.Boss.center
+	local R = D.Boss.radius
+	local function at(deg, r, y) local d = P.compass(deg) * r return Vector3.new(c.X + d.X, y, c.Z + d.Z) end
+	local entrance = 270 -- запад, к мосту
+	local function nearEntrance(a)
+		-- угол кольца B.ring отсчитывается против часовой (90° — запад)
+		return math.abs(a - 90) < 12
+	end
+
+	bridge(m)
+	P.path(m, Vector3.new(D.River.x + D.River.width / 2 + 10, 0.3, 0), Vector3.new(c.X - R - 6, 0.3, 0), 16)
+
+	-- пол
+	B.vcyl(m, "Floor", 1.2, R * 2 + 4, CFrame.new(c.X, 0.6, c.Z), STONE, M.Cobblestone)
+	B.vcyl(m, "BattleFloor", 1.3, 70, CFrame.new(c.X, 0.65, c.Z), rgb(96, 88, 84), M.Slate)
+	B.ring(m, "RuneRing", CFrame.new(c.X, 1.33, c.Z), 33, 48, 0.1, 1.1, RED, M.Neon)
+	B.ring(m, "RuneRing", CFrame.new(c.X, 1.33, c.Z), 22, 36, 0.1, 0.6, RED, M.Neon)
+	for i = 0, 5 do
+		local a = i * 60
+		local p0, p1 = at(a, 22, 1.34), at(a, 33, 1.34)
+		B.part(m, "RuneLine", Vector3.new(0.6, 0.1, (p1 - p0).Magnitude), CFrame.lookAt((p0 + p1) / 2, p1), RED, M.Neon)
+	end
+	-- площадка призыва
+	B.vcyl(m, "SummonBase", 1.6, 18, CFrame.new(c.X, 1.6, c.Z), rgb(60, 54, 56), M.Basalt)
+	local core = B.vcyl(m, "SummonCore", 0.3, 10, CFrame.new(c.X, 2.5, c.Z), RED, M.Neon)
+	B.light(core, "PointLight", { Range = 30, Brightness = 2, Color = RED })
+	B.tag(core, "Pulse", { Speed = 1.2 })
+	local spawnMk = B.marker(m, "BossSpawn", Vector3.new(6, 6, 6), CFrame.new(c.X, 6, c.Z))
+	B.attrs(spawnMk, { Role = "BossSpawn" })
+	local zoneMk = B.marker(m, "BossZone", Vector3.new(R * 2, 40, R * 2), CFrame.new(c.X, 20, c.Z))
+	B.attrs(zoneMk, { Role = "BossZone" })
+
+	-- стена с колоннами и жаровнями
+	B.ring(m, "Wall", CFrame.new(c.X, 6, c.Z), R + 2, 64, 12, 3, STONE_DARK, M.Slate, nearEntrance)
+	B.ring(m, "WallCap", CFrame.new(c.X, 12.4, c.Z), R + 2, 64, 0.8, 3.6, STONE, M.Slate, nearEntrance)
+	for a = 0, 345, 15 do
+		if math.abs(a - entrance) > 14 then
+			local p = at(a, R + 2, 0)
+			B.part(m, "Column", Vector3.new(4, 16, 4), CFrame.new(p + Vector3.new(0, 8, 0)), STONE, M.Slate)
+			if a % 30 == 0 then
+				brazier(m, p + Vector3.new(0, 16, 0) - Vector3.new(0, 4, 0))
+			else
+				B.part(m, "Banner", Vector3.new(3, 7, 0.3), P.facing(p + Vector3.new(0, 10, 0), c) * CFrame.new(0, 0, -2.2), rgb(160, 30, 30), M.Fabric)
+			end
+		end
+	end
+	-- трибуны снаружи стены (по ним можно подняться прыжками)
+	for k, r in ipairs({ R + 6, R + 10, R + 14 }) do
+		B.ring(m, "Stands", CFrame.new(c.X, k * 1.5, c.Z), r, 72, k * 3, 4, k % 2 == 0 and STONE or STONE_DARK, M.Slate, nearEntrance)
+	end
+	B.ring(m, "BackWall", CFrame.new(c.X, 7.5, c.Z), R + 17, 80, 15, 2, STONE_DARK, M.Slate, nearEntrance)
+
+	-- вход: арка с табло
+	local gate = at(entrance, R + 4, 0)
+	local arch = P.arch(m, P.facing(gate, c), 22, 20, rgb(80, 70, 70), RED, "АРЕНА БОССА", "Босс появится через 60:00", M.Slate)
+	local board = arch:FindFirstChild("Beam")
+	if board then board.Name = "TimerBoard" end
+	-- жаровни внутри и кости
+	for i = 0, 7 do
+		brazier(m, at(i * 45 + 22.5, R - 6, 1.2))
+	end
+	local rng = Rng.new(99)
+	for _ = 1, 3 do
+		local a, r = rng:angle(), rng:range(38, 46)
+		local p = Vector3.new(c.X + math.cos(a) * r, 2.2, c.Z + math.sin(a) * r)
+		local yaw = rng:angle()
+		local half = Vector3.new(math.cos(yaw), 0, math.sin(yaw)) * rng:range(4, 6)
+		bone(m, p - half, p + half, rng:range(1.4, 2))
+	end
+	-- деревья и камни на острове
+	local deco = B.model(m, "Decor")
+	local spots = { { 380, 140 }, { 250, 150 }, { 400, 60 }, { 360, -80 }, { 260, -80 }, { 300, 240 }, { 380, 260 } }
+	for _, s in ipairs(spots) do
+		P.tree(deco, Vector3.new(s[1], 0, s[2]), rng, rng:range(1, 1.3), P.TreePalettes[rng:int(1, 3)])
+	end
+	for _ = 1, 6 do
+		P.rock(deco, Vector3.new(rng:range(240, 400), 0, rng:range(90, 300)), rng:range(3, 6), rng)
+	end
+	return m
+end
+
+return Arena
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000A"><Properties><string name="Name">Hub</string><ProtectedString name="Source"><![CDATA[-- Центральная площадь «Лаб-Сити»: Великий Мутатор (котёл для смешивания), точка появления,
+-- магазины по кругу, доски лидеров, арки-выходы на все четыре стороны, дорожки и фонари.
+local RS = game:GetService("ReplicatedStorage")
+local B = require(RS.Shared.Build)
+local D = require(RS.Shared.MapData)
+local Rng = require(RS.Shared.Rng)
+local P = require(script.Parent.Props)
+
+local Hub = {}
+local C, rgb = P.C, P.rgb
+local M = Enum.Material
+
+local R = D.HUB_R
+local FLOOR = 1 -- верх пола площади
+
+local function polar(deg, r, y)
+	local d = P.compass(deg) * r
+	return Vector3.new(d.X, y or FLOOR, d.Z)
+end
+
+local function buildFloor(m)
+	B.vcyl(m, "FloorOuter", 1, R * 2 + 4, CFrame.new(0, 0.5, 0), rgb(186, 192, 196), M.Concrete)
+	B.vcyl(m, "FloorMid", 1.06, 124, CFrame.new(0, 0.53, 0), rgb(150, 160, 170), M.Pavement)
+	B.vcyl(m, "FloorInner", 1.12, 70, CFrame.new(0, 0.56, 0), rgb(92, 100, 114), M.Slate)
+	-- светящиеся кольца в полу
+	B.ring(m, "NeonRing", CFrame.new(0, 1.07, 0), 61, 64, 0.12, 0.9, C.labTeal, M.Neon)
+	B.ring(m, "NeonRing", CFrame.new(0, 1.13, 0), 34.5, 40, 0.12, 0.7, C.labPurple, M.Neon)
+	-- лучи от ворот к центру
+	for _, a in ipairs({ 0, 90, 180, 270 }) do
+		local a0, a1 = polar(a, 36, 1.14), polar(a, R, 1.08)
+		local flat = a1 - a0
+		B.part(m, "NeonLine", Vector3.new(0.7, 0.1, flat.Magnitude), CFrame.lookAt((a0 + a1) / 2, a1), C.labTeal, M.Neon)
+	end
+	-- бордюр с проходами у ворот
+	local function nearGate(a)
+		for _, g in ipairs({ 0, 90, 180, 270, 360 }) do
+			if math.abs(a - g) < 9 then return true end
+		end
+		return false
+	end
+	B.ring(m, "Curb", CFrame.new(0, 1.3, 0), R + 1.5, 72, 1.6, 2.4, C.stoneDark, M.Slate, nearGate)
+	B.ring(m, "CurbTrim", CFrame.new(0, 2.15, 0), R + 1.5, 72, 0.2, 2.6, C.labTeal, M.Neon, nearGate)
+end
+
+---------------------------------------------------------------------------
+-- Великий Мутатор
+---------------------------------------------------------------------------
+local function mutator(parent)
+	local m = B.model(parent, "GreatMutator")
+	B.vcyl(m, "Step1", 1.5, 42, CFrame.new(0, 0.75 + 0.5, 0), C.metalDark, M.DiamondPlate)
+	B.vcyl(m, "Step2", 1.2, 35, CFrame.new(0, 2 + 0.6, 0), C.metal, M.DiamondPlate)
+	B.ring(m, "StepGlow", CFrame.new(0, 2.05, 0), 20.6, 40, 0.15, 0.6, C.toxic, M.Neon)
+	local top = 3.2
+	-- котёл
+	B.vcyl(m, "Cauldron", 9, 22, CFrame.new(0, top + 4.5, 0), rgb(46, 52, 62), M.Metal)
+	B.vcyl(m, "Band", 1, 22.6, CFrame.new(0, top + 2, 0), C.metalLight, M.Metal)
+	B.vcyl(m, "Band", 1, 22.6, CFrame.new(0, top + 6.5, 0), C.metalLight, M.Metal)
+	B.ring(m, "Rim", CFrame.new(0, top + 9.3, 0), 11.2, 36, 1.2, 1.8, C.metalLight, M.Metal)
+	for i = 0, 7 do
+		local p = polar(i * 45 + 22.5, 11.2, top + 4.5)
+		B.part(m, "Rivet", Vector3.new(1, 7, 0.6), P.facing(p, Vector3.zero), C.metalDark, M.Metal)
+	end
+	local goo = B.vcyl(m, "Goo", 0.6, 20.4, CFrame.new(0, top + 8.6, 0), C.slime, M.Neon)
+	B.light(goo, "PointLight", { Range = 40, Brightness = 2.5, Color = C.slime })
+	B.ball(m, "Dome", 21, CFrame.new(0, top + 8.6, 0), rgb(200, 255, 230), M.Glass, { Transparency = 0.78, CastShadow = false })
+	local bub = B.marker(m, "Bubbles", Vector3.new(16, 0.5, 16), CFrame.new(0, top + 9, 0))
+	B.particles(bub, {
+		Color = ColorSequence.new(rgb(190, 255, 150)), Size = NumberSequence.new(1, 0.2),
+		Transparency = NumberSequence.new(0.2, 1), Lifetime = NumberRange.new(1, 2), Speed = NumberRange.new(2, 5),
+		Rate = 12, LightEmission = 1, EmissionDirection = Enum.NormalId.Top,
+	})
+	-- энергоядро над куполом
+	local coreY = top + 26
+	local core = B.ball(m, "Core", 4.5, CFrame.new(0, coreY, 0), C.labPurple, M.Neon, { CanCollide = false })
+	B.light(core, "PointLight", { Range = 30, Brightness = 2, Color = C.labPurple })
+	B.tag(core, "Bob", { Height = 1, Period = 4 })
+	B.billboard(core, "ВЕЛИКИЙ МУТАТОР", rgb(220, 255, 210), 7, UDim2.fromOffset(420, 70), 260)
+	local holo = B.ring(m, "HoloRing", CFrame.new(0, coreY, 0) * CFrame.Angles(math.rad(18), 0, 0), 7.5, 28, 0.3, 0.3, C.labTeal, M.Neon,
+		nil, { CanCollide = false, CastShadow = false })
+	holo.WorldPivot = CFrame.new(0, coreY, 0) * CFrame.Angles(math.rad(18), 0, 0)
+	B.tag(holo, "Spin", { Speed = 40 })
+	local holo2 = B.ring(m, "HoloRing", CFrame.new(0, coreY, 0) * CFrame.Angles(math.rad(-25), 0, math.rad(15)), 9.5, 32, 0.3, 0.3, C.labPurple, M.Neon,
+		nil, { CanCollide = false, CastShadow = false })
+	holo2.WorldPivot = CFrame.new(0, coreY, 0) * CFrame.Angles(math.rad(-25), 0, math.rad(15))
+	B.tag(holo2, "Spin", { Speed = -28 })
+	local coreAtt = Instance.new("Attachment")
+	coreAtt.Parent = core
+	-- катушки Теслы с молниями к ядру
+	for i = 0, 3 do
+		local base = polar(45 + i * 90, 16, top)
+		B.vcyl(m, "CoilBase", 2, 3.6, CFrame.new(base + Vector3.new(0, 1, 0)), C.metalDark, M.Metal)
+		B.vcyl(m, "Coil", 11, 1.6, CFrame.new(base + Vector3.new(0, 7.5, 0)), C.metalLight, M.Metal)
+		for k = 1, 4 do
+			B.vcyl(m, "CoilRing", 0.5, 3.2 - k * 0.3, CFrame.new(base + Vector3.new(0, 3 + k * 2.2, 0)), rgb(200, 120, 60), M.Metal)
+		end
+		local orb = B.ball(m, "CoilOrb", 3, CFrame.new(base + Vector3.new(0, 14, 0)), C.labPurple, M.Neon)
+		B.light(orb, "PointLight", { Range = 14, Brightness = 1.5, Color = C.labPurple })
+		B.tag(orb, "Pulse", { Speed = 3 })
+		local a0 = Instance.new("Attachment")
+		a0.Parent = orb
+		local beam = Instance.new("Beam")
+		beam.Attachment0 = a0
+		beam.Attachment1 = coreAtt
+		beam.Color = ColorSequence.new(rgb(220, 170, 255))
+		beam.LightEmission = 1
+		beam.Width0, beam.Width1 = 0.35, 0.2
+		beam.Segments = 12
+		beam.CurveSize0, beam.CurveSize1 = 3, -2
+		beam.Transparency = NumberSequence.new(0.1, 0.3)
+		beam.Parent = orb
+		B.tag(beam, "Zap")
+		-- труба от котла к катушке
+		P.pipe(m, polar(45 + i * 90, 11.4, top + 3), base + Vector3.new(0, 3, 0), 1.2, C.metal)
+	end
+	-- зона «подойди к котлу»
+	local st = B.marker(m, "MixerStation", Vector3.new(30, 8, 30), CFrame.new(0, top + 4, 0))
+	B.attrs(st, { Station = "Mixer" })
+	return m
+end
+
+---------------------------------------------------------------------------
+-- Магазины
+---------------------------------------------------------------------------
+local function icon(m, kind, cf, accent)
+	if kind == "egg" then
+		local e = B.ellipsoid(m, "Egg", Vector3.new(4, 5.2, 4), cf * CFrame.new(0, 2.6, 0), rgb(250, 240, 210), M.SmoothPlastic)
+		B.tag(e, "Bob", { Height = 0.5, Period = 2.5 })
+		for i = 1, 6 do
+			local a = i * 60
+			local d = P.compass(a)
+			B.ball(m, "Spot", 0.9, cf * CFrame.new(d.X * 1.8, 2.2 + (i % 2) * 1.4, d.Z * 1.8), accent, M.Neon, { CanCollide = false })
+		end
+	elseif kind == "gear" then
+		local g = B.model(m, "Gear")
+		local c = cf * CFrame.new(0, 3, 0)
+		B.cyl(g, "Hub", 1, 4, c, C.metalLight, M.Metal)
+		for i = 0, 7 do
+			B.part(g, "Tooth", Vector3.new(1, 1.2, 1.2), c * CFrame.Angles(math.rad(i * 45), 0, 0) * CFrame.new(0, 2.3, 0), C.metalLight, M.Metal)
+		end
+		B.cyl(g, "Axle", 1.2, 1.4, c, accent, M.Neon)
+		g.WorldPivot = c
+		B.tag(g, "Spin", { Speed = 45, Axis = "X" })
+	elseif kind == "backpack" then
+		B.part(m, "Pack", Vector3.new(3.4, 4.4, 2), cf * CFrame.new(0, 2.4, 0), rgb(220, 90, 60), M.Fabric)
+		B.part(m, "Pocket", Vector3.new(2.6, 1.8, 0.6), cf * CFrame.new(0, 1.6, -1.2), rgb(240, 160, 60), M.Fabric)
+		B.vcyl(m, "Roll", 3.6, 1.4, cf * CFrame.new(0, 5.1, 0) * CFrame.Angles(0, 0, math.rad(90)), rgb(110, 80, 50), M.Fabric)
+	elseif kind == "potions" then
+		for i, col in ipairs({ rgb(255, 80, 120), rgb(80, 200, 255), rgb(255, 220, 60) }) do
+			local x = (i - 2) * 1.8
+			local b = B.ball(m, "Flask", 1.6, cf * CFrame.new(x, 1, 0), col, M.Neon)
+			B.vcyl(m, "Neck", 1, 0.6, cf * CFrame.new(x, 2.1, 0), rgb(220, 240, 255), M.Glass, { Transparency = 0.3 })
+			if i == 2 then B.light(b, "PointLight", { Range = 8, Color = col }) end
+		end
+	elseif kind == "book" then
+		local c = cf * CFrame.new(0, 1.2, 0)
+		B.part(m, "PageL", Vector3.new(2.4, 0.4, 3.2), c * CFrame.new(-1.25, 0, 0) * CFrame.Angles(0, 0, math.rad(12)), rgb(245, 235, 210), M.SmoothPlastic)
+		B.part(m, "PageR", Vector3.new(2.4, 0.4, 3.2), c * CFrame.new(1.25, 0, 0) * CFrame.Angles(0, 0, math.rad(-12)), rgb(245, 235, 210), M.SmoothPlastic)
+		B.part(m, "Cover", Vector3.new(5.4, 0.2, 3.6), c * CFrame.new(0, -0.35, 0), rgb(120, 50, 160), M.Fabric)
+		local glow = B.ball(m, "Magic", 0.8, c * CFrame.new(0, 1.6, 0), accent, M.Neon, { CanCollide = false })
+		B.tag(glow, "Bob", { Height = 0.4, Period = 2 })
+	elseif kind == "chest" then
+		B.part(m, "Chest", Vector3.new(4, 2.4, 2.6), cf * CFrame.new(0, 1.2, 0), C.wood, M.WoodPlanks)
+		B.cyl(m, "Lid", 4, 2.6, cf * CFrame.new(0, 2.4, 0), C.woodDark, M.WoodPlanks)
+		B.part(m, "Trim", Vector3.new(0.5, 2.5, 2.7), cf * CFrame.new(0, 1.25, 0), rgb(255, 200, 60), M.Metal)
+		local lock = B.part(m, "Lock", Vector3.new(0.8, 0.8, 0.3), cf * CFrame.new(0, 1.8, -1.4), rgb(255, 210, 70), M.Neon)
+		B.light(lock, "PointLight", { Range = 8, Color = rgb(255, 210, 70) })
+	end
+end
+
+-- киоск: cf — центр пола, лицо (−Z) к центру площади
+local function kiosk(parent, cf, id, title, sub, accent, iconKind)
+	local m = B.model(parent, "Shop_" .. id)
+	B.attrs(m, { Station = id })
+	B.part(m, "Floor", Vector3.new(16, 0.5, 12), cf * CFrame.new(0, 0.25, 0), rgb(60, 64, 74), M.DiamondPlate)
+	B.part(m, "Back", Vector3.new(16, 10, 1), cf * CFrame.new(0, 5.5, 5.5), rgb(230, 232, 236), M.SmoothPlastic)
+	B.part(m, "BackStripe", Vector3.new(16.1, 1, 1.1), cf * CFrame.new(0, 3, 5.5), accent, M.Neon)
+	for _, x in ipairs({ -7.5, 7.5 }) do
+		B.part(m, "Side", Vector3.new(1, 10, 6), cf * CFrame.new(x, 5.5, 2.5), rgb(230, 232, 236), M.SmoothPlastic)
+		B.part(m, "Post", Vector3.new(1, 11, 1), cf * CFrame.new(x, 5.5, -5.5), C.metal, M.Metal)
+	end
+	B.part(m, "Counter", Vector3.new(13, 3.5, 2), cf * CFrame.new(0, 2.25, -3.6), accent, M.SmoothPlastic)
+	B.part(m, "CounterTop", Vector3.new(13.6, 0.4, 2.6), cf * CFrame.new(0, 4.2, -3.6), rgb(245, 245, 250), M.Marble)
+	B.part(m, "Roof", Vector3.new(17, 0.8, 13), cf * CFrame.new(0, 11.4, 0), rgb(50, 54, 64), M.Metal)
+	-- полосатый навес
+	for i = 0, 7 do
+		local x = -7.4 + i * 2.1
+		B.part(m, "Awning", Vector3.new(2.12, 0.3, 4.6), cf * CFrame.new(x, 10.6, -7.6) * CFrame.Angles(math.rad(22), 0, 0),
+			i % 2 == 0 and accent or C.white, M.Fabric)
+	end
+	local sign = B.part(m, "SignBoard", Vector3.new(15, 3.6, 0.6), cf * CFrame.new(0, 13.7, -5.6), rgb(30, 34, 44), M.SmoothPlastic)
+	B.part(m, "SignTrim", Vector3.new(15.4, 0.3, 0.8), cf * CFrame.new(0, 11.8, -5.6), accent, M.Neon)
+	P.board(sign, Enum.NormalId.Front, title, sub, nil, rgb(30, 34, 44))
+	icon(m, iconKind, cf * CFrame.new(0, 4.4, -3.6), accent)
+	icon(m, iconKind, cf * CFrame.new(0, 15.6, -5.6), accent)
+	local st = B.marker(m, "Station", Vector3.new(14, 6, 8), cf * CFrame.new(0, 3, -9))
+	B.attrs(st, { Station = id })
+	return m
+end
+
+local function leaderboard(parent, cf, stat, title, accent)
+	local m = B.model(parent, "Leaderboard_" .. stat)
+	B.attrs(m, { Stat = stat })
+	for _, x in ipairs({ -7.5, 7.5 }) do
+		B.part(m, "Post", Vector3.new(1.2, 22, 1.2), cf * CFrame.new(x, 11, 0.6), C.metalDark, M.Metal)
+	end
+	local board = B.part(m, "Board", Vector3.new(15, 18, 0.8), cf * CFrame.new(0, 12, 0), rgb(24, 28, 38), M.SmoothPlastic)
+	B.part(m, "Frame", Vector3.new(15.6, 0.5, 1), cf * CFrame.new(0, 21.2, 0), accent, M.Neon)
+	B.part(m, "Frame", Vector3.new(15.6, 0.5, 1), cf * CFrame.new(0, 2.8, 0), accent, M.Neon)
+	local g = Instance.new("SurfaceGui")
+	g.Name = "Board"
+	g.Face = Enum.NormalId.Front
+	g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	g.PixelsPerStud = 25
+	g.LightInfluence = 0
+	g.Parent = board
+	local head = Instance.new("TextLabel")
+	head.Name = "Title"
+	head.BackgroundTransparency = 1
+	head.Size = UDim2.fromScale(1, 0.14)
+	head.Text = title
+	head.TextScaled = true
+	head.Font = Enum.Font.GothamBlack
+	head.TextColor3 = accent
+	head.Parent = g
+	local list = Instance.new("Frame")
+	list.Name = "Rows"
+	list.BackgroundTransparency = 1
+	list.Position = UDim2.fromScale(0.05, 0.16)
+	list.Size = UDim2.fromScale(0.9, 0.82)
+	list.Parent = g
+	local layout = Instance.new("UIListLayout")
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = list
+	for i = 1, 10 do
+		local row = Instance.new("TextLabel")
+		row.Name = "Row" .. i
+		row.LayoutOrder = i
+		row.BackgroundTransparency = 1
+		row.Size = UDim2.fromScale(1, 0.1)
+		row.Text = i .. ".  ———"
+		row.TextScaled = true
+		row.Font = Enum.Font.GothamBold
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.TextColor3 = i == 1 and rgb(255, 215, 80) or (i == 2 and rgb(220, 225, 235) or (i == 3 and rgb(230, 160, 100) or rgb(200, 210, 220)))
+		row.Parent = list
+	end
+	return m
+end
+
+---------------------------------------------------------------------------
+local function spawnPad(parent)
+	local s = Instance.new("SpawnLocation")
+	s.Name = "Spawn"
+	s.Anchored = true
+	s.Size = Vector3.new(14, 0.4, 14)
+	s.CFrame = CFrame.new(0, FLOOR + 0.2, 42)
+	s.Color = rgb(40, 46, 58)
+	s.Material = M.DiamondPlate
+	s.Duration = 0
+	s.Neutral = true
+	s.TopSurface = Enum.SurfaceType.Smooth
+	s.BottomSurface = Enum.SurfaceType.Smooth
+	s.Parent = parent
+	local g = Instance.new("SurfaceGui")
+	g.Face = Enum.NormalId.Top
+	g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	g.PixelsPerStud = 30
+	g.Parent = s
+	local t = Instance.new("TextLabel")
+	t.Size = UDim2.fromScale(1, 1)
+	t.BackgroundTransparency = 1
+	t.Text = "MUTANT\nLAB"
+	t.TextScaled = true
+	t.Font = Enum.Font.GothamBlack
+	t.TextColor3 = C.slime
+	t.Rotation = 180
+	t.Parent = g
+	B.ring(parent, "SpawnGlow", CFrame.new(0, FLOOR + 0.25, 42), 7.6, 24, 0.3, 0.6, C.slime, M.Neon)
+	return s
+end
+
+local function outerPaths(m, deco)
+	local y = 0.3
+	-- на север к первой зоне, на восток к мосту, на запад к башне, на юг к лабораториям
+	P.path(m, Vector3.new(0, y, -R - 2), Vector3.new(0, y, D.Zones[1].z0 + 4), 20)
+	P.path(m, Vector3.new(R + 2, y, 0), Vector3.new(D.River.x - D.River.width / 2 - 8, y, 0), 16)
+	P.path(m, Vector3.new(-R - 2, y, 0), Vector3.new(D.Rebirth.center.X + 20, y, 0), 16)
+	P.path(m, Vector3.new(0, y, R + 2), Vector3.new(0, y, 128), 16)
+	-- фонари вдоль дорожек
+	for z = -R - 14, D.Zones[1].z0 + 20, -26 do
+		P.lamp(deco, Vector3.new(-12, 0, z), C.labTeal)
+		P.lamp(deco, Vector3.new(12, 0, z), C.labTeal)
+	end
+	for x = R + 14, D.River.x - 24, 28 do
+		P.lamp(deco, Vector3.new(x, 0, -10), rgb(255, 120, 100))
+		P.lamp(deco, Vector3.new(x, 0, 10), rgb(255, 120, 100))
+	end
+	for x = -R - 14, D.Rebirth.center.X + 26, -28 do
+		P.lamp(deco, Vector3.new(x, 0, -10), C.labPurple)
+		P.lamp(deco, Vector3.new(x, 0, 10), C.labPurple)
+	end
+end
+
+function Hub.build(root)
+	local m = B.model(root, "Hub")
+	local deco = B.model(m, "Decor")
+	buildFloor(m)
+	mutator(m)
+	spawnPad(m)
+
+	-- ворота
+	local gates = {
+		{ 0, "ЗОНЫ", "Грибной лес и дальше", C.labPurple },
+		{ 90, "АРЕНА БОССА", "Мировой босс каждый час", rgb(255, 90, 80) },
+		{ 180, "ЛАБОРАТОРИИ", "Твоя лаборатория и мутанты", C.labTeal },
+		{ 270, "БАШНЯ РЕБЁРТА", "Начни заново, стань сильнее", rgb(200, 120, 255) },
+	}
+	for _, g in ipairs(gates) do
+		local pos = polar(g[1], R + 1.5, 0)
+		P.arch(m, P.facing(pos, Vector3.zero), 22, 17, C.stoneDark, g[4], g[2], g[3])
+	end
+
+	-- магазины и доски лидеров
+	local shops = {
+		{ 30, "Incubator", "ИНКУБАТОР", "Яйца мутантов", rgb(255, 190, 70), "egg" },
+		{ 60, "Upgrades", "УЛУЧШЕНИЯ", "Сила, скорость, удача", rgb(80, 200, 255), "gear" },
+		{ 120, "Backpacks", "РЮКЗАКИ", "Больше ингредиентов", rgb(255, 110, 80), "backpack" },
+		{ 240, "MutantBook", "КНИГА МУТАНТОВ", "Собери всех", rgb(190, 110, 255), "book" },
+		{ 300, "DailyReward", "НАГРАДА ДНЯ", "Заходи каждый день", rgb(255, 210, 60), "chest" },
+		{ 330, "Potions", "ЗЕЛЬЯ", "Ускорители на время", rgb(255, 90, 160), "potions" },
+	}
+	for _, s in ipairs(shops) do
+		kiosk(m, P.facing(polar(s[1], 64, FLOOR), Vector3.new(0, FLOOR, 0)), s[2], s[3], s[4], s[5], s[6])
+	end
+	leaderboard(m, P.facing(polar(150, 66, FLOOR), Vector3.new(0, FLOOR, 0)), "Coins", "ТОП: МОНЕТЫ", rgb(255, 215, 80))
+	leaderboard(m, P.facing(polar(210, 66, FLOOR), Vector3.new(0, FLOOR, 0)), "Rebirths", "ТОП: РЕБЁРТЫ", rgb(200, 130, 255))
+
+	-- колбы с мутантами
+	local liquids = { C.labTeal, C.labPurple, C.slime, rgb(255, 150, 60) }
+	for i, a in ipairs({ 45, 135, 225, 315 }) do
+		P.tank(deco, polar(a, 42, FLOOR), 9, 4.4, liquids[i], true)
+	end
+	-- фонари по кругу
+	for a = 15, 345, 30 do
+		local near = false
+		for _, g in ipairs({ 0, 90, 180, 270, 360 }) do
+			if math.abs(a - g) < 16 then near = true end
+		end
+		if not near then P.lamp(deco, polar(a, 76, FLOOR), C.labTeal, 11) end
+	end
+	-- скамейки у западных и восточных ворот, клумбы у северных и южных
+	for _, a in ipairs({ 72, 108, 252, 288 }) do
+		local p = polar(a, 52, FLOOR)
+		P.bench(deco, P.facing(p, Vector3.new(0, FLOOR, 0)) * CFrame.Angles(0, math.pi, 0))
+	end
+	local rng = Rng.new(5)
+	for _, a in ipairs({ 18, 162, 198, 342 }) do
+		local p = polar(a, 50, FLOOR)
+		B.vcyl(deco, "Planter", 1.4, 9, CFrame.new(p + Vector3.new(0, 0.7, 0)), C.stoneDark, M.Slate)
+		B.vcyl(deco, "Soil", 0.3, 8, CFrame.new(p + Vector3.new(0, 1.45, 0)), rgb(80, 60, 45), M.Ground)
+		P.flowers(deco, p + Vector3.new(0, 1.5, 0), rng, 14, { rgb(255, 90, 200), rgb(120, 255, 200), rgb(255, 230, 80), C.labPurple }, 3.3)
+		P.tree(deco, p + Vector3.new(0, 1.5, 0), rng, 0.45)
+	end
+
+	outerPaths(m, deco)
+	return m
+end
+
+return Hub
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000B"><Properties><string name="Name">Island</string><ProtectedString name="Source"><![CDATA[-- Остальной остров: разбившаяся летающая тарелка с бороздой в земле, пирс с лодкой,
+-- парящие островки в небе, деревья, камни и цветы между постройками.
+local RS = game:GetService("ReplicatedStorage")
+local B = require(RS.Shared.Build)
+local D = require(RS.Shared.MapData)
+local Rng = require(RS.Shared.Rng)
+local P = require(script.Parent.Props)
+local T = require(script.Parent.Terrain)
+
+local Island = {}
+local rgb = P.rgb
+local M = Enum.Material
+
+local function ufo(m, rng)
+	local g = B.model(m, "CrashedUFO")
+	local c = D.Ufo.center
+	local yaw = math.rad(35)
+	local base = CFrame.new(c) * CFrame.Angles(0, yaw, 0)
+	-- борозда: тарелка прилетела с северо-запада и пропахала землю
+	local trench = base * CFrame.new(0, -1.2, -34)
+	T.slab(trench, Vector3.new(20, 5, 56), M.Air)
+	T.slab(trench * CFrame.new(0, -2.5, 0), Vector3.new(22, 1.2, 58), M.Ground)
+	T.ball(c.X, 12, c.Z, 16, M.Air)
+	T.cyl(c.X, c.Z, -5, -3.6, 9, M.Ground)
+	-- корпус
+	local hull = base * CFrame.new(0, 1.5, 0) * CFrame.Angles(math.rad(13), 0, math.rad(-8))
+	B.ellipsoid(g, "Saucer", Vector3.new(40, 8, 40), hull, rgb(170, 180, 190), M.Metal)
+	B.ellipsoid(g, "Belly", Vector3.new(30, 6, 30), hull * CFrame.new(0, -2, 0), rgb(110, 116, 126), M.Metal)
+	B.ring(g, "Rim", hull, 19.6, 30, 1, 1.6, rgb(130, 138, 150), M.Metal)
+	local colors = { rgb(255, 80, 80), rgb(80, 255, 120), rgb(80, 180, 255), rgb(255, 220, 80) }
+	for i = 0, 11 do
+		local a = i / 12 * math.pi * 2
+		local lamp = B.ball(g, "RimLight", 1.4, hull * CFrame.new(math.cos(a) * 19.8, 0.5, math.sin(a) * 19.8), colors[i % 4 + 1], M.Neon)
+		B.tag(lamp, "Pulse", { Speed = 1 + (i % 3) * 0.5 })
+	end
+	B.ellipsoid(g, "Dome", Vector3.new(16, 10, 16), hull * CFrame.new(0, 3.4, 0), rgb(170, 255, 230), M.Glass, { Transparency = 0.45 })
+	-- пилот внутри
+	local seat = hull * CFrame.new(0, 3.6, 0)
+	B.ellipsoid(g, "AlienBody", Vector3.new(2.2, 3, 2), seat, rgb(120, 220, 110), M.SmoothPlastic)
+	B.ellipsoid(g, "AlienHead", Vector3.new(3, 3.4, 3), seat * CFrame.new(0, 2.8, 0), rgb(130, 230, 120), M.SmoothPlastic)
+	for _, s in ipairs({ -1, 1 }) do
+		B.ellipsoid(g, "AlienEye", Vector3.new(1, 1.4, 0.4), seat * CFrame.new(s * 0.7, 3, -1.35) * CFrame.Angles(0, 0, s * 0.4), Color3.new(0, 0, 0), M.Glass)
+	end
+	local glow = B.marker(g, "Glow", Vector3.new(1, 1, 1), hull * CFrame.new(0, 6, 0))
+	B.light(glow, "PointLight", { Range = 26, Brightness = 1.5, Color = rgb(150, 255, 210) })
+	-- опоры и обломки
+	for i = 0, 2 do
+		local a = i / 3 * math.pi * 2 + 0.4
+		local top = hull * Vector3.new(math.cos(a) * 12, -3, math.sin(a) * 12)
+		B.between(g, "Leg", top, top + Vector3.new(math.cos(a + yaw) * 4, -3, math.sin(a + yaw) * 4), 0.9, rgb(130, 138, 150), M.Metal, true)
+	end
+	for _ = 1, 10 do
+		local p = (trench * CFrame.new(rng:range(-12, 12), 0, rng:range(-26, 26))).Position
+		B.part(g, "Debris", Vector3.new(rng:range(1.5, 4), 0.3, rng:range(1, 3)), CFrame.new(p.X, -2.9, p.Z) * CFrame.Angles(rng:range(-0.4, 0.4), rng:angle(), rng:range(-0.4, 0.4)),
+			rgb(150, 160, 170), M.Metal)
+	end
+	local smoke = B.marker(g, "Smoke", Vector3.new(6, 1, 6), hull * CFrame.new(10, 2, 6))
+	B.particles(smoke, {
+		Color = ColorSequence.new(rgb(90, 90, 96), rgb(160, 160, 170)), Size = NumberSequence.new(3, 10),
+		Transparency = NumberSequence.new(0.5, 1), Lifetime = NumberRange.new(4, 7), Speed = NumberRange.new(3, 6),
+		Rate = 4, LightEmission = 0, LightInfluence = 1, RotSpeed = NumberRange.new(-20, 20), Rotation = NumberRange.new(0, 360),
+		EmissionDirection = Enum.NormalId.Top,
+	})
+	local sparkMk = B.marker(g, "Sparks", Vector3.new(1, 1, 1), hull * CFrame.new(-14, 1, -8))
+	B.particles(sparkMk, {
+		Color = ColorSequence.new(rgb(140, 255, 255)), Size = NumberSequence.new(0.3, 0), Transparency = NumberSequence.new(0, 1),
+		Lifetime = NumberRange.new(0.3, 0.6), Speed = NumberRange.new(5, 10), SpreadAngle = Vector2.new(50, 50), Rate = 4,
+		LightEmission = 1, Acceleration = Vector3.new(0, -25, 0),
+	})
+	P.signpost(g, base * CFrame.new(-18, 0, 20) * CFrame.Angles(0, math.rad(200), 0), "НЕ ТРОГАТЬ!", "Тарелка в ремонте", rgb(150, 255, 210), 11, 4)
+	return g
+end
+
+local function pier(m, rng)
+	local g = B.model(m, "Pier")
+	local x, z0, z1 = 70, D.Island[1][4] - 8, D.Island[1][4] + 74
+	local y = 1.6
+	for z = z0, z1, 1.6 do
+		B.part(g, "Plank", Vector3.new(8, 0.4, 1.4), CFrame.new(x + rng:range(-0.1, 0.1), y, z) * CFrame.Angles(0, math.rad(rng:range(-2, 2)), 0),
+			rng:pick({ rgb(126, 96, 66), rgb(112, 84, 58), rgb(136, 104, 72) }), M.WoodPlanks)
+	end
+	for z = z0, z1, 8 do
+		for _, dx in ipairs({ -3.6, 3.6 }) do
+			B.part(g, "Pile", Vector3.new(0.9, 14, 0.9), CFrame.new(x + dx, y - 6.5, z), rgb(90, 70, 50), M.Wood)
+		end
+	end
+	for _, dx in ipairs({ -3.6, 3.6 }) do
+		P.lamp(g, Vector3.new(x + dx, y + 0.2, z1 - 1), rgb(255, 210, 120), 8)
+	end
+	-- лодка у конца пирса покачивается на волнах
+	local boat = B.model(g, "Boat")
+	local bc = CFrame.new(x + 9, D.SEA + 0.6, z1 - 10)
+	B.part(boat, "Hull", Vector3.new(5, 2.4, 12), bc, rgb(220, 80, 70), M.WoodPlanks)
+	B.wedge(boat, "Bow", Vector3.new(5, 2.4, 4), bc * CFrame.new(0, 0, -8) * CFrame.Angles(0, 0, math.pi), rgb(220, 80, 70), M.WoodPlanks)
+	B.part(boat, "Trim", Vector3.new(5.2, 0.4, 12.2), bc * CFrame.new(0, 1.2, 0), rgb(245, 245, 245), M.WoodPlanks)
+	B.part(boat, "Seat", Vector3.new(4.6, 0.4, 1.4), bc * CFrame.new(0, 0.8, 2), rgb(150, 110, 70), M.WoodPlanks)
+	boat.WorldPivot = bc
+	B.tag(boat, "Bob", { Height = 0.35, Period = 3.5 })
+	return g
+end
+
+local function floatingIsland(m, rng, pos, s)
+	local g = B.model(m, "FloatingIsland")
+	B.vcyl(g, "Top", 3, 30 * s, CFrame.new(pos), rgb(100, 180, 90), M.Grass)
+	local y = pos.Y - 1.5
+	for i, d in ipairs({ 27, 20, 12, 5 }) do
+		local h = 4 + i
+		B.vcyl(g, "Rock", h, d * s, CFrame.new(pos.X + rng:range(-1, 1), y - h / 2, pos.Z + rng:range(-1, 1)), rgb(110 - i * 6, 104 - i * 6, 100 - i * 6), M.Slate)
+		y = y - h
+	end
+	P.tree(g, pos + Vector3.new(rng:range(-4, 4), 1.5, rng:range(-4, 4)), rng, s, rng:pick(P.TreePalettes))
+	for _ = 1, 3 do
+		local a = rng:angle()
+		P.crystal(g, pos + Vector3.new(math.cos(a) * 7 * s, -6, math.sin(a) * 7 * s), Vector3.new(math.cos(a) * 0.3, -1, math.sin(a) * 0.3),
+			rng:range(3, 6), 1.4, rng:pick({ rgb(80, 230, 255), rgb(190, 110, 255) }))
+	end
+	local mist = B.marker(g, "Mist", Vector3.new(20 * s, 1, 20 * s), CFrame.new(pos.X, y, pos.Z))
+	B.particles(mist, {
+		Color = ColorSequence.new(rgb(240, 245, 255)), Size = NumberSequence.new(4, 8), Transparency = NumberSequence.new(0.7, 1),
+		Lifetime = NumberRange.new(4, 6), Speed = NumberRange.new(1, 2), Rate = 2, LightInfluence = 1, LightEmission = 0,
+		EmissionDirection = Enum.NormalId.Bottom,
+	})
+	g.WorldPivot = CFrame.new(pos)
+	B.tag(g, "Bob", { Height = 2, Period = rng:range(8, 11) })
+	return g
+end
+
+-- занятые места на центральном острове (деревья туда не ставим)
+local function occupied()
+	local occ = P.newOcc()
+	occ:add(0, 0, D.HUB_R + 22)
+	for i = 1, D.Plots.count do
+		local a = 180 - D.Plots.spread / 2 + (i - 1) * D.Plots.spread / (D.Plots.count - 1)
+		local p = P.compass(a) * D.Plots.radius
+		occ:add(p.X, p.Z, D.Plots.size * 0.78)
+	end
+	for a = 110, 250, 6 do
+		local p = P.compass(a) * 125
+		occ:add(p.X, p.Z, 11)
+	end
+	occ:addLine(Vector3.new(0, 0, -80), Vector3.new(0, 0, D.Zones[1].z0), 18)
+	occ:addLine(Vector3.new(80, 0, 0), Vector3.new(200, 0, 0), 16)
+	occ:addLine(Vector3.new(-80, 0, 0), Vector3.new(-200, 0, 0), 16)
+	occ:add(D.Rebirth.center.X, D.Rebirth.center.Z, 40)
+	occ:add(D.Ufo.center.X, D.Ufo.center.Z, 32)
+	occ:addLine(D.Ufo.center, D.Ufo.center + Vector3.new(math.sin(math.rad(35)) * -60, 0, math.cos(math.rad(35)) * -60), 16)
+	occ:add(70, D.Island[1][4], 16)
+	for _, s in ipairs({ { -300, -75 }, { -305, 105 }, { -95, 295 }, { 95, 295 } }) do occ:add(s[1], s[2], 24) end
+	-- южная кромка первой зоны (хребет) и арка
+	occ:addLine(Vector3.new(-160, 0, D.Zones[1].z0), Vector3.new(160, 0, D.Zones[1].z0), 22)
+	return occ
+end
+
+function Island.build(root)
+	local m = B.model(root, "Island")
+	local rng = Rng.new(4242)
+	ufo(m, rng)
+	pier(m, rng)
+	floatingIsland(m, rng, Vector3.new(520, 75, 110), 1)
+	floatingIsland(m, rng, Vector3.new(-440, 85, -240), 0.8)
+	floatingIsland(m, rng, Vector3.new(-470, 65, 330), 0.6)
+
+	local occ = occupied()
+	local deco = B.model(m, "Nature")
+	local hub = D.Island[1]
+	local function spot(r)
+		-- центральный остров западнее реки или перешеек к первой зоне
+		if rng:chance(0.8) then
+			return occ:find(rng, hub[1] + 15, D.River.x - D.River.width / 2 - 12, hub[3] + 15, hub[4] - 15, r, 30)
+		end
+		return occ:find(rng, -160, 160, D.Zones[1].z0 + 10, hub[3] + 10, r, 30)
+	end
+	for _ = 1, 36 do
+		local x, z = spot(7)
+		if x then
+			P.tree(deco, Vector3.new(x, 0, z), rng, rng:range(0.9, 1.4))
+			occ:add(x, z, 6)
+		end
+	end
+	for _ = 1, 18 do
+		local x, z = spot(4)
+		if x then
+			P.rock(deco, Vector3.new(x, 0, z), rng:range(3, 7), rng)
+			occ:add(x, z, 4)
+		end
+	end
+	for _ = 1, 18 do
+		local x, z = spot(4)
+		if x then
+			P.flowers(deco, Vector3.new(x, 0, z), rng, 12, { rgb(255, 120, 200), rgb(120, 220, 255), rgb(255, 230, 90), rgb(200, 130, 255) }, 4)
+			occ:add(x, z, 4)
+		end
+	end
+	return m
+end
+
+return Island
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000C"><Properties><string name="Name">Plots</string><ProtectedString name="Source"><![CDATA[-- Лаборатории игроков: 6 участков дугой к югу от площади. На каждом — здание лаборатории,
+-- загон для мутантов, свой котёл, площадка «занять лабораторию» и табличка владельца.
+-- Логика (кто владеет) появится позже: она найдёт участки по атрибутам PlotId / Owner.
+local RS = game:GetService("ReplicatedStorage")
+local B = require(RS.Shared.Build)
+local D = require(RS.Shared.MapData)
+local Rng = require(RS.Shared.Rng)
+local P = require(script.Parent.Props)
+
+local Plots = {}
+local C, rgb = P.C, P.rgb
+local M = Enum.Material
+
+local ACCENTS = { rgb(60, 220, 190), rgb(170, 90, 255), rgb(255, 150, 50), rgb(255, 90, 170), rgb(150, 230, 60), rgb(70, 160, 255) }
+local BASE = 1.2 -- верх площадки участка
+
+-- линия забора в локальных координатах участка
+local function fenceLocal(m, cf, a, b, color)
+	P.fence(m, cf * a, cf * b, 3.5, color, M.SmoothPlastic, 6)
+end
+
+local function labBuilding(m, cf, accent, rng)
+	local bm = B.model(m, "LabBuilding")
+	local w, d, h = 22, 18, 12
+	local o = cf * CFrame.new(11, BASE, 11) -- центр пола здания
+	local function wpt(x, z) return o * Vector3.new(x, 0, z) end
+	local wallCol, wallMat = rgb(232, 236, 240), M.SmoothPlastic
+	-- передняя стена с дверью и окнами
+	B.wall(bm, "Front", wpt(-w / 2, -d / 2), wpt(w / 2, -d / 2), h, 1, wallCol, wallMat, {
+		{ at = w / 2, w = 6, y0 = 0, y1 = 8 },
+		{ at = 4, w = 4, y0 = 4, y1 = 8.5 },
+		{ at = w - 4, w = 4, y0 = 4, y1 = 8.5 },
+	})
+	B.wall(bm, "Back", wpt(w / 2, d / 2), wpt(-w / 2, d / 2), h, 1, wallCol, wallMat)
+	B.wall(bm, "Left", wpt(-w / 2, d / 2), wpt(-w / 2, -d / 2), h, 1, wallCol, wallMat, { { at = d / 2, w = 6, y0 = 4, y1 = 8.5 } })
+	B.wall(bm, "Right", wpt(w / 2, -d / 2), wpt(w / 2, d / 2), h, 1, wallCol, wallMat, { { at = d / 2, w = 6, y0 = 4, y1 = 8.5 } })
+	-- стёкла
+	for _, x in ipairs({ -w / 2 + 4, w / 2 - 4 }) do
+		B.part(bm, "Window", Vector3.new(4, 4.5, 0.3), o * CFrame.new(x, 6.25, -d / 2), rgb(170, 230, 255), M.Glass, { Transparency = 0.5 })
+	end
+	for _, x in ipairs({ -w / 2, w / 2 }) do
+		B.part(bm, "Window", Vector3.new(0.3, 4.5, 6), o * CFrame.new(x, 6.25, 0), rgb(170, 230, 255), M.Glass, { Transparency = 0.5 })
+	end
+	B.part(bm, "Floor", Vector3.new(w, 0.3, d), o * CFrame.new(0, 0.15, 0), rgb(90, 96, 110), M.DiamondPlate)
+	B.part(bm, "Roof", Vector3.new(w + 2, 1, d + 2), o * CFrame.new(0, h + 0.5, 0), rgb(60, 66, 78), M.Metal)
+	B.part(bm, "Stripe", Vector3.new(w + 0.2, 0.6, d + 0.2), o * CFrame.new(0, 9.6, 0), accent, M.Neon)
+	-- вывеска над дверью
+	local sign = B.part(bm, "Sign", Vector3.new(12, 2.6, 0.5), o * CFrame.new(0, 10.4, -d / 2 - 0.8), rgb(30, 34, 44), M.SmoothPlastic)
+	P.board(sign, Enum.NormalId.Front, "ЛАБОРАТОРИЯ", nil, accent, rgb(30, 34, 44))
+	-- на крыше: тарелка антенны, трубы, бак
+	local dishBase = o * CFrame.new(6, h + 1, 4)
+	B.vcyl(bm, "DishPole", 3, 0.6, dishBase * CFrame.new(0, 1.5, 0), C.metal, M.Metal)
+	B.ellipsoid(bm, "Dish", Vector3.new(5, 1.4, 5), dishBase * CFrame.new(0, 3.4, 0) * CFrame.Angles(math.rad(-35), math.rad(rng:range(-40, 40)), 0),
+		C.metalLight, M.Metal)
+	for i = 1, 2 do
+		B.vcyl(bm, "Vent", 4, 1.4, o * CFrame.new(-7 + i * 2.4, h + 3, 5), C.metalDark, M.Metal)
+	end
+	P.tank(bm, (o * CFrame.new(-5, h + 1, -3)).Position, 4, 3, accent, false)
+	-- внутри: стол и полки с колбами
+	B.part(bm, "Desk", Vector3.new(8, 3, 3), o * CFrame.new(-5, 1.8, 6), rgb(200, 205, 215), M.SmoothPlastic)
+	B.part(bm, "Shelf", Vector3.new(8, 6, 1.6), o * CFrame.new(5, 3.3, 7.8), C.woodDark, M.WoodPlanks)
+	for i = 0, 4 do
+		B.ball(bm, "Flask", 1, o * CFrame.new(2 + i * 1.5, 5.2, 7.6), rng:pick({ C.slime, C.labPurple, C.labTeal, rgb(255, 120, 80) }), M.Neon)
+	end
+	return bm
+end
+
+local function petPen(m, cf, accent)
+	local pm = B.model(m, "PetPen")
+	local o = cf * CFrame.new(-13, BASE, 11)
+	B.part(pm, "Grass", Vector3.new(24, 0.3, 22), o * CFrame.new(0, 0.15, 0), rgb(100, 180, 80), M.Grass)
+	local fc = rgb(245, 245, 245)
+	fenceLocal(pm, o, Vector3.new(-12, 0, -11), Vector3.new(-3, 0, -11), fc)
+	fenceLocal(pm, o, Vector3.new(3, 0, -11), Vector3.new(12, 0, -11), fc)
+	fenceLocal(pm, o, Vector3.new(12, 0, -11), Vector3.new(12, 0, 11), fc)
+	fenceLocal(pm, o, Vector3.new(12, 0, 11), Vector3.new(-12, 0, 11), fc)
+	fenceLocal(pm, o, Vector3.new(-12, 0, 11), Vector3.new(-12, 0, -11), fc)
+	-- миска, домик-капсула и игрушка
+	B.vcyl(pm, "Bowl", 0.8, 3, o * CFrame.new(-6, 0.7, -6), accent, M.SmoothPlastic)
+	B.vcyl(pm, "Food", 0.2, 2.4, o * CFrame.new(-6, 1.05, -6), C.slime, M.Neon)
+	B.ellipsoid(pm, "PodHouse", Vector3.new(8, 6, 7), o * CFrame.new(5, 3, 5), rgb(235, 240, 245), M.SmoothPlastic)
+	B.part(pm, "PodDoor", Vector3.new(3, 3.6, 0.4), o * CFrame.new(5, 1.9, 1.5), rgb(40, 44, 54), M.SmoothPlastic)
+	B.ball(pm, "Ball", 1.8, o * CFrame.new(-2, 1.2, 4), rgb(255, 90, 90), M.SmoothPlastic)
+	local area = B.marker(pm, "PetArea", Vector3.new(22, 6, 20), o * CFrame.new(0, 3, 0))
+	B.attrs(area, { Role = "PetArea" })
+	return pm
+end
+
+local function buildPlot(root, i, angle, rng)
+	local accent = ACCENTS[(i - 1) % #ACCENTS + 1]
+	local c = P.compass(angle) * D.Plots.radius
+	local cf = P.facing(Vector3.new(c.X, 0, c.Z), Vector3.zero)
+	local S = D.Plots.size
+	local m = B.model(root, "Plot" .. i)
+	B.attrs(m, { PlotId = i, Owner = 0 })
+	m.WorldPivot = cf
+
+	B.part(m, "Base", Vector3.new(S, BASE, S), cf * CFrame.new(0, BASE / 2, 0), rgb(176, 182, 188), M.Concrete)
+	B.part(m, "Trim", Vector3.new(S + 0.6, 0.3, S + 0.6), cf * CFrame.new(0, 0.3, 0), accent, M.Neon)
+	-- дорожка от входа к зданию
+	B.part(m, "Walk", Vector3.new(6, 0.1, S / 2 + 2), cf * CFrame.new(11, BASE + 0.05, -S / 4 + 1), rgb(120, 126, 136), M.Slate)
+
+	labBuilding(m, cf, accent, rng)
+	petPen(m, cf, accent)
+
+	-- забор по краю, проход спереди
+	local h = S / 2
+	local fc = rgb(70, 76, 88)
+	P.fence(m, cf * Vector3.new(-h, BASE, -h), cf * Vector3.new(-8, BASE, -h), 3, fc, M.Metal, 6)
+	P.fence(m, cf * Vector3.new(8, BASE, -h), cf * Vector3.new(h, BASE, -h), 3, fc, M.Metal, 6)
+	P.fence(m, cf * Vector3.new(h, BASE, -h), cf * Vector3.new(h, BASE, h), 3, fc, M.Metal, 6)
+	P.fence(m, cf * Vector3.new(h, BASE, h), cf * Vector3.new(-h, BASE, h), 3, fc, M.Metal, 6)
+	P.fence(m, cf * Vector3.new(-h, BASE, h), cf * Vector3.new(-h, BASE, -h), 3, fc, M.Metal, 6)
+	-- ворота с номером
+	for _, x in ipairs({ -8, 8 }) do
+		B.part(m, "GatePost", Vector3.new(1.6, 9, 1.6), cf * CFrame.new(x, BASE + 4.5, -h), C.metalDark, M.Metal)
+		local orb = B.ball(m, "GateOrb", 1.8, cf * CFrame.new(x, BASE + 9.8, -h), accent, M.Neon)
+		B.light(orb, "PointLight", { Range = 14, Brightness = 1.2, Color = accent })
+	end
+	local plate = B.part(m, "NumberPlate", Vector3.new(14, 2.4, 0.6), cf * CFrame.new(0, BASE + 8, -h), rgb(30, 34, 44), M.SmoothPlastic)
+	P.board(plate, Enum.NormalId.Front, "ЛАБОРАТОРИЯ №" .. i, nil, accent, rgb(30, 34, 44))
+	P.board(plate, Enum.NormalId.Back, "ЛАБОРАТОРИЯ №" .. i, nil, accent, rgb(30, 34, 44))
+
+	-- площадка «занять» и табличка владельца
+	local pad = B.vcyl(m, "ClaimPad", 0.3, 8, cf * CFrame.new(0, BASE + 0.15, -16), accent, M.Neon)
+	B.attrs(pad, { Role = "ClaimPad" })
+	B.ring(m, "ClaimRing", cf * CFrame.new(0, BASE + 0.2, -16), 4.6, 20, 0.4, 0.5, C.white, M.SmoothPlastic)
+	local owner = P.signpost(m, cf * CFrame.new(0, BASE, -22) * CFrame.Angles(0, math.pi, 0), "СВОБОДНО", "Встань на круг, чтобы занять", accent, 12, 4)
+	owner.Name = "OwnerSign"
+	local spawnMk = B.marker(m, "PlotSpawn", Vector3.new(4, 1, 4), cf * CFrame.new(0, BASE + 3, -10) * CFrame.Angles(0, math.pi, 0))
+	B.attrs(spawnMk, { Role = "PlotSpawn" })
+
+	-- свой котёл
+	local mixer = cf * CFrame.new(-13, BASE, -12)
+	B.vcyl(m, "MixerStand", 1, 7.4, mixer * CFrame.new(0, 0.5, 0), C.metalDark, M.DiamondPlate)
+	B.vcyl(m, "Mixer", 4, 6, mixer * CFrame.new(0, 3, 0), rgb(50, 56, 66), M.Metal)
+	local goo = B.vcyl(m, "MixerGoo", 0.3, 5.2, mixer * CFrame.new(0, 4.9, 0), accent, M.Neon)
+	B.light(goo, "PointLight", { Range = 12, Brightness = 1.4, Color = accent })
+	B.particles(goo, {
+		Color = ColorSequence.new(Color3.new(1, 1, 1)), Size = NumberSequence.new(0.5, 0.1),
+		Transparency = NumberSequence.new(0.3, 1), Lifetime = NumberRange.new(0.8, 1.4), Speed = NumberRange.new(1, 3), Rate = 5,
+	})
+	local mst = B.marker(m, "PlotMixer", Vector3.new(10, 6, 10), mixer * CFrame.new(0, 3, 0))
+	B.attrs(mst, { Station = "PlotMixer" })
+
+	-- мелочи
+	P.barrel(m, cf * CFrame.new(23, BASE, -2), rgb(230, 190, 40), true)
+	P.barrel(m, cf * CFrame.new(20, BASE, -4.5), rgb(60, 140, 220), false)
+	P.crate(m, cf * CFrame.new(22, BASE, -9) * CFrame.Angles(0, 0.3, 0), 4)
+	P.crate(m, cf * CFrame.new(22, BASE + 4, -9) * CFrame.Angles(0, -0.2, 0), 3)
+	P.lamp(m, (cf * CFrame.new(-23, BASE, -23)).Position, accent, 10)
+	P.lamp(m, (cf * CFrame.new(23, BASE, -23)).Position, accent, 10)
+	return m
+end
+
+function Plots.build(root)
+	local folder = B.folder(root, "Plots")
+	local rng = Rng.new(606)
+	local n, spread = D.Plots.count, D.Plots.spread
+	for i = 1, n do
+		local a = 180 - spread / 2 + (i - 1) * spread / (n - 1)
+		buildPlot(folder, i, a, rng)
+	end
+	-- кольцевая дорога и отводы к участкам
+	local roads = B.model(folder, "Roads")
+	local rr = 125
+	P.arcPath(roads, Vector3.zero, rr, 180 - spread / 2 - 10, 180 + spread / 2 + 10, 12, 0.3, nil, nil, 5)
+	for i = 1, n do
+		local a = 180 - spread / 2 + (i - 1) * spread / (n - 1)
+		local p0 = P.compass(a) * (rr + 5)
+		local p1 = P.compass(a) * (D.Plots.radius - D.Plots.size / 2 - 0.5)
+		P.path(roads, Vector3.new(p0.X, 0.3, p0.Z), Vector3.new(p1.X, 0.3, p1.Z), 10)
+	end
+	for k = 0, 9 do
+		local a = 180 - spread / 2 - 6 + k * (spread + 12) / 9
+		local p = P.compass(a) * (rr - 9)
+		P.lamp(roads, Vector3.new(p.X, 0, p.Z), C.labTeal, 10)
+	end
+	return folder
+end
+
+return Plots
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000D"><Properties><string name="Name">Props</string><ProtectedString name="Source"><![CDATA[-- Общие «кирпичики» карты: фонари, скамейки, заборы, вывески, камни, деревья, бочки, колбы, дорожки.
+-- Плюс учёт занятых мест (Occ), чтобы предметы и точки появления ингредиентов не залезали друг на друга.
+local RS = game:GetService("ReplicatedStorage")
+local B = require(RS.Shared.Build)
+
+local P = {}
+
+local function rgb(r, g, b) return Color3.fromRGB(r, g, b) end
+P.rgb = rgb
+
+-- палитра карты
+P.C = {
+	metal = rgb(70, 76, 88), metalLight = rgb(150, 158, 170), metalDark = rgb(38, 42, 50),
+	wood = rgb(124, 86, 56), woodDark = rgb(84, 58, 40), stone = rgb(120, 124, 130), stoneDark = rgb(78, 80, 88),
+	concrete = rgb(178, 184, 188), path = rgb(196, 182, 150), white = rgb(240, 242, 245),
+	slime = rgb(120, 255, 80), toxic = rgb(160, 255, 40), labTeal = rgb(60, 220, 190), labPurple = rgb(170, 90, 255),
+	warning = rgb(255, 200, 40), black = rgb(25, 25, 30),
+}
+local C = P.C
+local M_WOOD = Enum.Material.Wood
+
+-- направление по компасу: 0° — север (−Z), 90° — восток (+X)
+function P.compass(deg)
+	local a = math.rad(deg)
+	return Vector3.new(math.sin(a), 0, -math.cos(a))
+end
+
+-- CFrame в точке pos, «лицом» (−Z детали) в сторону target по горизонтали
+function P.facing(pos, target)
+	local t = Vector3.new(target.X, pos.Y, target.Z)
+	if (t - pos).Magnitude < 0.01 then return CFrame.new(pos) end
+	return CFrame.lookAt(pos, t)
+end
+
+---------------------------------------------------------------------------
+-- Учёт занятых мест: круги на плоскости XZ
+---------------------------------------------------------------------------
+local Occ = {}
+Occ.__index = Occ
+function P.newOcc() return setmetatable({ list = {} }, Occ) end
+function Occ:add(x, z, r) table.insert(self.list, { x, z, r }) end
+function Occ:free(x, z, r)
+	for _, c in ipairs(self.list) do
+		local dx, dz = c[1] - x, c[2] - z
+		local rr = c[3] + r
+		if dx * dx + dz * dz < rr * rr then return false end
+	end
+	return true
+end
+-- занять линию (дорожку) кругами
+function Occ:addLine(a, b, r)
+	local len = (b - a).Magnitude
+	local n = math.max(1, math.ceil(len / (r * 0.8)))
+	for i = 0, n do
+		local p = a:Lerp(b, i / n)
+		self:add(p.X, p.Z, r)
+	end
+end
+-- найти свободное место в прямоугольнике; nil — не нашлось
+function Occ:find(rng, x0, x1, z0, z1, r, tries)
+	for _ = 1, tries or 30 do
+		local x, z = rng:range(x0 + r, x1 - r), rng:range(math.min(z0, z1) + r, math.max(z0, z1) - r)
+		if self:free(x, z, r) then return x, z end
+	end
+	return nil
+end
+
+---------------------------------------------------------------------------
+-- Дорожки
+---------------------------------------------------------------------------
+-- плоская дорожка от a до b (y берётся из точек), со скруглёнными концами
+function P.path(parent, a, b, w, color, material, th)
+	th = th or 0.4
+	local flat = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+	local len = flat.Magnitude
+	if len < 0.05 then return end
+	local mid = (a + b) / 2
+	local cf = CFrame.lookAt(mid, mid + flat)
+	B.part(parent, "Path", Vector3.new(w, th, len), cf, color or C.path, material or Enum.Material.Pavement)
+	B.vcyl(parent, "PathEnd", th, w, CFrame.new(b), color or C.path, material or Enum.Material.Pavement)
+end
+
+-- дорожка по дуге окружности (центр c, радиус r, углы по компасу от a0 до a1)
+function P.arcPath(parent, c, r, a0, a1, w, y, color, material, step)
+	step = step or 6
+	local n = math.max(1, math.ceil(math.abs(a1 - a0) / step))
+	local prev
+	for i = 0, n do
+		local a = a0 + (a1 - a0) * i / n
+		local p = c + P.compass(a) * r
+		p = Vector3.new(p.X, y, p.Z)
+		if prev then P.path(parent, prev, p, w, color, material) end
+		prev = p
+	end
+end
+
+---------------------------------------------------------------------------
+-- Уличные мелочи
+---------------------------------------------------------------------------
+function P.lamp(parent, pos, color, h)
+	h = h or 12
+	local m = B.model(parent, "Lamp")
+	B.vcyl(m, "Base", 0.8, 1.8, CFrame.new(pos + Vector3.new(0, 0.4, 0)), C.metalDark, Enum.Material.Metal)
+	B.vcyl(m, "Pole", h, 0.6, CFrame.new(pos + Vector3.new(0, h / 2, 0)), C.metal, Enum.Material.Metal)
+	B.vcyl(m, "Cap", 0.5, 2.6, CFrame.new(pos + Vector3.new(0, h + 1.6, 0)), C.metalDark, Enum.Material.Metal)
+	local head = B.ball(m, "Glow", 2, CFrame.new(pos + Vector3.new(0, h + 0.6, 0)), color or C.labTeal, Enum.Material.Neon)
+	head.CastShadow = false
+	B.light(head, "PointLight", { Range = 20, Brightness = 1.3, Color = color or C.labTeal })
+	return m
+end
+
+function P.bench(parent, cf)
+	local m = B.model(parent, "Bench")
+	B.part(m, "Seat", Vector3.new(6, 0.4, 1.8), cf * CFrame.new(0, 1.6, 0), C.wood, Enum.Material.WoodPlanks)
+	B.part(m, "Back", Vector3.new(6, 1.6, 0.3), cf * CFrame.new(0, 2.8, 0.85) * CFrame.Angles(math.rad(-10), 0, 0), C.wood, Enum.Material.WoodPlanks)
+	for _, x in ipairs({ -2.5, 2.5 }) do
+		B.part(m, "Leg", Vector3.new(0.4, 1.4, 1.6), cf * CFrame.new(x, 0.7, 0), C.metalDark, Enum.Material.Metal)
+	end
+	return m
+end
+
+-- забор от a до b: столбы через step, две перекладины
+function P.fence(parent, a, b, h, color, material, step)
+	local m = B.model(parent, "Fence")
+	h, step = h or 4, step or 8
+	local flat = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+	local len = flat.Magnitude
+	if len < 0.5 then return m end
+	local n = math.max(1, math.floor(len / step + 0.5))
+	for i = 0, n do
+		local p = a:Lerp(b, i / n)
+		B.part(m, "Post", Vector3.new(0.7, h + 0.4, 0.7), CFrame.new(p + Vector3.new(0, (h + 0.4) / 2, 0)), color, material)
+	end
+	local cf = CFrame.lookAt((a + b) / 2, (a + b) / 2 + flat)
+	for _, y in ipairs({ h * 0.45, h * 0.9 }) do
+		B.part(m, "Rail", Vector3.new(0.35, 0.45, len), cf * CFrame.new(0, y, 0), color, material)
+	end
+	return m
+end
+
+-- табличка-надпись на грани детали: заголовок и подпись
+function P.board(part, face, title, sub, textColor, bgColor)
+	local g = Instance.new("SurfaceGui")
+	g.Name = "Board"
+	g.Face = face or Enum.NormalId.Front
+	g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	g.PixelsPerStud = 30
+	g.LightInfluence = 0.6
+	g.Parent = part
+	local f = Instance.new("Frame")
+	f.Size = UDim2.fromScale(1, 1)
+	f.BackgroundTransparency = bgColor and 0 or 1
+	f.BackgroundColor3 = bgColor or Color3.new(0, 0, 0)
+	f.BorderSizePixel = 0
+	f.Parent = g
+	local t = Instance.new("TextLabel")
+	t.Name = "Title"
+	t.BackgroundTransparency = 1
+	t.Size = sub and UDim2.fromScale(0.94, 0.58) or UDim2.fromScale(0.94, 0.84)
+	t.Position = UDim2.fromScale(0.03, sub and 0.06 or 0.08)
+	t.Text = title
+	t.TextScaled = true
+	t.Font = Enum.Font.GothamBlack
+	t.TextColor3 = textColor or Color3.new(1, 1, 1)
+	t.TextStrokeTransparency = 0.4
+	t.Parent = f
+	if sub then
+		local s = Instance.new("TextLabel")
+		s.Name = "Sub"
+		s.BackgroundTransparency = 1
+		s.Size = UDim2.fromScale(0.9, 0.3)
+		s.Position = UDim2.fromScale(0.05, 0.64)
+		s.Text = sub
+		s.TextScaled = true
+		s.Font = Enum.Font.GothamBold
+		s.TextColor3 = textColor or Color3.new(1, 1, 1)
+		s.TextTransparency = 0.1
+		s.Parent = f
+	end
+	return g
+end
+
+-- указатель на двух столбах; cf — низ по центру, лицо — к −Z
+function P.signpost(parent, cf, title, sub, accent, w, h)
+	w, h = w or 12, h or 4
+	local m = B.model(parent, "Sign")
+	for _, x in ipairs({ -w / 2 + 0.8, w / 2 - 0.8 }) do
+		B.part(m, "Post", Vector3.new(0.8, h + 4, 0.8), cf * CFrame.new(x, (h + 4) / 2, 0), C.woodDark, Enum.Material.Wood)
+	end
+	local board = B.part(m, "Board", Vector3.new(w, h, 0.6), cf * CFrame.new(0, 4 + h / 2 - 0.4, 0), C.wood, Enum.Material.WoodPlanks)
+	B.part(m, "Trim", Vector3.new(w + 0.4, 0.4, 0.8), cf * CFrame.new(0, 4 + h - 0.2, 0), accent or C.labTeal, Enum.Material.Neon)
+	P.board(board, Enum.NormalId.Front, title, sub)
+	P.board(board, Enum.NormalId.Back, title, sub)
+	return m
+end
+
+-- арка-въезд с надписью (cf — низ по центру, проход вдоль Z)
+function P.arch(parent, cf, w, h, color, accent, title, sub, material)
+	local m = B.model(parent, "Arch")
+	material = material or Enum.Material.Slate
+	for _, x in ipairs({ -w / 2 - 2, w / 2 + 2 }) do
+		B.part(m, "Pillar", Vector3.new(4, h, 4), cf * CFrame.new(x, h / 2, 0), color, material)
+		B.part(m, "PillarCap", Vector3.new(5, 1, 5), cf * CFrame.new(x, h + 0.5, 0), color, material)
+		local orb = B.ball(m, "Orb", 2.4, cf * CFrame.new(x, h + 2.2, 0), accent, Enum.Material.Neon)
+		B.light(orb, "PointLight", { Range = 16, Brightness = 1.5, Color = accent })
+		B.tag(orb, "Pulse", { Speed = 1.5 })
+	end
+	local beam = B.part(m, "Beam", Vector3.new(w + 8, 6, 2), cf * CFrame.new(0, h - 3, 0), color, material)
+	B.part(m, "Stripe", Vector3.new(w + 8.2, 0.5, 2.2), cf * CFrame.new(0, h - 5.6, 0), accent, Enum.Material.Neon)
+	P.board(beam, Enum.NormalId.Front, title, sub)
+	P.board(beam, Enum.NormalId.Back, title, sub)
+	return m
+end
+
+---------------------------------------------------------------------------
+-- Природа
+---------------------------------------------------------------------------
+-- камень из 2–3 повёрнутых глыб; s — примерный размер
+function P.rock(parent, pos, s, rng, color, material)
+	local m = B.model(parent, "Rock")
+	color = color or C.stone
+	material = material or Enum.Material.Slate
+	local n = rng:int(1, 3)
+	for i = 1, n do
+		local k = i == 1 and 1 or rng:range(0.45, 0.7)
+		local size = Vector3.new(s * k * rng:range(0.8, 1.3), s * k * rng:range(0.5, 0.9), s * k * rng:range(0.8, 1.2))
+		local off = i == 1 and Vector3.zero or Vector3.new(rng:range(-s, s) * 0.5, 0, rng:range(-s, s) * 0.5)
+		local cf = CFrame.new(pos + off + Vector3.new(0, size.Y * 0.32, 0))
+			* CFrame.Angles(rng:range(-0.25, 0.25), rng:angle(), rng:range(-0.25, 0.25))
+		local shade = rng:range(0.85, 1.1)
+		B.part(m, "Stone", size, cf, Color3.new(math.min(1, color.R * shade), math.min(1, color.G * shade), math.min(1, color.B * shade)), material)
+	end
+	return m
+end
+
+-- инопланетное дерево: изогнутый ствол и шары листвы
+P.TreePalettes = {
+	{ rgb(64, 200, 170), rgb(40, 160, 150), rgb(120, 230, 190) },   -- бирюзовое
+	{ rgb(220, 110, 200), rgb(170, 80, 190), rgb(250, 160, 220) },  -- розовое
+	{ rgb(150, 210, 70), rgb(100, 170, 60), rgb(190, 240, 110) },   -- салатовое
+}
+function P.tree(parent, pos, rng, scale, palette, trunkColor)
+	local m = B.model(parent, "Tree")
+	scale = scale or 1
+	palette = palette or rng:pick(P.TreePalettes)
+	local h = rng:range(12, 18) * scale
+	local d = rng:range(1.4, 2) * scale
+	local p = pos
+	local dir = Vector3.new(rng:range(-0.3, 0.3), 1, rng:range(-0.3, 0.3)).Unit
+	local segs = 3
+	for i = 1, segs do
+		local q = p + dir * (h / segs)
+		B.between(m, "Trunk", p, q, d * (1.15 - i * 0.15), trunkColor or C.woodDark, Enum.Material.Wood, true)
+		B.ball(m, "Knot", d * (1.15 - i * 0.15), CFrame.new(q), trunkColor or C.woodDark, Enum.Material.Wood)
+		p = q
+		dir = (dir + Vector3.new(rng:range(-0.35, 0.35), 0, rng:range(-0.35, 0.35))).Unit
+	end
+	local n = rng:int(3, 5)
+	for i = 1, n do
+		local r = rng:range(5, 8) * scale
+		local off = i == 1 and Vector3.new(0, r * 0.3, 0)
+			or Vector3.new(rng:range(-1, 1) * r * 0.8, rng:range(-0.2, 0.5) * r, rng:range(-1, 1) * r * 0.8)
+		B.ellipsoid(m, "Leaves", Vector3.new(r * 2, r * 1.5, r * 2), CFrame.new(p + off), palette[(i - 1) % #palette + 1], Enum.Material.Grass)
+	end
+	return m, p
+end
+
+-- клумба: тонкие стебли с яркими головками
+function P.flowers(parent, center, rng, n, colors, radius)
+	local m = B.model(parent, "Flowers")
+	for _ = 1, n do
+		local a, r = rng:angle(), rng:range(0, radius or 4)
+		local p = center + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+		local h = rng:range(0.8, 2)
+		B.part(m, "Stem", Vector3.new(0.15, h, 0.15), CFrame.new(p + Vector3.new(0, h / 2, 0)), rgb(70, 150, 60), Enum.Material.Grass,
+			{ CanCollide = false, CastShadow = false })
+		local head = B.ball(m, "Bloom", rng:range(0.5, 0.9), CFrame.new(p + Vector3.new(0, h, 0)), rng:pick(colors),
+			rng:chance(0.3) and Enum.Material.Neon or Enum.Material.SmoothPlastic)
+		head.CanCollide = false
+		head.CastShadow = false
+	end
+	return m
+end
+
+-- мёртвое дерево: тёмный ствол, кривые ветки, по желанию — свисающий мох
+function P.deadTree(parent, pos, rng, scale, color, moss)
+	local m = B.model(parent, "DeadTree")
+	scale = scale or 1
+	color = color or rgb(70, 62, 55)
+	local h = rng:range(10, 16) * scale
+	local d = rng:range(1.4, 2.2) * scale
+	local top = pos + Vector3.new(rng:range(-1.5, 1.5), h, rng:range(-1.5, 1.5)) * Vector3.new(scale, 1, scale)
+	B.between(m, "Trunk", pos - Vector3.new(0, 1, 0), top, d, color, M_WOOD, true)
+	B.ball(m, "Root", d * 1.6, CFrame.new(pos + Vector3.new(0, 0.2, 0)), color, M_WOOD)
+	local n = rng:int(2, 4)
+	for _ = 1, n do
+		local t = rng:range(0.45, 0.95)
+		local from = (pos):Lerp(top, t)
+		local a = rng:angle()
+		local len = rng:range(3, 6) * scale
+		local to = from + Vector3.new(math.cos(a) * len, rng:range(1, 3.5) * scale, math.sin(a) * len)
+		B.between(m, "Branch", from, to, d * 0.45, color, M_WOOD, true)
+		if rng:chance(0.5) then
+			local a2 = a + rng:range(-1, 1)
+			B.between(m, "Twig", to, to + Vector3.new(math.cos(a2) * len * 0.5, len * 0.4, math.sin(a2) * len * 0.5), d * 0.25, color, M_WOOD, true)
+		end
+		if moss then
+			for _ = 1, rng:int(1, 3) do
+				local p = from:Lerp(to, rng:range(0.3, 1))
+				local l = rng:range(1.5, 4)
+				B.part(m, "Moss", Vector3.new(0.25, l, 0.5), CFrame.new(p - Vector3.new(0, l / 2, 0)), moss, Enum.Material.Grass,
+					{ CanCollide = false, CastShadow = false })
+			end
+		end
+	end
+	return m
+end
+
+---------------------------------------------------------------------------
+-- Кристаллы
+---------------------------------------------------------------------------
+-- один кристалл: стеклянная оболочка, светящаяся сердцевина и заострённая верхушка из двух клиньев
+function P.crystal(parent, base, dir, h, w, color)
+	local up = dir.Unit
+	local right = up:Cross(Vector3.new(0.31, 0, 0.95))
+	if right.Magnitude < 0.01 then right = Vector3.xAxis end
+	right = right.Unit
+	local back = right:Cross(up)
+	local function frame(p) return CFrame.fromMatrix(p, right, up, back) end
+	local shell = B.part(parent, "Crystal", Vector3.new(w, h, w), frame(base + up * (h / 2)), color, Enum.Material.Glass,
+		{ Transparency = 0.25, Reflectance = 0.15 })
+	B.part(parent, "Core", Vector3.new(w * 0.45, h * 0.92, w * 0.45), frame(base + up * (h * 0.47)), color, Enum.Material.Neon,
+		{ CanCollide = false, CastShadow = false })
+	local tipH = w * 1.1
+	local tipC = frame(base + up * (h + tipH / 2))
+	B.wedge(parent, "Tip", Vector3.new(w, tipH, w / 2), tipC * CFrame.new(0, 0, -w / 4), color, Enum.Material.Glass,
+		{ Transparency = 0.25, Reflectance = 0.15 })
+	B.wedge(parent, "Tip", Vector3.new(w, tipH, w / 2), tipC * CFrame.new(0, 0, w / 4) * CFrame.Angles(0, math.pi, 0), color, Enum.Material.Glass,
+		{ Transparency = 0.25, Reflectance = 0.15 })
+	return shell
+end
+
+-- гнездо кристаллов: size — высота самого большого
+function P.crystalCluster(parent, pos, size, rng, colors, withLight)
+	local m = B.model(parent, "Crystals")
+	local color = rng:pick(colors)
+	local n = rng:int(4, 7)
+	for i = 1, n do
+		local a = rng:angle()
+		local r = i == 1 and 0 or rng:range(0.3, 1) * size * 0.35
+		local base = pos + Vector3.new(math.cos(a) * r, -0.6, math.sin(a) * r)
+		local tilt = i == 1 and rng:range(0, 0.15) or rng:range(0.25, 0.7)
+		local dir = Vector3.new(math.cos(a) * tilt, 1, math.sin(a) * tilt)
+		local h = (i == 1 and 1 or rng:range(0.35, 0.75)) * size
+		P.crystal(m, base, dir, h, h * rng:range(0.2, 0.28), rng:chance(0.8) and color or rng:pick(colors))
+	end
+	B.ball(m, "Base", size * 0.45, CFrame.new(pos - Vector3.new(0, size * 0.12, 0)), C.stoneDark, Enum.Material.Slate)
+	if withLight then
+		local glow = B.marker(m, "Glow", Vector3.new(1, 1, 1), CFrame.new(pos + Vector3.new(0, size * 0.6, 0)))
+		B.light(glow, "PointLight", { Range = math.max(14, size * 2.2), Brightness = 1.6, Color = color })
+	end
+	return m
+end
+
+---------------------------------------------------------------------------
+-- Лабораторное
+---------------------------------------------------------------------------
+-- бочка; toxic — светящаяся крышка
+function P.barrel(parent, cf, color, toxic)
+	local m = B.model(parent, "Barrel")
+	B.vcyl(m, "Body", 4, 3, cf * CFrame.new(0, 2, 0), color, Enum.Material.Metal)
+	for _, y in ipairs({ 0.9, 3.1 }) do
+		B.vcyl(m, "Rim", 0.25, 3.15, cf * CFrame.new(0, y, 0), C.metalDark, Enum.Material.Metal)
+	end
+	if toxic then
+		local lid = B.vcyl(m, "Goo", 0.2, 2.6, cf * CFrame.new(0, 4.05, 0), C.toxic, Enum.Material.Neon)
+		B.light(lid, "PointLight", { Range = 8, Brightness = 1, Color = C.toxic })
+	end
+	return m
+end
+
+function P.crate(parent, cf, s, color)
+	local m = B.model(parent, "Crate")
+	s = s or 4
+	color = color or C.wood
+	B.part(m, "Box", Vector3.new(s, s, s), cf * CFrame.new(0, s / 2, 0), color, Enum.Material.WoodPlanks)
+	for _, y in ipairs({ 0.2, s - 0.2 }) do
+		B.part(m, "Band", Vector3.new(s + 0.1, 0.35, s + 0.1), cf * CFrame.new(0, y, 0), C.woodDark, Enum.Material.Wood)
+	end
+	return m
+end
+
+-- стеклянная колба с жидкостью и «зародышем» мутанта внутри
+function P.tank(parent, pos, h, d, liquid, withCreature)
+	local m = B.model(parent, "Tank")
+	B.vcyl(m, "Base", 1.6, d + 1.2, CFrame.new(pos + Vector3.new(0, 0.8, 0)), C.metalDark, Enum.Material.DiamondPlate)
+	B.vcyl(m, "Liquid", h - 0.6, d - 0.5, CFrame.new(pos + Vector3.new(0, 1.6 + (h - 0.6) / 2, 0)), liquid, Enum.Material.Glass,
+		{ Transparency = 0.35 })
+	B.vcyl(m, "Glass", h, d, CFrame.new(pos + Vector3.new(0, 1.6 + h / 2, 0)), rgb(210, 240, 255), Enum.Material.Glass,
+		{ Transparency = 0.7 })
+	B.vcyl(m, "Cap", 1.2, d + 0.8, CFrame.new(pos + Vector3.new(0, 1.6 + h + 0.6, 0)), C.metal, Enum.Material.Metal)
+	local glow = B.vcyl(m, "Ring", 0.3, d + 0.9, CFrame.new(pos + Vector3.new(0, 1.7, 0)), liquid, Enum.Material.Neon)
+	B.light(glow, "PointLight", { Range = 12, Brightness = 1.2, Color = liquid })
+	if withCreature then
+		local c = B.ball(m, "Embryo", d * 0.45, CFrame.new(pos + Vector3.new(0, 1.6 + h * 0.5, 0)), rgb(40, 40, 60), Enum.Material.SmoothPlastic,
+			{ CanCollide = false, Transparency = 0.2 })
+		B.tag(c, "Bob", { Height = 0.6, Period = 3 })
+	end
+	local bubbles = B.marker(m, "Bubbles", Vector3.new(d * 0.6, 0.2, d * 0.6), CFrame.new(pos + Vector3.new(0, 2, 0)))
+	B.particles(bubbles, {
+		Color = ColorSequence.new(Color3.new(1, 1, 1)), Size = NumberSequence.new(0.25, 0.1),
+		Transparency = NumberSequence.new(0.3, 1), Lifetime = NumberRange.new(1.5, 2.5),
+		Speed = NumberRange.new(1.5, 3), Rate = 4, EmissionDirection = Enum.NormalId.Top, LightEmission = 0.4,
+	})
+	return m
+end
+
+-- труба между точками с фланцами на концах
+function P.pipe(parent, a, b, d, color)
+	local m = B.model(parent, "Pipe")
+	B.between(m, "Pipe", a, b, d, color or C.metal, Enum.Material.Metal, true)
+	for _, p in ipairs({ a, b }) do B.ball(m, "Joint", d * 1.3, CFrame.new(p), C.metalDark, Enum.Material.Metal) end
+	return m
+end
+
+-- светлячки / искры: невидимая область с частицами
+function P.motes(parent, cf, size, color, rate, name)
+	local box = B.marker(parent, name or "Motes", size, cf)
+	B.particles(box, {
+		Color = ColorSequence.new(color), Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.2, 0.35),
+			NumberSequenceKeypoint.new(1, 0) }),
+		Transparency = NumberSequence.new(0.1, 0.6), Lifetime = NumberRange.new(3, 6), Speed = NumberRange.new(0.3, 1),
+		SpreadAngle = Vector2.new(180, 180), Rate = rate or 8, LightEmission = 1, Drag = 1,
+		EmissionDirection = Enum.NormalId.Top,
+	})
+	return box
+end
+
+---------------------------------------------------------------------------
+-- Точки появления ингредиентов
+---------------------------------------------------------------------------
+-- n невидимых меток в прямоугольнике зоны; сервер игры позже будет создавать на них ингредиенты
+function P.spawnPoints(folder, rng, occ, x0, x1, z0, z1, y, n, zoneId)
+	local made = 0
+	for i = 1, n do
+		local x, z = occ:find(rng, x0, x1, z0, z1, 3, 40)
+		if x then
+			occ:add(x, z, 4)
+			local mk = B.marker(folder, "Spawn", Vector3.new(2, 1, 2), CFrame.new(x, y + 0.5, z))
+			B.attrs(mk, { Zone = zoneId, Index = i })
+			made = made + 1
+		end
+	end
+	return made
+end
+
+return P
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000E"><Properties><string name="Name">RebirthTower</string><ProtectedString name="Source"><![CDATA[-- Башня ребёрта (запад): высокая башня с парящей сферой на верхушке и портал у подножия,
+-- обращённый к площади. Через портал игрок будет делать ребёрт (сброс ради множителя).
+local RS = game:GetService("ReplicatedStorage")
+local B = require(RS.Shared.Build)
+local D = require(RS.Shared.MapData)
+local P = require(script.Parent.Props)
+
+local Tower = {}
+local rgb = P.rgb
+local M = Enum.Material
+
+local VIOLET = rgb(190, 110, 255)
+local MARBLE = rgb(226, 220, 240)
+local MARBLE_DARK = rgb(160, 150, 190)
+
+function Tower.build(root)
+	local m = B.model(root, "RebirthTower")
+	local c = D.Rebirth.center
+	local cx, cz = c.X, c.Z
+
+	-- площадь
+	B.vcyl(m, "Plaza", 1, 56, CFrame.new(cx, 0.5, cz), MARBLE, M.Marble)
+	B.ring(m, "PlazaRing", CFrame.new(cx, 1.03, cz), 25, 48, 0.1, 0.8, VIOLET, M.Neon)
+
+	-- башня: основание, ствол с поясами и окнами, балкон, шпиль
+	local x0 = cx - 6 -- башня чуть смещена на запад, портал смотрит на восток
+	B.vcyl(m, "Base", 6, 28, CFrame.new(x0, 4, cz), MARBLE_DARK, M.Marble)
+	B.vcyl(m, "Shaft", 48, 20, CFrame.new(x0, 7 + 24, cz), MARBLE, M.Marble)
+	for y = 14, 50, 9 do
+		B.vcyl(m, "Band", 1, 20.8, CFrame.new(x0, y, cz), VIOLET, M.Neon)
+	end
+	for k = 0, 11 do
+		local a = k * 30
+		for _, y in ipairs({ 20, 38 }) do
+			local d = P.compass(a + (y == 38 and 15 or 0))
+			local p = Vector3.new(x0 + d.X * 10, y, cz + d.Z * 10)
+			B.part(m, "Window", Vector3.new(2, 4, 0.6), P.facing(p, Vector3.new(x0, y, cz)), rgb(60, 40, 90), M.Glass, { Transparency = 0.1 })
+		end
+	end
+	B.vcyl(m, "Balcony", 1.6, 28, CFrame.new(x0, 55.8, cz), MARBLE_DARK, M.Marble)
+	B.ring(m, "Battlement", CFrame.new(x0, 58, cz), 13.4, 24, 3, 1.2, MARBLE, M.Marble, function(a) return math.floor(a / 15) % 2 == 1 end)
+	local tiers = { { 18, 4 }, { 14, 4 }, { 10, 4 }, { 6, 5 }, { 2.6, 6 } }
+	local y = 56.6
+	for _, t in ipairs(tiers) do
+		B.vcyl(m, "Spire", t[2], t[1], CFrame.new(x0, y + t[2] / 2, cz), t[1] > 9 and MARBLE_DARK or VIOLET, t[1] > 9 and M.Marble or M.Neon)
+		y = y + t[2]
+	end
+	-- парящая сфера с кольцами
+	local orbY = y + 9
+	local orb = B.ball(m, "RebirthOrb", 7, CFrame.new(x0, orbY, cz), VIOLET, M.Neon, { CanCollide = false })
+	B.light(orb, "PointLight", { Range = 60, Brightness = 3, Color = VIOLET })
+	B.tag(orb, "Bob", { Height = 1.5, Period = 5 })
+	for i, tilt in ipairs({ 20, -35 }) do
+		local ringCf = CFrame.new(x0, orbY, cz) * CFrame.Angles(math.rad(tilt), 0, math.rad(i * 25))
+		local ring = B.ring(m, "OrbRing", ringCf, 6.5 + i * 1.5, 30, 0.35, 0.35, i == 1 and rgb(255, 220, 255) or VIOLET, M.Neon, nil,
+			{ CanCollide = false, CastShadow = false })
+		ring.WorldPivot = ringCf
+		B.tag(ring, "Spin", { Speed = i == 1 and 35 or -50 })
+	end
+
+	-- портал к востоку от башни: кольцо в плоскости YZ и мерцающая плёнка
+	local px = x0 + 15
+	local portalCf = CFrame.new(px, 10.5, cz)
+	B.part(m, "PortalStep", Vector3.new(8, 1, 18), CFrame.new(px, 1.5, cz), MARBLE_DARK, M.Marble)
+	B.part(m, "PortalStep", Vector3.new(4, 1, 14), CFrame.new(px + 4, 1, cz), MARBLE_DARK, M.Marble)
+	B.ring(m, "PortalRing", portalCf * CFrame.Angles(0, 0, math.rad(90)), 8, 32, 1.4, 1.6, VIOLET, M.Neon)
+	B.ring(m, "PortalFrame", portalCf * CFrame.Angles(0, 0, math.rad(90)), 9.4, 36, 1.8, 2.2, MARBLE_DARK, M.Marble)
+	local film = B.cyl(m, "PortalFilm", 0.3, 15.4, portalCf, rgb(220, 150, 255), M.ForceField, { Transparency = 0.1, CanCollide = false })
+	B.light(film, "PointLight", { Range = 26, Brightness = 2, Color = VIOLET })
+	B.particles(film, {
+		Color = ColorSequence.new(rgb(240, 200, 255), VIOLET), Size = NumberSequence.new(0.5, 0),
+		Transparency = NumberSequence.new(0, 1), Lifetime = NumberRange.new(1, 2), Speed = NumberRange.new(2, 4),
+		SpreadAngle = Vector2.new(30, 30), Rate = 14, LightEmission = 1, EmissionDirection = Enum.NormalId.Right,
+	})
+	local st = B.marker(m, "RebirthPortal", Vector3.new(6, 16, 16), portalCf)
+	B.attrs(st, { Station = "Rebirth" })
+	local sign = B.part(m, "Sign", Vector3.new(16, 3.6, 0.6), CFrame.new(px + 1.2, 21.5, cz) * CFrame.Angles(0, math.rad(90), 0), rgb(40, 30, 60), M.SmoothPlastic)
+	P.board(sign, Enum.NormalId.Back, "РЕБЁРТ", "Начни заново — получи множитель", VIOLET, rgb(40, 30, 60))
+
+	-- обелиски с парящими кристаллами
+	for _, a in ipairs({ 45, 135, 225, 315 }) do
+		local d = P.compass(a)
+		local p = Vector3.new(cx + d.X * 22, 1, cz + d.Z * 22)
+		B.part(m, "Obelisk", Vector3.new(3, 12, 3), CFrame.new(p + Vector3.new(0, 6, 0)), MARBLE_DARK, M.Marble)
+		B.wedge(m, "ObeliskTop", Vector3.new(3, 2, 1.5), CFrame.new(p + Vector3.new(0, 13, -0.75)), MARBLE_DARK, M.Marble)
+		B.wedge(m, "ObeliskTop", Vector3.new(3, 2, 1.5), CFrame.new(p + Vector3.new(0, 13, 0.75)) * CFrame.Angles(0, math.pi, 0), MARBLE_DARK, M.Marble)
+		local cr = B.model(m, "FloatingCrystal")
+		P.crystal(cr, p + Vector3.new(0, 17, 0), Vector3.yAxis, 2.4, 1.4, VIOLET)
+		P.crystal(cr, p + Vector3.new(0, 17, 0), -Vector3.yAxis, 2, 1.4, VIOLET)
+		cr.WorldPivot = CFrame.new(p + Vector3.new(0, 17, 0))
+		B.tag(cr, "Spin", { Speed = 50 })
+		B.tag(cr, "Bob", { Height = 0.6, Period = 3 })
+	end
+	return m
+end
+
+return Tower
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000F"><Properties><string name="Name">Sky</string><ProtectedString name="Source"><![CDATA[-- Небо и свет: солнечный день, лёгкая дымка, облака, мягкое свечение неона.
+-- Клиент (MapFx) потом плавно меняет дымку и оттенок под каждую зону.
+local RS = game:GetService("ReplicatedStorage")
+local D = require(RS.Shared.MapData)
+
+local Sky = {}
+
+local function make(class, parent, name, props)
+	local o = parent:FindFirstChild(name) or Instance.new(class)
+	o.Name = name
+	for k, v in pairs(props) do o[k] = v end
+	o.Parent = parent
+	return o
+end
+
+function Sky.setup()
+	local L = game:GetService("Lighting")
+	L.ClockTime = 14.2
+	L.GeographicLatitude = 30
+	L.Brightness = 2.6
+	L.Ambient = Color3.fromRGB(90, 96, 110)
+	L.OutdoorAmbient = Color3.fromRGB(135, 140, 150)
+	L.EnvironmentDiffuseScale = 1
+	L.EnvironmentSpecularScale = 0.6
+	L.GlobalShadows = true
+	L.ShadowSoftness = 0.3
+	L.ExposureCompensation = 0.1
+	local a = D.Ambience.Hub
+	make("Atmosphere", L, "Atmosphere", { Density = a.density, Offset = 0.15, Color = a.color, Decay = a.decay,
+		Glare = a.glare, Haze = a.haze })
+	make("Sky", L, "Sky", { SunAngularSize = 14, MoonAngularSize = 9, StarCount = 3000 })
+	make("BloomEffect", L, "Bloom", { Intensity = 0.7, Size = 28, Threshold = 1.6 })
+	make("ColorCorrectionEffect", L, "ColorCorrection", { Saturation = a.saturation, Contrast = a.contrast,
+		Brightness = a.brightness, TintColor = a.tint })
+	make("SunRaysEffect", L, "SunRays", { Intensity = 0.06, Spread = 0.6 })
+	make("Clouds", workspace.Terrain, "Clouds", { Cover = 0.55, Density = 0.6, Color = Color3.fromRGB(245, 250, 255) })
+end
+
+return Sky
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000010"><Properties><string name="Name">Terrain</string><ProtectedString name="Source"><![CDATA[-- Рельеф (Terrain): океан, остров, коридор зон с обрывами, хребты по бокам зон, река вокруг
+-- острова босса, холмы и подъёмы между зонами. Особый рельеф зон (пруды, кратер, арки)
+-- делают модули зон через помощники отсюда.
+local RS = game:GetService("ReplicatedStorage")
+local D = require(RS.Shared.MapData)
+local Rng = require(RS.Shared.Rng)
+
+local T = {}
+local terrain = workspace.Terrain
+local M = Enum.Material
+
+-- блок с разбиением на куски (большие заливки за один раз Roblox делает медленно)
+function T.block(x0, x1, y0, y1, z0, z1, mat)
+	if x0 > x1 then x0, x1 = x1, x0 end
+	if z0 > z1 then z0, z1 = z1, z0 end
+	local CH = 512
+	local x = x0
+	while x < x1 do
+		local xe = math.min(x + CH, x1)
+		local z = z0
+		while z < z1 do
+			local ze = math.min(z + CH, z1)
+			terrain:FillBlock(CFrame.new((x + xe) / 2, (y0 + y1) / 2, (z + ze) / 2), Vector3.new(xe - x, y1 - y0, ze - z), mat)
+			z = ze
+		end
+		x = xe
+	end
+end
+
+-- повёрнутый вокруг вертикали блок (дорожки, пятна)
+function T.slab(cf, size, mat)
+	terrain:FillBlock(cf, size, mat)
+end
+
+function T.ball(x, y, z, r, mat)
+	terrain:FillBall(Vector3.new(x, y, z), r, mat)
+end
+
+-- вертикальный цилиндр: низ y0, верх y1
+function T.cyl(x, z, y0, y1, r, mat)
+	terrain:FillCylinder(CFrame.new(x, (y0 + y1) / 2, z), y1 - y0, r, mat)
+end
+
+-- круглое пятно другого материала на поверхности уровня y
+function T.patch(x, z, y, r, mat)
+	terrain:FillCylinder(CFrame.new(x, y - 1, z), 2, r, mat)
+end
+
+-- полоса материала по ломаной (тропинки), ширина w, поверхность на высоте y
+function T.trail(points, y, w, mat)
+	for i = 1, #points - 1 do
+		local a, b = points[i], points[i + 1]
+		local flat = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+		local mid = Vector3.new((a.X + b.X) / 2, y - 1, (a.Z + b.Z) / 2)
+		terrain:FillBlock(CFrame.lookAt(mid, mid + flat), Vector3.new(w, 2, flat.Magnitude + w * 0.5), mat)
+		terrain:FillCylinder(CFrame.new(b.X, y - 1, b.Z), 2, w / 2, mat)
+	end
+end
+
+-- пруд с водой: чаша глубиной depth, вода чуть ниже поверхности y
+function T.pond(x, z, y, r, depth, bed)
+	terrain:FillCylinder(CFrame.new(x, y + 1, z), 6, r, M.Air)
+	terrain:FillCylinder(CFrame.new(x, y - depth - 1, z), 2, r + 2, bed or M.Mud)
+	terrain:FillCylinder(CFrame.new(x, y - depth / 2 - 0.4, z), depth - 0.8, r, M.Water)
+end
+
+-- подъём из нижней зоны в верхнюю: клин от z = zb + len (уровень low) до zb (уровень high)
+function T.ramp(zb, low, high, w, len, mat)
+	local h = high - low
+	terrain:FillWedge(CFrame.new(0, low + h / 2, zb + len / 2) * CFrame.Angles(0, math.pi, 0), Vector3.new(w, h, len), mat)
+	-- подложка под клином, чтобы не было щели
+	terrain:FillBlock(CFrame.new(0, low - 1, zb + len / 2), Vector3.new(w, 2, len), mat)
+end
+
+---------------------------------------------------------------------------
+local ZONE_GROUND = {
+	Mushroom = { top = M.LeafyGrass, ridge = M.Rock, cap = M.Grass },
+	Swamp = { top = M.Mud, ridge = M.Ground, cap = M.Grass },
+	Crystal = { top = M.Slate, ridge = M.Slate, cap = M.Rock },
+	Junkyard = { top = M.Ground, ridge = M.Rock, cap = M.Ground },
+	Crater = { top = M.Basalt, ridge = M.Basalt, cap = M.Rock },
+}
+T.ZONE_GROUND = ZONE_GROUND
+
+local function setupLook()
+	terrain.WaterColor = Color3.fromRGB(38, 150, 135)
+	terrain.WaterTransparency = 0.35
+	terrain.WaterWaveSize = 0.12
+	terrain.WaterWaveSpeed = 8
+	terrain.WaterReflectance = 0.6
+	terrain.Decoration = true -- колышущаяся трава на Grass
+	local function col(mat, r, g, b) terrain:SetMaterialColor(mat, Color3.fromRGB(r, g, b)) end
+	col(M.Grass, 96, 170, 84)
+	col(M.LeafyGrass, 120, 150, 90)
+	col(M.Sand, 222, 206, 160)
+	col(M.Mud, 70, 84, 52)
+	col(M.Ground, 112, 94, 72)
+	col(M.Rock, 118, 116, 112)
+	col(M.Slate, 88, 96, 118)
+	col(M.Basalt, 52, 50, 56)
+	col(M.CrackedLava, 120, 200, 60)
+	col(M.Asphalt, 70, 70, 74)
+	col(M.Concrete, 150, 150, 148)
+	col(M.Cobblestone, 140, 136, 128)
+end
+
+local function oceanAndIsland()
+	local sea = D.SEA
+	-- морское дно и вода
+	T.block(-1000, 1000, -26, -20, -1700, 800, M.Sand)
+	T.block(-1000, 1000, -20, sea, -1700, 800, M.Water)
+	-- пляжи (на 24 стада шире суши) и сама суша
+	for _, r in ipairs(D.Island) do
+		T.block(r[1] - 24, r[2] + 24, -24, -1, r[3] - 24, r[4] + 24, M.Sand)
+	end
+	-- неровный берег: плоские песчаные языки вдоль кромки (только там, где кромка выходит к морю)
+	local rng = Rng.new(77)
+	local function onLand(x, z)
+		for _, r in ipairs(D.Island) do
+			if x > r[1] - 20 and x < r[2] + 20 and z > r[3] - 20 and z < r[4] + 20 then return true end
+		end
+		return false
+	end
+	for _, r in ipairs(D.Island) do
+		local x0, x1, z0, z1 = r[1] - 24, r[2] + 24, r[3] - 24, r[4] + 24
+		local perim = {}
+		for x = x0, x1, 30 do
+			table.insert(perim, { x, z0, 0, -1 })
+			table.insert(perim, { x, z1, 0, 1 })
+		end
+		for z = z0, z1, 30 do
+			table.insert(perim, { x0, z, -1, 0 })
+			table.insert(perim, { x1, z, 1, 0 })
+		end
+		for _, p in ipairs(perim) do
+			local out = rng:range(-4, 10)
+			local x, z = p[1] + p[3] * out + rng:range(-8, 8), p[2] + p[4] * out + rng:range(-8, 8)
+			-- язык песка, если он не залезает на соседнюю сушу
+			if not onLand(x + p[3] * 30, z + p[4] * 30) then
+				T.cyl(x, z, -12, -1.6, rng:range(9, 18), M.Sand)
+			end
+		end
+	end
+	-- трава центрального острова
+	local hub = D.Island[1]
+	T.block(hub[1], hub[2], -24, 0, hub[3], hub[4], M.Grass)
+	-- перешеек от площади к первой зоне
+	local cor = D.Island[2]
+	T.block(cor[1], cor[2], -24, 0, D.Zones[1].z0, cor[4], M.Grass)
+end
+
+local function zoneGround()
+	local cor = D.Island[2]
+	for i, z in ipairs(D.Zones) do
+		local g = ZONE_GROUND[z.id]
+		local z1 = z.z1
+		if i == #D.Zones then z1 = cor[3] end
+		T.block(cor[1], cor[2], -24, z.level, z.z0, z1, g.top)
+		-- скальные обрывы к морю по краям коридора
+		T.block(cor[1], cor[1] + 14, -24, z.level, z.z0, z1, M.Rock)
+		T.block(cor[2] - 14, cor[2], -24, z.level, z.z0, z1, M.Rock)
+	end
+	-- подъёмы между зонами
+	for i = 2, #D.Zones do
+		local a, b = D.Zones[i - 1], D.Zones[i]
+		T.ramp(b.z0, a.level, b.level, 26, 30, ZONE_GROUND[a.id].top)
+	end
+end
+
+local function river()
+	local r = D.River
+	local x0, x1 = r.x - r.width / 2, r.x + r.width / 2
+	local zt0, zt1 = r.zTurn - r.width / 2, r.zTurn + r.width / 2
+	local hub = D.Island[1]
+	-- русло на юг до моря и на восток до моря
+	local function channel(ax0, ax1, az0, az1)
+		T.block(ax0, ax1, -6, 6, az0, az1, M.Air)
+		T.block(ax0 - 2, ax1 + 2, -12, -6, az0, az1, M.Sand)
+		T.block(ax0, ax1, -6, D.SEA, az0, az1, M.Water)
+	end
+	channel(x0, x1, zt0, hub[4] + 30)
+	channel(x0, hub[2] + 30, zt0, zt1)
+	-- пологие берега
+	for z = zt0, hub[4], 20 do
+		T.ball(x0 - 4, -6, z, 5, M.Sand)
+		T.ball(x1 + 4, -6, z, 5, M.Sand)
+	end
+end
+
+local function hills()
+	local rng = Rng.new(11)
+	local spots = { { -300, -75 }, { -305, 105 }, { -95, 295 }, { 95, 295 }, { 330, 210 }, { 390, -40 }, { 260, 280 } }
+	for _, s in ipairs(spots) do
+		local r = rng:range(18, 26)
+		T.ball(s[1], -r * 0.7, s[2], r, M.Grass)
+		T.ball(s[1] + rng:range(-8, 8), -r * 0.6, s[2] + rng:range(-8, 8), r * 0.6, M.Rock)
+		T.ball(s[1], -r * 0.7 + 1, s[2], r, M.Grass)
+	end
+end
+
+-- хребты по бокам коридора зон, в конце коридора и по южной кромке первой зоны
+local function ridges()
+	local rng = Rng.new(2024)
+	local cor = D.Island[2]
+	local function ridgeBall(x, z, rmin, rmax, lift)
+		local level = D.levelAt(z)
+		local zone = D.Zones[1]
+		for _, zz in ipairs(D.Zones) do
+			if z <= zz.z0 and z > zz.z1 then zone = zz end
+		end
+		if z <= D.Zones[#D.Zones].z1 then zone = D.Zones[#D.Zones] end
+		local g = ZONE_GROUND[zone.id]
+		local r = rng:range(rmin, rmax)
+		local y = level + rng:range(0, 8) + (lift or 0)
+		T.ball(x, y, z, r, g.ridge)
+		if rng:chance(0.6) then
+			T.ball(x + rng:range(-6, 6), y + r * 0.55, z + rng:range(-6, 6), r * 0.55, g.cap)
+		end
+	end
+	for _, side in ipairs({ -1, 1 }) do
+		local z = D.Zones[1].z0 + 6
+		while z > cor[3] + 10 do
+			local crystal = z <= D.ZoneById.Crystal.z0 and z > D.ZoneById.Crystal.z1
+			ridgeBall(side * rng:range(136, 150), z, crystal and 26 or 20, crystal and 36 or 30, crystal and 12 or 0)
+			z = z - rng:range(18, 26)
+		end
+		-- южная кромка первой зоны, проход посередине
+		local x = 44
+		while x < 160 do
+			ridgeBall(side * x, D.Zones[1].z0 + rng:range(-4, 4), 16, 22)
+			x = x + rng:range(16, 22)
+		end
+	end
+	-- северный край
+	local x = -150
+	while x <= 150 do
+		ridgeBall(x, cor[3] + 14 + rng:range(-6, 6), 24, 34, 6)
+		x = x + rng:range(18, 24)
+	end
+end
+
+function T.build()
+	setupLook()
+	oceanAndIsland()
+	zoneGround()
+	river()
+	hills()
+	ridges()
+end
+
+return T
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000016"><Properties><string name="Name">Zones</string><ProtectedString name="Source"><![CDATA[-- Зоны собирательства: общая часть. Стены с воротами между зонами (барьер с ценой открытия),
+-- арка-вход в первую зону, невидимые границы, области зон и точки появления ингредиентов.
+-- Наполнение каждой зоны — в модулях Zones/<Id>.
+local RS = game:GetService("ReplicatedStorage")
+local B = require(RS.Shared.Build)
+local D = require(RS.Shared.MapData)
+local Rng = require(RS.Shared.Rng)
+local P = require(script.Parent.Props)
+
+local Zones = {}
+local C, rgb = P.C, P.rgb
+local M = Enum.Material
+
+local INNER = 98       -- предметы ставим в x от −INNER до INNER
+local WALL_GAP = 16    -- и не ближе этого к стенам между зонами
+local SPAWNS = 45      -- точек появления ингредиентов на зону
+
+-- 1000000 -> "1 000 000"
+function Zones.formatPrice(n)
+	local s = tostring(math.floor(n))
+	local out = s:reverse():gsub("(%d%d%d)", "%1 "):reverse()
+	return (out:gsub("^ ", ""))
+end
+
+local function gateWall(parent, lower, upper)
+	local m = B.model(parent, "Gate_" .. upper.id)
+	local zb = upper.z0
+	local base = lower.level - 2
+	local top = upper.level + 20
+	local accent = upper.accent
+	local stone = rgb(70, 72, 82)
+	local half = 160
+	local openW = 26
+	local openTop = upper.level + 15
+	B.wall(m, "Wall", Vector3.new(-half, base, zb), Vector3.new(half, base, zb), top - base, 8, stone, M.Slate, {
+		{ at = half, w = openW, y0 = 0, y1 = openTop - base },
+	})
+	-- зубцы и светящаяся полоса
+	for x = -half + 5, half - 5, 10 do
+		if math.abs(x) > openW / 2 + 8 then
+			B.part(m, "Merlon", Vector3.new(5, 4, 9), CFrame.new(x, top + 2, zb), stone, M.Slate)
+		end
+	end
+	for _, sz in ipairs({ -4.1, 4.1 }) do
+		B.part(m, "Stripe", Vector3.new(half * 2, 0.6, 0.2), CFrame.new(0, upper.level + 17, zb + sz), accent, M.Neon)
+	end
+	-- башни у прохода
+	for _, x in ipairs({ -openW / 2 - 5, openW / 2 + 5 }) do
+		B.part(m, "Tower", Vector3.new(10, top - base + 8, 12), CFrame.new(x, (base + top + 8) / 2, zb), rgb(56, 58, 68), M.Slate)
+		B.part(m, "TowerCap", Vector3.new(12, 1.5, 14), CFrame.new(x, top + 8.75, zb), rgb(46, 48, 58), M.Slate)
+		local orb = B.ball(m, "Beacon", 4, CFrame.new(x, top + 11.5, zb), accent, M.Neon)
+		B.light(orb, "PointLight", { Range = 30, Brightness = 2, Color = accent })
+		B.tag(orb, "Pulse", { Speed = 2 })
+	end
+	-- надписи над проходом: с юга — куда ведёт и цена, с севера — куда вернуться
+	local sign = B.part(m, "GateSign", Vector3.new(openW + 4, 4.5, 0.6), CFrame.new(0, openTop + 2.6, zb + 4.4), rgb(28, 30, 40), M.SmoothPlastic)
+	P.board(sign, Enum.NormalId.Back, "🔒 " .. upper.title, "Открыть: " .. Zones.formatPrice(upper.price) .. " монет", accent, rgb(28, 30, 40))
+	local back = B.part(m, "BackSign", Vector3.new(openW + 4, 3, 0.6), CFrame.new(0, openTop + 2, zb - 4.4), rgb(28, 30, 40), M.SmoothPlastic)
+	P.board(back, Enum.NormalId.Front, "↓ " .. lower.title, nil, lower.accent, rgb(28, 30, 40))
+	-- барьер: сервер игры уберёт его для тех, кто открыл зону
+	local barrier = B.part(m, "Barrier", Vector3.new(openW, openTop - upper.level + 1, 1.2),
+		CFrame.new(0, upper.level + (openTop - upper.level + 1) / 2 - 1, zb), accent, M.ForceField, { Transparency = 0.15 })
+	B.attrs(barrier, { Zone = upper.id, Price = upper.price })
+	B.tag(barrier, "ZoneBarrier")
+	-- невидимая преграда над стеной: не перепрыгнуть с грибов и хребтов
+	B.part(m, "InvisibleCeiling", Vector3.new(half * 2, 120, 2), CFrame.new(0, top + 60, zb), nil, nil,
+		{ Transparency = 1, CastShadow = false, CanQuery = false })
+	return m
+end
+
+local function bounds(parent, zone)
+	local depth = zone.z0 - zone.z1
+	local mk = B.marker(parent, "Bounds", Vector3.new(D.ZONE_HALF_W * 2, 80, depth), CFrame.new(0, zone.level + 30, (zone.z0 + zone.z1) / 2))
+	B.attrs(mk, { Zone = zone.id, Level = zone.level, Price = zone.price, Index = zone.index })
+	return mk
+end
+
+-- невидимые стены: не дают обойти ворота по хребтам и берегу
+local function sideWalls(parent)
+	local zs, ze = D.Zones[1].z0 + 10, D.Island[2][3]
+	for _, x in ipairs({ -130, 130 }) do
+		B.part(parent, "InvisibleWall", Vector3.new(2, 160, zs - ze), CFrame.new(x, 40, (zs + ze) / 2), nil, nil,
+			{ Transparency = 1, CastShadow = false, CanQuery = false })
+	end
+	B.part(parent, "InvisibleWall", Vector3.new(262, 160, 2), CFrame.new(0, 40, ze + 18), nil, nil,
+		{ Transparency = 1, CastShadow = false, CanQuery = false })
+end
+
+function Zones.build(root)
+	local folder = B.folder(root, "Zones")
+	sideWalls(folder)
+	-- вход в первую зону
+	local z1 = D.Zones[1]
+	P.arch(folder, CFrame.new(0, z1.level, z1.z0), 30, 20, rgb(80, 70, 96), z1.accent, z1.title, "Зона 1 · вход свободный")
+
+	for i, zone in ipairs(D.Zones) do
+		local zm = B.model(folder, zone.id)
+		B.attrs(zm, { Zone = zone.id, Index = i })
+		bounds(zm, zone)
+		if i > 1 then gateWall(zm, D.Zones[i - 1], zone) end
+		local ctx = {
+			zone = zone,
+			model = zm,
+			rng = Rng.new(1000 + i * 37),
+			occ = P.newOcc(),
+			L = zone.level,
+			x0 = -INNER, x1 = INNER,
+			z0 = zone.z0 - WALL_GAP, z1 = zone.z1 + WALL_GAP,
+		}
+		-- проходы у ворот держим свободными
+		ctx.occ:add(0, zone.z0 - 6, 18)
+		ctx.occ:add(0, zone.z1 + 26, 22)
+		require(script[zone.id]).build(ctx)
+		local spawns = B.folder(zm, "Spawns")
+		P.spawnPoints(spawns, ctx.rng, ctx.occ, ctx.x0, ctx.x1, ctx.z0, ctx.z1, ctx.spawnY or ctx.L, SPAWNS, zone.id)
+	end
+	return folder
+end
+
+return Zones
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX00000011"><Properties><string name="Name">Crater</string><ProtectedString name="Source"><![CDATA[-- Зона 5. Радиоактивный кратер: воронка от метеорита со светящимся озером и самим метеоритом,
+-- трещины лавы, бочки с отходами, ядовитые лужи, паровые гейзеры, обугленные деревья,
+-- предупреждающие знаки и заброшенная станция наблюдения.
+local RS = game:GetService("ReplicatedStorage")
+local B = require(RS.Shared.Build)
+local P = require(script.Parent.Parent.Props)
+local T = require(script.Parent.Parent.Terrain)
+
+local Z = {}
+local C, rgb = P.C, P.rgb
+local M = Enum.Material
+
+local GREEN = rgb(170, 255, 40)
+local TOXIC_CRYSTALS = { rgb(170, 255, 40), rgb(120, 255, 120), rgb(220, 255, 90) }
+
+local function warningSign(m, cf)
+	local g = B.model(m, "WarningSign")
+	B.part(g, "Post", Vector3.new(0.5, 6, 0.5), cf * CFrame.new(0, 3, 0), C.metal, M.Metal)
+	local board = B.part(g, "Board", Vector3.new(5, 4, 0.3), cf * CFrame.new(0, 6.5, 0) * CFrame.Angles(0, 0, math.rad(45)), C.warning, M.SmoothPlastic)
+	local gui = P.board(board, Enum.NormalId.Front, "☢", nil, Color3.new(0, 0, 0))
+	local label = gui:FindFirstChildWhichIsA("Frame"):FindFirstChild("Title")
+	label.Rotation = -45
+	label.TextStrokeTransparency = 1
+	P.board(board, Enum.NormalId.Back, "ОПАСНО", nil, Color3.new(0, 0, 0))
+	return g
+end
+
+local function toxicPool(m, pos, r)
+	local goo = B.vcyl(m, "ToxicPool", 0.4, r * 2, CFrame.new(pos + Vector3.new(0, 0.12, 0)), GREEN, M.Neon, { CanCollide = false })
+	B.light(goo, "PointLight", { Range = r * 2 + 8, Brightness = 1.5, Color = GREEN })
+	B.particles(goo, {
+		Color = ColorSequence.new(rgb(210, 255, 150)), Size = NumberSequence.new(0.8, 0.2), Transparency = NumberSequence.new(0.3, 1),
+		Lifetime = NumberRange.new(1, 2), Speed = NumberRange.new(1, 2.5), Rate = 4, EmissionDirection = Enum.NormalId.Top,
+	})
+	return goo
+end
+
+local function vent(m, rng, pos)
+	local g = B.model(m, "SteamVent")
+	for i = 0, 6 do
+		local a = i / 7 * math.pi * 2
+		P.rock(g, pos + Vector3.new(math.cos(a) * 2.6, 0, math.sin(a) * 2.6), rng:range(1.4, 2.2), rng, rgb(60, 58, 62), M.Basalt)
+	end
+	local core = B.vcyl(g, "Hole", 0.3, 3, CFrame.new(pos + Vector3.new(0, 0.1, 0)), GREEN, M.Neon, { CanCollide = false })
+	B.particles(core, {
+		Color = ColorSequence.new(rgb(220, 255, 200), rgb(255, 255, 255)), Size = NumberSequence.new(2, 9),
+		Transparency = NumberSequence.new(0.4, 1), Lifetime = NumberRange.new(2.5, 4), Speed = NumberRange.new(8, 14),
+		SpreadAngle = Vector2.new(8, 8), Rate = 10, LightEmission = 0.2, Drag = 0.6, EmissionDirection = Enum.NormalId.Top,
+		RotSpeed = NumberRange.new(-30, 30), Rotation = NumberRange.new(0, 360),
+	})
+	return g
+end
+
+local function outpost(m, rng, pos, yaw)
+	local g = B.model(m, "Outpost")
+	local o = CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
+	local w, d, h = 18, 14, 8
+	local function pt(x, z) return o * Vector3.new(x, 0, z) end
+	local col = rgb(150, 154, 150)
+	B.part(g, "Slab", Vector3.new(w + 4, 0.6, d + 4), o * CFrame.new(0, 0.3, 0), C.concrete, M.Concrete)
+	B.wall(g, "Front", pt(-w / 2, -d / 2), pt(w / 2, -d / 2), h, 1.2, col, M.Concrete, { { at = w / 2, w = 4, y0 = 0.6, y1 = 6 }, { at = 3.5, w = 3, y0 = 3.5, y1 = 5.5 } })
+	B.wall(g, "Back", pt(w / 2, d / 2), pt(-w / 2, d / 2), h, 1.2, col, M.Concrete)
+	B.wall(g, "Left", pt(-w / 2, d / 2), pt(-w / 2, -d / 2), h, 1.2, col, M.Concrete)
+	B.wall(g, "Right", pt(w / 2, -d / 2), pt(w / 2, d / 2), h, 1.2, col, M.Concrete, { { at = d / 2, w = 3, y0 = 3.5, y1 = 5.5 } })
+	B.part(g, "Roof", Vector3.new(w + 1.5, 1, d + 1.5), o * CFrame.new(0, h + 0.5, 0), rgb(120, 124, 120), M.Concrete)
+	B.part(g, "Stripe", Vector3.new(w + 0.1, 1, 0.2), o * CFrame.new(0, h - 1, -d / 2 - 0.55), C.warning, M.SmoothPlastic)
+	-- вращающийся радар
+	local radar = B.model(g, "Radar")
+	local rc = o * CFrame.new(4, h + 1, 3)
+	B.vcyl(g, "RadarPole", 3, 0.8, rc * CFrame.new(0, 1.5, 0), C.metal, M.Metal)
+	B.part(radar, "Dish", Vector3.new(7, 2.4, 0.4), rc * CFrame.new(0, 3.6, 0) * CFrame.Angles(math.rad(-15), 0, 0), C.metalLight, M.Metal)
+	B.part(radar, "Arm", Vector3.new(0.4, 0.4, 2), rc * CFrame.new(0, 3.6, -0.9), C.metal, M.Metal)
+	radar.WorldPivot = rc * CFrame.new(0, 3.6, 0)
+	B.tag(radar, "Spin", { Speed = 60 })
+	local lamp = B.ball(g, "Beacon", 0.8, o * CFrame.new(-6, h + 1.4, -4), rgb(255, 60, 40), M.Neon)
+	B.light(lamp, "PointLight", { Range = 12, Color = rgb(255, 60, 40) })
+	B.tag(lamp, "Pulse", { Speed = 2 })
+	-- мешки с песком
+	for i = -3, 3 do
+		B.ellipsoid(g, "Sandbag", Vector3.new(2.4, 1, 1.4), o * CFrame.new(i * 2.3 + rng:range(-0.2, 0.2), 0.9, -d / 2 - 4) * CFrame.Angles(0, rng:range(-0.2, 0.2), 0),
+			rgb(170, 150, 110), M.Fabric)
+	end
+	local sign = B.part(g, "Sign", Vector3.new(10, 2, 0.3), o * CFrame.new(0, h - 2.8, -d / 2 - 0.75), rgb(30, 34, 30), M.SmoothPlastic)
+	P.board(sign, Enum.NormalId.Front, "СТАНЦИЯ НАБЛЮДЕНИЯ", nil, GREEN, rgb(30, 34, 30))
+	return g
+end
+
+local function meteor(m, rng, pos)
+	local g = B.model(m, "Meteor")
+	B.ball(g, "Rock", 16, CFrame.new(pos), rgb(56, 46, 46), M.CrackedLava)
+	for _ = 1, 6 do
+		local dir = Vector3.new(rng:range(-1, 1), rng:range(0.2, 1), rng:range(-1, 1)).Unit
+		P.crystal(g, pos + dir * 6.5, dir, rng:range(4, 8), rng:range(1.4, 2.2), rng:pick(TOXIC_CRYSTALS))
+	end
+	local glow = B.marker(g, "Glow", Vector3.new(1, 1, 1), CFrame.new(pos + Vector3.new(0, 10, 0)))
+	B.light(glow, "PointLight", { Range = 60, Brightness = 3, Color = GREEN })
+	B.billboard(glow, "МЕТЕОРИТ", rgb(210, 255, 120), 6, UDim2.fromOffset(240, 50), 200)
+	-- обломки парят вокруг
+	for i = 1, 5 do
+		local a = i / 5 * math.pi * 2
+		local frag = B.part(g, "Fragment", Vector3.new(rng:range(1.5, 3), rng:range(1.5, 3), rng:range(1.5, 3)),
+			CFrame.new(pos + Vector3.new(math.cos(a) * 13, rng:range(4, 10), math.sin(a) * 13)) * CFrame.Angles(rng:angle(), rng:angle(), 0),
+			rgb(70, 60, 60), M.Basalt, { CanCollide = false })
+		B.tag(frag, "Bob", { Height = rng:range(0.8, 1.6), Period = rng:range(3, 5) })
+	end
+	-- дым над воронкой
+	local smoke = B.marker(g, "Smoke", Vector3.new(20, 1, 20), CFrame.new(pos + Vector3.new(0, 4, 0)))
+	B.particles(smoke, {
+		Color = ColorSequence.new(rgb(190, 240, 140), rgb(120, 130, 120)), Size = NumberSequence.new(6, 18),
+		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.75), NumberSequenceKeypoint.new(1, 1) }),
+		Lifetime = NumberRange.new(6, 9), Speed = NumberRange.new(3, 5), Rate = 3, LightEmission = 0.3, Drag = 0.3,
+		RotSpeed = NumberRange.new(-10, 10), Rotation = NumberRange.new(0, 360), EmissionDirection = Enum.NormalId.Top,
+	})
+	return g
+end
+
+function Z.build(ctx)
+	local m, rng, occ, L = ctx.model, ctx.rng, ctx.occ, ctx.L
+	local zone = ctx.zone
+	local deco = B.model(m, "Decor")
+
+	for _ = 1, 12 do
+		T.patch(rng:range(ctx.x0, ctx.x1), rng:range(zone.z1, zone.z0), L, rng:range(5, 11), M.CrackedLava)
+	end
+	for _ = 1, 8 do
+		T.patch(rng:range(ctx.x0, ctx.x1), rng:range(zone.z1, zone.z0), L, rng:range(8, 14), M.Rock)
+	end
+
+	-- воронка: вал из базальта, потом вырезаем шар
+	local cz = (zone.z0 + zone.z1) / 2 - 8
+	local CR, CH = 55, 30 -- радиус шара и высота его центра над землёй
+	for i = 0, 27 do
+		local a = i / 28 * math.pi * 2
+		T.ball(math.cos(a) * 49, L - 2, cz + math.sin(a) * 49, rng:range(8, 11), M.Basalt)
+	end
+	T.ball(0, L + CH, cz, CR, M.Air)
+	local bottom = L + CH - CR
+	-- светящееся озеро на дне и метеорит
+	local lakeY = bottom + 1.6
+	local lake = B.vcyl(deco, "CraterLake", 1, 30, CFrame.new(0, lakeY - 0.5, cz), GREEN, M.Neon, { Transparency = 0.05 })
+	B.light(lake, "PointLight", { Range = 40, Brightness = 2, Color = GREEN })
+	meteor(deco, rng, Vector3.new(0, lakeY + 5, cz))
+	occ:add(0, cz, 60)
+	for i = 0, 7 do
+		local a = i / 8 * math.pi * 2 + 0.2
+		local r = 25
+		local y = L + CH - math.sqrt(CR * CR - r * r)
+		P.crystalCluster(deco, Vector3.new(math.cos(a) * r, y, cz + math.sin(a) * r), rng:range(4, 7), rng, TOXIC_CRYSTALS, i % 2 == 0)
+	end
+	-- предупреждения по краю воронки
+	for i = 0, 5 do
+		local a = i / 6 * math.pi * 2 + 0.5
+		local p = Vector3.new(math.cos(a) * 62, L, cz + math.sin(a) * 62)
+		warningSign(deco, P.facing(p, Vector3.new(0, L, cz)) * CFrame.Angles(0, math.pi, 0))
+	end
+
+	-- станция наблюдения
+	do
+		local x, z = occ:find(rng, ctx.x0 + 12, ctx.x1 - 12, ctx.z0 - 4, ctx.z1 + 10, 15, 80)
+		if x then
+			outpost(deco, rng, Vector3.new(x, L, z), x < 0 and math.rad(70) or math.rad(-70))
+			occ:add(x, z, 15)
+		end
+	end
+	-- ядовитые лужи, бочки, гейзеры, обугленные деревья, кристаллы
+	for _ = 1, 6 do
+		local r = rng:range(3, 6)
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, r + 1)
+		if x then
+			toxicPool(deco, Vector3.new(x, L, z), r)
+			occ:add(x, z, r + 1)
+		end
+	end
+	for _ = 1, 9 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 5)
+		if x then
+			for _ = 1, rng:int(3, 6) do
+				local a, r = rng:angle(), rng:range(0, 3)
+				local cf = CFrame.new(x + math.cos(a) * r, L, z + math.sin(a) * r)
+				if rng:chance(0.3) then
+					-- опрокинутая бочка и лужа
+					P.barrel(deco, cf * CFrame.new(0, 1.5, 0) * CFrame.Angles(0, rng:angle(), math.rad(90)) * CFrame.new(0, -2, 0), C.warning, false)
+					B.vcyl(deco, "Spill", 0.15, rng:range(3, 5), cf * CFrame.new(rng:range(1, 2), 0.08, 0), GREEN, M.Neon, { CanCollide = false })
+				else
+					P.barrel(deco, cf, C.warning, true)
+				end
+			end
+			occ:add(x, z, 5)
+		end
+	end
+	for _ = 1, 8 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 5)
+		if x then
+			vent(deco, rng, Vector3.new(x, L, z))
+			occ:add(x, z, 4.5)
+		end
+	end
+	for _ = 1, 10 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 4)
+		if x then
+			P.deadTree(deco, Vector3.new(x, L, z), rng, rng:range(0.9, 1.3), rgb(34, 30, 30), nil)
+			occ:add(x, z, 2.5)
+		end
+	end
+	for _ = 1, 10 do
+		local s = rng:range(3, 7)
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, s * 0.5 + 1)
+		if x then
+			P.crystalCluster(deco, Vector3.new(x, L, z), s, rng, TOXIC_CRYSTALS, rng:chance(0.5))
+			occ:add(x, z, s * 0.45 + 1)
+		end
+	end
+	for _ = 1, 8 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 4)
+		if x then
+			P.rock(deco, Vector3.new(x, L, z), rng:range(3, 6), rng, rgb(60, 58, 62), M.Basalt)
+			occ:add(x, z, 3.5)
+		end
+	end
+	-- обломки сетчатого забора
+	for _, side in ipairs({ -1, 1 }) do
+		for k = 0, 5 do
+			if rng:chance(0.7) then
+				local z = zone.z0 - 30 - k * 24
+				local cf = CFrame.new(side * 96, L, z) * CFrame.Angles(0, math.rad(90 + rng:range(-10, 10)), math.rad(rng:range(-12, 12)))
+				B.part(deco, "FencePost", Vector3.new(0.4, 7, 0.4), cf * CFrame.new(-4, 3.5, 0), C.metal, M.Metal)
+				B.part(deco, "FencePost", Vector3.new(0.4, 7, 0.4), cf * CFrame.new(4, 3.5, 0), C.metal, M.Metal)
+				B.part(deco, "FenceMesh", Vector3.new(8, 6, 0.1), cf * CFrame.new(0, 3.6, 0), C.metalLight, M.Metal,
+					{ Transparency = 0.6, CastShadow = false })
+			end
+		end
+	end
+	for i = 1, 5 do
+		P.motes(deco, CFrame.new(rng:range(-50, 50), L + 6, zone.z0 - 25 - (i - 1) * 38), Vector3.new(70, 12, 30), GREEN, 7, "Spores")
+	end
+	P.signpost(deco, CFrame.new(-16, L, zone.z0 - 14) * CFrame.Angles(0, math.rad(20), 0), "РАДИОАКТИВНЫЙ КРАТЕР", "Осколки метеорита и токсичная слизь", zone.accent, 15, 4)
+	occ:add(-16, zone.z0 - 14, 7)
+end
+
+return Z
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000012"><Properties><string name="Name">Crystal</string><ProtectedString name="Source"><![CDATA[-- Зона 3. Кристальные пещеры: каменные арки и нависающие скалы, гнёзда светящихся кристаллов,
+-- огромный парящий кристалл в центре, сталагмиты, подземное озерцо и старая шахта с вагонеткой.
+local RS = game:GetService("ReplicatedStorage")
+local B = require(RS.Shared.Build)
+local P = require(script.Parent.Parent.Props)
+local T = require(script.Parent.Parent.Terrain)
+
+local Z = {}
+local C, rgb = P.C, P.rgb
+local M = Enum.Material
+
+local COLORS = { rgb(80, 230, 255), rgb(255, 90, 220), rgb(160, 100, 255), rgb(190, 240, 255) }
+local GOLD = rgb(255, 210, 90)
+
+local function stalagmite(m, pos, s, color)
+	local g = B.model(m, "Stalagmite")
+	B.vcyl(g, "Base", s * 0.8, s, CFrame.new(pos + Vector3.new(0, s * 0.3, 0)), color, M.Slate)
+	B.vcyl(g, "Mid", s * 0.8, s * 0.62, CFrame.new(pos + Vector3.new(0, s * 0.95, 0)), color, M.Slate)
+	B.vcyl(g, "Tip", s * 0.7, s * 0.32, CFrame.new(pos + Vector3.new(0, s * 1.6, 0)), color, M.Slate)
+	return g
+end
+
+local function mineTrack(m, rng, a, b, L)
+	local g = B.model(m, "MineTrack")
+	local flat = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+	local len = flat.Magnitude
+	local frame = CFrame.lookAt(Vector3.new(a.X, L, a.Z), Vector3.new(b.X, L, b.Z))
+	for _, x in ipairs({ -1.6, 1.6 }) do
+		B.part(g, "Rail", Vector3.new(0.3, 0.3, len), frame * CFrame.new(x, 0.45, -len / 2), C.metalLight, M.Metal)
+	end
+	for k = 0, math.floor(len / 2.2) do
+		B.part(g, "Sleeper", Vector3.new(4.6, 0.3, 0.8), frame * CFrame.new(0, 0.15, -k * 2.2), C.woodDark, M.Wood)
+	end
+	-- крепь с фонарями
+	for k = 1, math.floor(len / 26) do
+		local f = frame * CFrame.new(0, 0, -k * 26)
+		for _, x in ipairs({ -4.5, 4.5 }) do
+			B.part(g, "Prop", Vector3.new(0.9, 10, 0.9), f * CFrame.new(x, 5, 0), C.wood, M.Wood)
+		end
+		B.part(g, "Lintel", Vector3.new(10.4, 0.9, 1), f * CFrame.new(0, 10.2, 0), C.wood, M.Wood)
+		B.part(g, "Chain", Vector3.new(0.15, 1.6, 0.15), f * CFrame.new(0, 9, 0), C.metalDark, M.Metal, { CanCollide = false })
+		local lamp = B.ball(g, "Lantern", 0.9, f * CFrame.new(0, 7.9, 0), rgb(255, 200, 110), M.Neon, { CanCollide = false })
+		B.light(lamp, "PointLight", { Range = 16, Brightness = 1.4, Color = rgb(255, 190, 110) })
+	end
+	-- вагонетка с кристаллами
+	local cf = frame * CFrame.new(0, 0.6, -len * 0.35)
+	B.part(g, "CartFloor", Vector3.new(4.4, 0.4, 5.6), cf * CFrame.new(0, 1.2, 0), C.metal, M.CorrodedMetal)
+	for _, s in ipairs({ -1, 1 }) do
+		B.part(g, "CartSide", Vector3.new(0.4, 2.6, 5.6), cf * CFrame.new(s * 2.2, 2.5, 0), C.metal, M.CorrodedMetal)
+		B.part(g, "CartEnd", Vector3.new(4.4, 2.6, 0.4), cf * CFrame.new(0, 2.5, s * 2.8), C.metal, M.CorrodedMetal)
+		for _, z in ipairs({ -1.8, 1.8 }) do
+			B.cyl(g, "Wheel", 0.5, 1.6, cf * CFrame.new(s * 1.9, 0.6, z), C.metalDark, M.Metal)
+		end
+	end
+	for _ = 1, 4 do
+		P.crystal(g, (cf * CFrame.new(rng:range(-1.2, 1.2), 1.4, rng:range(-1.8, 1.8))).Position,
+			Vector3.new(rng:range(-0.4, 0.4), 1, rng:range(-0.4, 0.4)), rng:range(2, 3.4), 0.8, rng:pick(COLORS))
+	end
+	-- вход в штольню у конца путей
+	local e = frame * CFrame.new(0, 0, -len - 2)
+	for _, x in ipairs({ -5, 5 }) do
+		B.part(g, "PortalPost", Vector3.new(1.2, 11, 1.2), e * CFrame.new(x, 5.5, 0), C.woodDark, M.Wood)
+	end
+	B.part(g, "PortalBeam", Vector3.new(12, 1.4, 1.4), e * CFrame.new(0, 11.2, 0), C.woodDark, M.Wood)
+	B.part(g, "Darkness", Vector3.new(9, 10.4, 1), e * CFrame.new(0, 5.2, -1.2), Color3.new(0, 0, 0), M.SmoothPlastic)
+	local sign = B.part(g, "MineSign", Vector3.new(7, 1.6, 0.3), e * CFrame.new(0, 12.8, 0.4), C.wood, M.WoodPlanks)
+	P.board(sign, Enum.NormalId.Back, "ШАХТА №3", nil, rgb(255, 220, 160))
+	return g
+end
+
+local function giantCrystal(m, center)
+	local g = B.model(m, "GiantCrystal")
+	local mid = center + Vector3.new(0, 16, 0)
+	P.crystal(g, mid, Vector3.yAxis, 9, 5, COLORS[1])
+	P.crystal(g, mid, -Vector3.yAxis, 7, 5, COLORS[1])
+	local glow = B.marker(g, "Glow", Vector3.new(1, 1, 1), CFrame.new(mid))
+	B.light(glow, "PointLight", { Range = 50, Brightness = 3, Color = COLORS[1] })
+	g.WorldPivot = CFrame.new(mid)
+	B.tag(g, "Spin", { Speed = 14 })
+	B.tag(g, "Bob", { Height = 1.4, Period = 6 })
+	B.billboard(glow, "СЕРДЦЕ ПЕЩЕР", rgb(190, 245, 255), 14, UDim2.fromOffset(300, 50), 160)
+	return g
+end
+
+function Z.build(ctx)
+	local m, rng, occ, L = ctx.model, ctx.rng, ctx.occ, ctx.L
+	local zone = ctx.zone
+	local deco = B.model(m, "Decor")
+
+	-- рельеф: пятна камня, арки, нависающие скалы, колонны
+	for _ = 1, 14 do
+		T.patch(rng:range(ctx.x0, ctx.x1), rng:range(zone.z1, zone.z0), L, rng:range(8, 16), M.Rock)
+	end
+	for _, zc in ipairs({ zone.z0 - 45, zone.z0 - 105, zone.z0 - 160 }) do
+		for k = 0, 18 do
+			local t = k / 18 * math.pi
+			T.ball(-128 * math.cos(t), L + 4 + 48 * math.sin(t), zc + rng:range(-3, 3), rng:range(8, 10), k % 3 == 0 and M.Rock or M.Slate)
+		end
+	end
+	for _, side in ipairs({ -1, 1 }) do
+		for z = zone.z0 - 12, zone.z1 + 12, -26 do
+			T.ball(side * rng:range(108, 116), L + rng:range(30, 38), z, rng:range(14, 18), M.Slate)
+		end
+	end
+	for _ = 1, 3 do
+		local x, z = occ:find(rng, ctx.x0 + 20, ctx.x1 - 20, ctx.z0 - 10, ctx.z1 + 10, 12)
+		if x then
+			local r = rng:range(5, 7.5)
+			T.cyl(x, z, L - 2, L + 52, r, M.Rock)
+			T.ball(x, L + 1, z, r + 3, M.Slate)
+			occ:add(x, z, r + 4)
+		end
+	end
+
+	-- парящий кристалл в центре
+	local cz = (zone.z0 + zone.z1) / 2 + 5
+	local center = Vector3.new(0, L, cz)
+	giantCrystal(deco, center)
+	for i = 0, 7 do
+		local a = i / 8 * math.pi * 2
+		local p = center + Vector3.new(math.cos(a) * 11, 0, math.sin(a) * 11)
+		if i % 2 == 0 then
+			P.crystalCluster(deco, p, rng:range(4, 6), rng, { COLORS[1], COLORS[4] }, false)
+		else
+			P.rock(deco, p, rng:range(3, 5), rng, rgb(90, 98, 124), M.Slate)
+		end
+	end
+	occ:add(0, cz, 16)
+
+	-- шахта вдоль западного склона
+	local ta, tb = Vector3.new(-84, L, zone.z0 - 22), Vector3.new(-74, L, zone.z1 + 46)
+	mineTrack(deco, rng, ta, tb, L)
+	occ:addLine(ta, tb, 6)
+
+	-- озерцо
+	do
+		local x, z = occ:find(rng, 20, ctx.x1, ctx.z0, ctx.z1, 16)
+		if x then
+			T.pond(x, z, L, 12, 3, M.Slate)
+			for i = 0, 4 do
+				local a = i / 5 * math.pi * 2 + 0.3
+				P.crystalCluster(deco, Vector3.new(x + math.cos(a) * 14, L, z + math.sin(a) * 14), rng:range(3, 5), rng, { COLORS[4], COLORS[1] }, i == 0)
+			end
+			occ:add(x, z, 17)
+		end
+	end
+
+	-- гнёзда кристаллов
+	for i = 1, 26 do
+		local s = rng:range(4, 11)
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, s * 0.5 + 1)
+		if x then
+			local cols = i % 9 == 0 and { GOLD } or COLORS
+			P.crystalCluster(deco, Vector3.new(x, L, z), s, rng, cols, i % 2 == 0)
+			occ:add(x, z, s * 0.45 + 1)
+		end
+	end
+	for _ = 1, 22 do
+		local s = rng:range(2.5, 6)
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, s * 0.6)
+		if x then
+			stalagmite(deco, Vector3.new(x, L, z), s, rng:pick({ rgb(96, 104, 128), rgb(110, 112, 130), rgb(84, 90, 112) }))
+			occ:add(x, z, s * 0.55)
+		end
+	end
+	-- светящиеся голубые грибочки
+	for _ = 1, 12 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 3)
+		if x then
+			local g = B.model(deco, "GlowShrooms")
+			for _ = 1, rng:int(3, 6) do
+				local a, r = rng:angle(), rng:range(0, 2)
+				local p = Vector3.new(x + math.cos(a) * r, L, z + math.sin(a) * r)
+				local h = rng:range(0.8, 2)
+				B.vcyl(g, "Stem", h, 0.35, CFrame.new(p + Vector3.new(0, h / 2, 0)), rgb(200, 230, 240), M.SmoothPlastic, { CanCollide = false })
+				B.ellipsoid(g, "Cap", Vector3.new(1.6, 0.7, 1.6), CFrame.new(p + Vector3.new(0, h, 0)), rgb(90, 200, 255), M.Neon, { CanCollide = false })
+			end
+			occ:add(x, z, 2.5)
+		end
+	end
+	for i = 1, 5 do
+		P.motes(deco, CFrame.new(rng:range(-50, 50), L + 8, zone.z0 - 25 - (i - 1) * 38), Vector3.new(70, 14, 30), rng:pick(COLORS), 6, "Sparkles")
+	end
+	P.signpost(deco, CFrame.new(-16, L, zone.z0 - 14) * CFrame.Angles(0, math.rad(20), 0), "КРИСТАЛЬНЫЕ ПЕЩЕРЫ", "Кристаллы и пещерная роса", zone.accent, 14, 4)
+	occ:add(-16, zone.z0 - 14, 7)
+end
+
+return Z
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000013"><Properties><string name="Name">Junkyard</string><ProtectedString name="Source"><![CDATA[-- Зона 4. Свалка роботов: горы металлолома, сломанные роботы, гигантская голова робота,
+-- кран с магнитом, старые машины, покрышки, бочки и лужи масла, искры.
+local RS = game:GetService("ReplicatedStorage")
+local B = require(RS.Shared.Build)
+local P = require(script.Parent.Parent.Props)
+local T = require(script.Parent.Parent.Terrain)
+
+local Z = {}
+local C, rgb = P.C, P.rgb
+local M = Enum.Material
+
+local JUNK_COLORS = { rgb(150, 82, 52), rgb(120, 124, 132), rgb(80, 110, 150), rgb(200, 170, 60), rgb(170, 62, 50), rgb(90, 96, 90) }
+local JUNK_MATS = { M.CorrodedMetal, M.Metal, M.DiamondPlate, M.CorrodedMetal }
+local ROBOT_COLORS = { rgb(90, 140, 200), rgb(230, 140, 50), rgb(160, 166, 176), rgb(200, 80, 80) }
+
+local function sparks(parent)
+	B.particles(parent, {
+		Color = ColorSequence.new(rgb(255, 230, 120), rgb(255, 140, 40)), Size = NumberSequence.new(0.25, 0),
+		Transparency = NumberSequence.new(0, 1), Lifetime = NumberRange.new(0.3, 0.7), Speed = NumberRange.new(6, 12),
+		SpreadAngle = Vector2.new(40, 40), Rate = 5, LightEmission = 1, Acceleration = Vector3.new(0, -30, 0),
+		EmissionDirection = Enum.NormalId.Top,
+	})
+end
+
+-- гора хлама с земляным холмом внутри
+local function scrapPile(m, rng, pos, R)
+	local g = B.model(m, "ScrapPile")
+	T.ball(pos.X, pos.Y - R * 0.55, pos.Z, R * 0.95, M.Ground)
+	local n = math.floor(R * 2.4)
+	for _ = 1, n do
+		local a, r = rng:angle(), R * math.sqrt(rng:next())
+		local h = math.max(0.3, (R - r) * 0.55 + rng:range(0, 1.2))
+		local p = pos + Vector3.new(math.cos(a) * r, h, math.sin(a) * r)
+		local cf = CFrame.new(p) * CFrame.Angles(rng:range(-1.2, 1.2), rng:angle(), rng:range(-1.2, 1.2))
+		local col, mat = rng:pick(JUNK_COLORS), rng:pick(JUNK_MATS)
+		local kind = rng:int(1, 6)
+		if kind == 1 then
+			B.part(g, "Plate", Vector3.new(rng:range(3, 6), rng:range(0.3, 0.6), rng:range(2, 4)), cf, col, mat)
+		elseif kind == 2 then
+			B.part(g, "Beam", Vector3.new(0.8, 0.8, rng:range(4, 8)), cf, col, mat)
+		elseif kind == 3 then
+			B.cyl(g, "Pipe", rng:range(3, 6), rng:range(0.8, 1.6), cf, col, M.Metal)
+		elseif kind == 4 then
+			local s = rng:range(1.6, 3)
+			B.part(g, "Box", Vector3.new(s, s, s), cf, col, mat)
+		elseif kind == 5 then
+			B.cyl(g, "Tire", 1.1, 3, cf, rgb(30, 30, 32), M.SmoothPlastic)
+		else
+			B.cyl(g, "Gear", 0.6, rng:range(2, 3.4), cf, rgb(150, 150, 140), M.Metal)
+		end
+	end
+	return g
+end
+
+local function robot(m, rng, pos, yaw, s, pose)
+	local g = B.model(m, "BrokenRobot")
+	local col = rng:pick(ROBOT_COLORS)
+	local o = CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
+	g.WorldPivot = o -- поворачиваем робота вокруг точки между ступнями
+	local legH = 4 * s
+	-- ноги
+	for _, x in ipairs({ -1.5 * s, 1.5 * s }) do
+		B.part(g, "Leg", Vector3.new(1.6 * s, legH, 1.8 * s), o * CFrame.new(x, legH / 2, 0), C.metal, M.Metal)
+		B.part(g, "Foot", Vector3.new(2 * s, 0.8 * s, 3 * s), o * CFrame.new(x, 0.4 * s, -0.4 * s), C.metalDark, M.Metal)
+	end
+	local bodyC = o * CFrame.new(0, legH + 3.5 * s, 0)
+	B.part(g, "Body", Vector3.new(6 * s, 7 * s, 4 * s), bodyC, col, M.Metal)
+	B.part(g, "Panel", Vector3.new(3.4 * s, 3 * s, 0.3 * s), bodyC * CFrame.new(0, 0.5 * s, -2.1 * s), C.metalDark, M.Metal)
+	local light = B.ball(g, "ChestLight", 0.9 * s, bodyC * CFrame.new(-0.8 * s, 0.8 * s, -2.2 * s), rgb(255, 60, 60), M.Neon)
+	B.tag(light, "Pulse", { Speed = 1 })
+	-- голова: один глаз горит, другой разбит
+	local headC = bodyC * CFrame.new(0, 5 * s, 0) * CFrame.Angles(0, 0, math.rad(rng:range(-20, 20)))
+	B.part(g, "Head", Vector3.new(4 * s, 3.2 * s, 3.6 * s), headC, col, M.Metal)
+	B.ball(g, "Eye", 1.1 * s, headC * CFrame.new(-0.9 * s, 0.2 * s, -1.75 * s), rgb(120, 230, 255), M.Neon)
+	B.ball(g, "EyeBroken", 1.1 * s, headC * CFrame.new(0.9 * s, 0.2 * s, -1.75 * s), rgb(30, 30, 34), M.Glass)
+	B.part(g, "Mouth", Vector3.new(2.4 * s, 0.4 * s, 0.2 * s), headC * CFrame.new(0, -0.9 * s, -1.85 * s), C.metalDark, M.Metal)
+	B.vcyl(g, "Antenna", 2 * s, 0.25 * s, headC * CFrame.new(0.6 * s, 2.6 * s, 0) * CFrame.Angles(0, 0, 0.4), C.metalLight, M.Metal)
+	B.ball(g, "AntennaTip", 0.6 * s, headC * CFrame.new(1.05 * s, 3.5 * s, 0), rgb(255, 200, 60), M.Neon)
+	-- руки: одна висит, вторая оторвана (искрит)
+	B.ball(g, "Shoulder", 1.8 * s, bodyC * CFrame.new(-3.6 * s, 2.4 * s, 0), C.metal, M.Metal)
+	B.part(g, "Arm", Vector3.new(1.2 * s, 6 * s, 1.2 * s), bodyC * CFrame.new(-3.9 * s, -0.6 * s, 0) * CFrame.Angles(0, 0, math.rad(-8)), col, M.Metal)
+	local stump = B.ball(g, "Stump", 1.6 * s, bodyC * CFrame.new(3.6 * s, 2.4 * s, 0), C.metalDark, M.Metal)
+	sparks(stump)
+	-- поза: «сидит», «лежит» или «стоит»
+	if pose == "lying" then
+		g:PivotTo(CFrame.new(pos + Vector3.new(0, 2 * s, 0)) * CFrame.Angles(0, yaw, 0) * CFrame.Angles(math.rad(-88), 0, 0))
+	elseif pose == "tilted" then
+		g:PivotTo(o * CFrame.Angles(math.rad(12), 0, math.rad(15)))
+	end
+	-- оторванная рука рядом
+	B.part(g, "LostArm", Vector3.new(1.2 * s, 6 * s, 1.2 * s), o * CFrame.new(7 * s, 0.6 * s, 2 * s) * CFrame.Angles(0, 0.5, math.rad(90)), col, M.Metal)
+	return g
+end
+
+local function giantHead(m, pos, yaw)
+	local g = B.model(m, "GiantRobotHead")
+	local o = CFrame.new(pos) * CFrame.Angles(0, yaw, 0) * CFrame.Angles(math.rad(-14), 0, math.rad(9))
+	B.part(g, "Head", Vector3.new(26, 20, 22), o * CFrame.new(0, 6, 0), rgb(120, 132, 146), M.CorrodedMetal)
+	B.part(g, "Brow", Vector3.new(27, 2.4, 3), o * CFrame.new(0, 12, -10.6), rgb(90, 98, 110), M.Metal)
+	for _, x in ipairs({ -6.5, 6.5 }) do
+		B.cyl(g, "EyeRim", 1.2, 8.4, o * CFrame.new(x, 7.5, -11) * CFrame.Angles(0, math.rad(90), 0), rgb(70, 76, 86), M.Metal)
+		local eye = B.cyl(g, "Eye", 1, 6.6, o * CFrame.new(x, 7.5, -11.3) * CFrame.Angles(0, math.rad(90), 0), rgb(255, 60, 50), M.Neon)
+		B.light(eye, "SpotLight", { Range = 40, Brightness = 3, Angle = 50, Color = rgb(255, 80, 60), Face = Enum.NormalId.Right })
+		B.tag(eye, "Pulse", { Speed = 0.6 })
+	end
+	for i = -4, 4 do
+		B.part(g, "Grill", Vector3.new(1.2, 5, 0.6), o * CFrame.new(i * 2.2, 0, -11.2), rgb(60, 64, 72), M.Metal)
+	end
+	B.part(g, "EarL", Vector3.new(3, 8, 8), o * CFrame.new(-14, 6, 0), rgb(90, 98, 110), M.Metal)
+	B.part(g, "EarR", Vector3.new(3, 8, 8), o * CFrame.new(14, 6, 0), rgb(90, 98, 110), M.Metal)
+	B.between(g, "Antenna", (o * CFrame.new(4, 16, 2)).Position, (o * CFrame.new(10, 24, 6)).Position, 0.8, C.metalLight, M.Metal, true)
+	B.between(g, "Antenna", (o * CFrame.new(10, 24, 6)).Position, (o * CFrame.new(16, 23, 4)).Position, 0.8, C.metalLight, M.Metal, true)
+	local tip = B.ball(g, "Tip", 1.8, o * CFrame.new(16, 23, 4), rgb(255, 200, 60), M.Neon)
+	sparks(tip)
+	return g
+end
+
+local function car(m, rng, cf)
+	local g = B.model(m, "OldCar")
+	local col = rng:pick({ rgb(170, 70, 60), rgb(70, 120, 170), rgb(200, 180, 90), rgb(90, 150, 100), rgb(140, 140, 150) })
+	B.part(g, "Body", Vector3.new(5, 2.6, 10), cf * CFrame.new(0, 2, 0), col, M.CorrodedMetal)
+	B.part(g, "Cabin", Vector3.new(4.6, 2.2, 5), cf * CFrame.new(0, 4.4, 0.6), col, M.CorrodedMetal)
+	B.part(g, "Windshield", Vector3.new(4.2, 1.8, 0.2), cf * CFrame.new(0, 4.4, -1.95), rgb(60, 80, 90), M.Glass, { Transparency = 0.3 })
+	for _, x in ipairs({ -2.5, 2.5 }) do
+		for _, z in ipairs({ -3.4, 3.4 }) do
+			B.cyl(g, "Wheel", 1, 2.4, cf * CFrame.new(x, 1.2, z), rgb(28, 28, 30), M.SmoothPlastic)
+		end
+	end
+	return g
+end
+
+local function crane(m, pos, yaw, L)
+	local g = B.model(m, "Crane")
+	local o = CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
+	local H, w = 42, 4
+	local yel = rgb(235, 180, 40)
+	B.part(g, "Footing", Vector3.new(w + 4, 1.5, w + 4), o * CFrame.new(0, 0.75, 0), C.concrete, M.Concrete)
+	for _, x in ipairs({ -w / 2, w / 2 }) do
+		for _, z in ipairs({ -w / 2, w / 2 }) do
+			B.part(g, "Chord", Vector3.new(0.6, H, 0.6), o * CFrame.new(x, H / 2, z), yel, M.Metal)
+		end
+	end
+	-- решётка
+	for y = 3, H - 3, 6 do
+		for _, side in ipairs({ { -w / 2, 0, true }, { w / 2, 0, true }, { 0, -w / 2, false }, { 0, w / 2, false } }) do
+			local a, b
+			if side[3] then
+				a = o * Vector3.new(side[1], y, -w / 2)
+				b = o * Vector3.new(side[1], y + 6, w / 2)
+			else
+				a = o * Vector3.new(-w / 2, y, side[2])
+				b = o * Vector3.new(w / 2, y + 6, side[2])
+			end
+			B.between(g, "Brace", a, b, 0.35, yel, M.Metal)
+		end
+	end
+	-- кабина, стрела, противовес, трос и магнит
+	B.part(g, "Cab", Vector3.new(5, 4, 5), o * CFrame.new(0, H + 2, -1), yel, M.Metal)
+	B.part(g, "CabWindow", Vector3.new(4.4, 2, 0.2), o * CFrame.new(0, H + 2.6, -3.55), rgb(120, 180, 220), M.Glass, { Transparency = 0.3 })
+	local boomLen = 34
+	for _, x in ipairs({ -1, 1 }) do
+		B.part(g, "Boom", Vector3.new(0.6, 0.6, boomLen), o * CFrame.new(x, H + 4.6, -boomLen / 2 + 2), yel, M.Metal)
+	end
+	for k = 0, 10 do
+		B.part(g, "BoomRung", Vector3.new(2.4, 0.4, 0.4), o * CFrame.new(0, H + 4.6, 2 - k * 3.2), yel, M.Metal)
+	end
+	B.part(g, "Counterweight", Vector3.new(4.5, 3.5, 5), o * CFrame.new(0, H + 3.6, 8), C.concrete, M.Concrete)
+	local hookZ = -boomLen + 6
+	local cableTop = H + 4.3
+	local magnetY = L - pos.Y + 14
+	local cable = cableTop - magnetY
+	B.part(g, "Cable", Vector3.new(0.25, cable, 0.25), o * CFrame.new(0, magnetY + cable / 2, hookZ), C.metalDark, M.Metal, { CanCollide = false })
+	B.vcyl(g, "Magnet", 1.6, 6, o * CFrame.new(0, magnetY, hookZ), rgb(40, 42, 48), M.Metal)
+	B.vcyl(g, "MagnetTop", 0.4, 6.2, o * CFrame.new(0, magnetY + 0.9, hookZ), rgb(220, 50, 50), M.SmoothPlastic)
+	local beacon = B.ball(g, "Beacon", 1, o * CFrame.new(0, H + 5, -1), rgb(255, 60, 40), M.Neon)
+	B.light(beacon, "PointLight", { Range = 14, Brightness = 2, Color = rgb(255, 60, 40) })
+	B.tag(beacon, "Pulse", { Speed = 2 })
+	return g, (o * CFrame.new(0, 0, hookZ)).Position
+end
+
+function Z.build(ctx)
+	local m, rng, occ, L = ctx.model, ctx.rng, ctx.occ, ctx.L
+	local zone = ctx.zone
+	local deco = B.model(m, "Decor")
+
+	for _ = 1, 9 do
+		T.patch(rng:range(ctx.x0, ctx.x1), rng:range(zone.z1, zone.z0), L, rng:range(8, 15), M.Asphalt)
+	end
+	for _ = 1, 5 do
+		T.patch(rng:range(ctx.x0, ctx.x1), rng:range(zone.z1, zone.z0), L, rng:range(6, 10), M.Concrete)
+	end
+	-- дорога из ворот в ворота
+	local road = { Vector3.new(0, L, zone.z0), Vector3.new(-18, L, zone.z0 - 60), Vector3.new(18, L, zone.z0 - 130), Vector3.new(0, L, zone.z1) }
+	T.trail(road, L, 12, M.Asphalt)
+	for i = 1, #road - 1 do occ:addLine(road[i], road[i + 1], 8) end
+
+	-- гигантская голова — ориентир
+	do
+		local x, z = occ:find(rng, 30, ctx.x1 - 10, ctx.z0 - 20, ctx.z1 + 40, 20, 60)
+		if x then
+			T.ball(x, L - 8, z, 18, M.Ground)
+			giantHead(deco, Vector3.new(x, L - 4, z), rng:range(-0.6, 0.6) + math.pi * 0.1)
+			occ:add(x, z, 20)
+		end
+	end
+	-- кран над горой машин
+	do
+		local x, z = occ:find(rng, ctx.x0 + 10, -30, ctx.z0, ctx.z1, 10, 60)
+		if x then
+			local yaw = rng:range(-0.5, 0.5) + math.pi
+			local _, hook = crane(deco, Vector3.new(x, L, z), yaw, L)
+			occ:add(x, z, 6)
+			-- машины под магнитом
+			for i = 0, 2 do
+				car(deco, rng, CFrame.new(hook.X + rng:range(-1, 1), L + i * 3.6, hook.Z + rng:range(-1, 1)) * CFrame.Angles(0, rng:angle(), rng:range(-0.05, 0.05)))
+			end
+			occ:add(hook.X, hook.Z, 7)
+		end
+	end
+	-- горы хлама
+	for _ = 1, 10 do
+		local R = rng:range(7, 11)
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, R + 1)
+		if x then
+			scrapPile(deco, rng, Vector3.new(x, L, z), R)
+			occ:add(x, z, R)
+		end
+	end
+	-- сломанные роботы
+	local poses = { "sitting", "lying", "tilted", "sitting", "lying", "tilted" }
+	for i = 1, 6 do
+		local s = rng:range(0.8, 1.3)
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 7 * s)
+		if x then
+			robot(deco, rng, Vector3.new(x, L, z), rng:angle(), s, poses[i])
+			occ:add(x, z, 7 * s)
+		end
+	end
+	-- машины, покрышки, бочки, лужи масла
+	for _ = 1, 6 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 7)
+		if x then
+			local yaw = rng:angle()
+			car(deco, rng, CFrame.new(x, L, z) * CFrame.Angles(0, yaw, 0))
+			if rng:chance(0.4) then
+				car(deco, rng, CFrame.new(x, L + 3.6, z) * CFrame.Angles(0, yaw + rng:range(-0.4, 0.4), rng:range(-0.1, 0.1)))
+			end
+			occ:add(x, z, 6.5)
+		end
+	end
+	for _ = 1, 9 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 3)
+		if x then
+			local g = B.model(deco, "Tires")
+			for k = 0, rng:int(2, 5) do
+				B.vcyl(g, "Tire", 1, 3.2, CFrame.new(x + rng:range(-0.3, 0.3), L + 0.5 + k, z + rng:range(-0.3, 0.3)), rgb(30, 30, 32), M.SmoothPlastic)
+			end
+			occ:add(x, z, 2.5)
+		end
+	end
+	for _ = 1, 7 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 4)
+		if x then
+			for k = 1, rng:int(2, 4) do
+				local a = k * 2.1
+				P.barrel(deco, CFrame.new(x + math.cos(a) * 2, L, z + math.sin(a) * 2), rng:pick({ rgb(150, 80, 50), rgb(60, 110, 160), rgb(200, 170, 50) }), rng:chance(0.25))
+			end
+			B.vcyl(deco, "OilPuddle", 0.1, rng:range(4, 7), CFrame.new(x + 3, L + 0.05, z + 2), rgb(20, 20, 24), M.SmoothPlastic,
+				{ Reflectance = 0.4, CanCollide = false })
+			occ:add(x, z, 4)
+		end
+	end
+	-- заборы из профнастила вдоль склонов
+	for _, side in ipairs({ -1, 1 }) do
+		local z = zone.z0 - 24
+		while z > zone.z1 + 30 do
+			if rng:chance(0.7) then
+				local cf = CFrame.new(side * 100, L, z) * CFrame.Angles(0, math.rad(90 + rng:range(-8, 8)), math.rad(rng:range(-6, 6)))
+				B.part(deco, "FencePanel", Vector3.new(6, 8, 0.3), cf * CFrame.new(0, 4, 0), rng:pick({ rgb(140, 150, 156), rgb(150, 90, 60), rgb(90, 120, 110) }), M.CorrodedMetal)
+			end
+			z = z - 6.5
+		end
+	end
+	P.signpost(deco, CFrame.new(16, L, zone.z0 - 14) * CFrame.Angles(0, math.rad(-20), 0), "СВАЛКА РОБОТОВ", "Шестерёнки, батарейки, микросхемы", zone.accent, 14, 4)
+	occ:add(16, zone.z0 - 14, 7)
+end
+
+return Z
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000014"><Properties><string name="Name">Mushroom</string><ProtectedString name="Source"><![CDATA[-- Зона 1. Грибной лес: гигантские грибы (на шляпки можно запрыгнуть), тропа, поваленные
+-- брёвна, россыпи маленьких грибов, кольцо фей и светлячки.
+local RS = game:GetService("ReplicatedStorage")
+local B = require(RS.Shared.Build)
+local P = require(script.Parent.Parent.Props)
+local T = require(script.Parent.Parent.Terrain)
+
+local Z = {}
+local rgb = P.rgb
+local M = Enum.Material
+
+local CAPS = {
+	{ cap = rgb(220, 60, 60), gill = rgb(240, 210, 190), spot = rgb(255, 255, 255), glow = false },
+	{ cap = rgb(150, 80, 230), gill = rgb(210, 180, 250), spot = rgb(255, 170, 255), glow = true },
+	{ cap = rgb(40, 190, 170), gill = rgb(170, 240, 225), spot = rgb(200, 255, 240), glow = true },
+	{ cap = rgb(240, 140, 40), gill = rgb(250, 220, 170), spot = rgb(255, 240, 200), glow = false },
+	{ cap = rgb(70, 110, 240), gill = rgb(180, 200, 255), spot = rgb(150, 230, 255), glow = true },
+}
+local STEMS = { rgb(238, 228, 205), rgb(225, 215, 235), rgb(215, 232, 222) }
+
+local function giantMushroom(m, rng, pos, h, style)
+	local g = B.model(m, "GiantMushroom")
+	local d = 2.4 + h * 0.13
+	local lean = Vector3.new(rng:range(-2, 2), 0, rng:range(-2, 2))
+	local top = pos + Vector3.new(0, h, 0) + lean
+	local stemCol = rng:pick(STEMS)
+	B.between(g, "Stem", pos - Vector3.new(0, 1, 0), top, d, stemCol, M.SmoothPlastic, true)
+	B.ellipsoid(g, "Foot", Vector3.new(d * 1.9, d * 0.9, d * 1.9), CFrame.new(pos), stemCol, M.SmoothPlastic)
+	-- юбочка на ножке
+	B.vcyl(g, "Ring", 0.5, d * 1.5, CFrame.new(pos:Lerp(top, 0.72)), stemCol, M.SmoothPlastic)
+	local cd = math.min(30, h * 0.9 + 6)
+	local ch = cd * 0.34
+	local capC = top + Vector3.new(0, ch * 0.22, 0)
+	B.ellipsoid(g, "Cap", Vector3.new(cd, ch, cd), CFrame.new(capC), style.cap, M.SmoothPlastic)
+	B.vcyl(g, "Gills", 0.5, cd * 0.84, CFrame.new(top + Vector3.new(0, -ch * 0.05, 0)), style.gill, M.SmoothPlastic)
+	-- пятна на шляпке
+	local n = rng:int(5, 9)
+	for i = 1, n do
+		local th = rng:range(0.25, 1.05)
+		local ph = (i / n) * math.pi * 2 + rng:range(-0.3, 0.3)
+		local p = capC + Vector3.new(cd / 2 * math.sin(th) * math.cos(ph), ch / 2 * math.cos(th), cd / 2 * math.sin(th) * math.sin(ph))
+		B.ball(g, "Spot", cd * rng:range(0.08, 0.13), CFrame.new(p), style.spot, style.glow and M.Neon or M.SmoothPlastic,
+			{ CanCollide = false, CastShadow = false })
+	end
+	if style.glow then
+		local lightMk = B.marker(g, "Glow", Vector3.new(1, 1, 1), CFrame.new(top - Vector3.new(0, 2, 0)))
+		B.light(lightMk, "PointLight", { Range = 22, Brightness = 1.4, Color = style.spot })
+	end
+	return g, d, cd
+end
+
+local function miniMushrooms(m, rng, pos, n)
+	local g = B.model(m, "MiniMushrooms")
+	local style = rng:pick(CAPS)
+	for _ = 1, n do
+		local a, r = rng:angle(), rng:range(0, 2.2)
+		local p = pos + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+		local h = rng:range(0.8, 2.6)
+		local d = rng:range(1.2, 2.8)
+		B.vcyl(g, "Stem", h, d * 0.3, CFrame.new(p + Vector3.new(0, h / 2, 0)), rng:pick(STEMS), M.SmoothPlastic, { CanCollide = false })
+		B.ellipsoid(g, "Cap", Vector3.new(d, d * 0.5, d), CFrame.new(p + Vector3.new(0, h, 0)), style.cap,
+			style.glow and M.Neon or M.SmoothPlastic, { CanCollide = false })
+	end
+	return g
+end
+
+local function log(m, rng, pos, yaw, len)
+	local g = B.model(m, "Log")
+	local cf = CFrame.new(pos + Vector3.new(0, 1.3, 0)) * CFrame.Angles(0, yaw, 0)
+	B.cyl(g, "Log", len, 3, cf * CFrame.Angles(0, 0, math.rad(rng:range(-3, 3))), rgb(110, 80, 58), M.Wood)
+	for _, x in ipairs({ -len / 2, len / 2 }) do
+		B.cyl(g, "Cut", 0.2, 2.6, cf * CFrame.new(x, 0, 0), rgb(200, 170, 120), M.Wood)
+	end
+	for _ = 1, 3 do
+		local x = rng:range(-len / 2 + 1, len / 2 - 1)
+		B.ellipsoid(g, "Moss", Vector3.new(3, 1, 2.6), cf * CFrame.new(x, 1.3, 0), rgb(90, 160, 70), M.Grass, { CanCollide = false })
+	end
+	miniMushrooms(g, rng, (cf * CFrame.new(rng:range(-len / 3, len / 3), 1.4, 0)).Position, 3)
+	return g
+end
+
+function Z.build(ctx)
+	local m, rng, occ, L = ctx.model, ctx.rng, ctx.occ, ctx.L
+	local zone = ctx.zone
+	local deco = B.model(m, "Decor")
+
+	-- пятна травы и тропа
+	for _ = 1, 16 do
+		T.patch(rng:range(ctx.x0, ctx.x1), rng:range(zone.z1, zone.z0), L, rng:range(8, 16), M.Grass)
+	end
+	local xs = { 0, 22, -20, 26, -22, 10, 0 }
+	local pts = {}
+	for i, x in ipairs(xs) do
+		local z = zone.z0 + (zone.z1 - zone.z0) * (i - 1) / (#xs - 1)
+		table.insert(pts, Vector3.new(x, L, z))
+	end
+	T.trail(pts, L, 10, M.Ground)
+	for i = 1, #pts - 1 do occ:addLine(pts[i], pts[i + 1], 7) end
+
+	-- холмики
+	for _ = 1, 5 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 12)
+		if x then
+			local r = rng:range(10, 14)
+			T.ball(x, L - r + rng:range(2, 4), z, r, M.LeafyGrass)
+			occ:add(x, z, r * 0.7)
+		end
+	end
+
+	-- кольцо фей в центре
+	do
+		local x, z = occ:find(rng, -50, 50, zone.z0 - 60, zone.z1 + 60, 12)
+		if x then
+			local c = Vector3.new(x, L, z)
+			for i = 0, 11 do
+				local a = i / 12 * math.pi * 2
+				local g = miniMushrooms(deco, rng, c + Vector3.new(math.cos(a) * 8, 0, math.sin(a) * 8), 1)
+				g.Name = "FairyRing"
+			end
+			B.part(deco, "FairyStone", Vector3.new(3, 4, 3), CFrame.new(c + Vector3.new(0, 1.8, 0)) * CFrame.Angles(0, 0.4, 0.1),
+				rgb(150, 140, 170), M.Slate)
+			local orb = B.ball(deco, "FairyOrb", 1.4, CFrame.new(c + Vector3.new(0, 6, 0)), rgb(255, 180, 255), M.Neon, { CanCollide = false })
+			B.light(orb, "PointLight", { Range = 16, Brightness = 2, Color = rgb(255, 180, 255) })
+			B.tag(orb, "Bob", { Height = 0.8, Period = 3 })
+			P.motes(deco, CFrame.new(c + Vector3.new(0, 4, 0)), Vector3.new(16, 6, 16), rgb(255, 190, 255), 10, "FairyDust")
+			occ:add(x, z, 11)
+		end
+	end
+
+	-- гигантские грибы (свой учёт шляпок, чтобы они не врастали друг в друга)
+	local caps = P.newOcc()
+	local made = 0
+	for _ = 1, 60 do
+		if made >= 17 then break end
+		local h = rng:range(10, 27)
+		local cd = math.min(30, h * 0.9 + 6)
+		local x, z = occ:find(rng, ctx.x0 + 4, ctx.x1 - 4, ctx.z0 - 4, ctx.z1 + 4, 3, 20)
+		if x and caps:free(x, z, cd * 0.45) then
+			local _, d, capD = giantMushroom(deco, rng, Vector3.new(x, L, z), h, rng:pick(CAPS))
+			caps:add(x, z, capD * 0.45)
+			occ:add(x, z, d / 2 + 2.5)
+			made = made + 1
+		end
+	end
+
+	-- поваленные брёвна
+	for _ = 1, 5 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 9)
+		if x then
+			local yaw, len = rng:angle(), rng:range(12, 18)
+			log(deco, rng, Vector3.new(x, L, z), yaw, len)
+			local dir = Vector3.new(math.cos(yaw), 0, -math.sin(yaw)) * (len / 2)
+			occ:addLine(Vector3.new(x, L, z) - dir, Vector3.new(x, L, z) + dir, 2.5)
+		end
+	end
+	-- россыпи маленьких грибов, камни, деревья, цветы
+	for _ = 1, 26 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 3)
+		if x then
+			miniMushrooms(deco, rng, Vector3.new(x, L, z), rng:int(3, 6))
+			occ:add(x, z, 2.5)
+		end
+	end
+	for _ = 1, 10 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 4)
+		if x then
+			P.rock(deco, Vector3.new(x, L, z), rng:range(3, 6), rng, rgb(120, 118, 128), M.Slate)
+			occ:add(x, z, 3.5)
+		end
+	end
+	for _ = 1, 6 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 7)
+		if x then
+			P.tree(deco, Vector3.new(x, L, z), rng, rng:range(0.9, 1.2), P.TreePalettes[2])
+			occ:add(x, z, 3)
+		end
+	end
+	for _ = 1, 12 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 4)
+		if x then
+			P.flowers(deco, Vector3.new(x, L, z), rng, 10, { rgb(255, 120, 220), rgb(200, 140, 255), rgb(255, 240, 120) }, 3)
+		end
+	end
+	-- светлячки
+	for i = 1, 6 do
+		local z = zone.z0 - 25 - (i - 1) * 30
+		P.motes(deco, CFrame.new(rng:range(-60, 60), L + 6, z), Vector3.new(50, 10, 30), i % 2 == 0 and rgb(255, 230, 120) or rgb(220, 160, 255), 8, "Fireflies")
+	end
+	-- указатель
+	P.signpost(deco, CFrame.new(-14, L, zone.z0 - 14) * CFrame.Angles(0, math.rad(20), 0), "ГРИБНОЙ ЛЕС", "Грибы-светяки и споры", zone.accent, 12, 4)
+	occ:add(-14, zone.z0 - 14, 7)
+end
+
+return Z
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000015"><Properties><string name="Name">Swamp</string><ProtectedString name="Source"><![CDATA[-- Зона 2. Слизистое болото: топь, пруды с кувшинками, светящиеся лужи слизи, деревянный
+-- настил через всё болото, мёртвые деревья с мхом, хижина на сваях, туман и светлячки.
+local RS = game:GetService("ReplicatedStorage")
+local B = require(RS.Shared.Build)
+local P = require(script.Parent.Parent.Props)
+local T = require(script.Parent.Parent.Terrain)
+
+local Z = {}
+local C, rgb = P.C, P.rgb
+local M = Enum.Material
+
+local WOOD = { rgb(112, 84, 58), rgb(98, 74, 52), rgb(126, 96, 66), rgb(90, 70, 50) }
+
+-- деревянный настил по ломаной; высота настила над землёй — 0.8
+local function boardwalk(m, rng, pts, L, w)
+	local g = B.model(m, "Boardwalk")
+	local y = L + 0.8
+	for i = 1, #pts - 1 do
+		local a, b = pts[i], pts[i + 1]
+		local flat = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+		local len = flat.Magnitude
+		local frame = CFrame.lookAt(Vector3.new(a.X, y, a.Z), Vector3.new(b.X, y, b.Z))
+		-- продольные балки
+		for _, x in ipairs({ -w / 2 + 0.4, w / 2 - 0.4 }) do
+			B.part(g, "Beam", Vector3.new(0.6, 0.6, len + 1), frame * CFrame.new(x, -0.5, -len / 2), WOOD[2], M.Wood)
+		end
+		-- доски поперёк
+		local n = math.floor(len / 1.6)
+		for k = 0, n do
+			if rng:chance(0.96) then
+				local c = frame * CFrame.new(rng:range(-0.15, 0.15), 0, -k * 1.6) * CFrame.Angles(0, math.rad(rng:range(-3, 3)), 0)
+				B.part(g, "Plank", Vector3.new(w, 0.35, 1.4), c, rng:pick(WOOD), M.WoodPlanks)
+			end
+		end
+		-- сваи и перила (перила только у прудов — через раз)
+		local posts = math.max(1, math.floor(len / 6))
+		for k = 0, posts do
+			for _, x in ipairs({ -w / 2 + 0.4, w / 2 - 0.4 }) do
+				local p = frame * Vector3.new(x, 0, -len * k / posts)
+				B.part(g, "Pile", Vector3.new(0.7, 4, 0.7), CFrame.new(p - Vector3.new(0, 2.2, 0)), WOOD[4], M.Wood)
+				if i % 2 == 0 then
+					B.part(g, "RailPost", Vector3.new(0.4, 3, 0.4), CFrame.new(p + Vector3.new(0, 1.5, 0)), WOOD[1], M.Wood)
+				end
+			end
+		end
+		if i % 2 == 0 then
+			for _, x in ipairs({ -w / 2 + 0.4, w / 2 - 0.4 }) do
+				B.part(g, "Rail", Vector3.new(0.3, 0.3, len), frame * CFrame.new(x, 2.8, -len / 2), WOOD[1], M.Wood)
+			end
+		end
+	end
+	return g
+end
+
+local function slimePool(m, rng, pos, r)
+	local g = B.model(m, "SlimePool")
+	local goo = B.vcyl(g, "Slime", 0.4, r * 2, CFrame.new(pos + Vector3.new(0, 0.15, 0)), C.slime, M.Neon, { Transparency = 0.1, CanCollide = false })
+	B.light(goo, "PointLight", { Range = r * 2 + 6, Brightness = 1.2, Color = C.slime })
+	B.particles(goo, {
+		Color = ColorSequence.new(rgb(200, 255, 150)), Size = NumberSequence.new(0.6, 0.1),
+		Transparency = NumberSequence.new(0.2, 1), Lifetime = NumberRange.new(0.8, 1.6), Speed = NumberRange.new(1, 3),
+		Rate = math.floor(r), EmissionDirection = Enum.NormalId.Top,
+	})
+	-- капли по краю
+	local n = math.floor(r * 1.2)
+	for i = 1, n do
+		local a = i / n * math.pi * 2 + rng:range(-0.2, 0.2)
+		local d = rng:range(1.2, 3)
+		B.ball(g, "Blob", d, CFrame.new(pos + Vector3.new(math.cos(a) * r, d * 0.25, math.sin(a) * r)), rgb(90, 220, 70), M.Glass,
+			{ Transparency = 0.25 })
+	end
+	return g
+end
+
+local function slimeMound(m, rng, pos)
+	local g = B.model(m, "Slimes")
+	for i = 1, rng:int(3, 5) do
+		local a, r = rng:angle(), i == 1 and 0 or rng:range(1.5, 3.5)
+		local d = i == 1 and rng:range(4, 6) or rng:range(1.6, 3.2)
+		local p = pos + Vector3.new(math.cos(a) * r, d * 0.4, math.sin(a) * r)
+		B.ellipsoid(g, "Slime", Vector3.new(d, d * 0.8, d), CFrame.new(p), rgb(110, 240, 90), M.Glass, { Transparency = 0.3 })
+		B.ball(g, "Core", d * 0.45, CFrame.new(p), rgb(170, 255, 80), M.Neon, { CanCollide = false })
+		if i == 1 then
+			-- глазки
+			for _, s in ipairs({ -1, 1 }) do
+				B.ball(g, "Eye", d * 0.16, CFrame.new(p + Vector3.new(s * d * 0.16, d * 0.22, -d * 0.36)), Color3.new(1, 1, 1), M.SmoothPlastic, { CanCollide = false })
+				B.ball(g, "Pupil", d * 0.08, CFrame.new(p + Vector3.new(s * d * 0.16, d * 0.22, -d * 0.43)), Color3.new(0, 0, 0), M.SmoothPlastic, { CanCollide = false })
+			end
+		end
+	end
+	return g
+end
+
+local function reeds(m, rng, pos, n)
+	local g = B.model(m, "Reeds")
+	for _ = 1, n do
+		local a, r = rng:angle(), rng:range(0, 2)
+		local p = pos + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+		local h = rng:range(2.5, 5)
+		local tilt = CFrame.Angles(rng:range(-0.15, 0.15), 0, rng:range(-0.15, 0.15))
+		local base = CFrame.new(p) * tilt
+		B.part(g, "Reed", Vector3.new(0.2, h, 0.2), base * CFrame.new(0, h / 2, 0), rgb(90, 140, 60), M.Grass, { CanCollide = false, CastShadow = false })
+		if rng:chance(0.6) then
+			B.vcyl(g, "Cattail", 1, 0.5, base * CFrame.new(0, h - 0.6, 0), rgb(110, 70, 40), M.Fabric, { CanCollide = false })
+		end
+	end
+	return g
+end
+
+local function hut(m, pos, yaw)
+	local g = B.model(m, "WitchHut")
+	local o = CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
+	local floorY = 6
+	for _, x in ipairs({ -7, 0, 7 }) do
+		for _, z in ipairs({ -7, 7 }) do
+			B.part(g, "Stilt", Vector3.new(1, floorY + 2, 1), o * CFrame.new(x, (floorY - 2) / 2, z), WOOD[4], M.Wood)
+		end
+	end
+	B.part(g, "Deck", Vector3.new(17, 0.6, 17), o * CFrame.new(0, floorY, 0), WOOD[1], M.WoodPlanks)
+	local wo = o * CFrame.new(0, floorY + 0.3, 1.5)
+	local function pt(x, z) return wo * Vector3.new(x, 0, z) end
+	B.wall(g, "Front", pt(-6, -5), pt(6, -5), 7, 0.6, WOOD[3], M.WoodPlanks, { { at = 6, w = 3.4, y0 = 0, y1 = 5.5 }, { at = 2.2, w = 2, y0 = 3, y1 = 5 } })
+	B.wall(g, "Back", pt(6, 5), pt(-6, 5), 7, 0.6, WOOD[3], M.WoodPlanks)
+	B.wall(g, "Left", pt(-6, 5), pt(-6, -5), 7, 0.6, WOOD[2], M.WoodPlanks, { { at = 5, w = 2, y0 = 3, y1 = 5 } })
+	B.wall(g, "Right", pt(6, -5), pt(6, 5), 7, 0.6, WOOD[2], M.WoodPlanks)
+	-- двускатная крыша
+	for _, s in ipairs({ -1, 1 }) do
+		B.part(g, "Roof", Vector3.new(8.2, 0.6, 13), wo * CFrame.new(s * 3.3, 9.2, 0) * CFrame.Angles(0, 0, math.rad(-s * 35)), rgb(70, 90, 50), M.Grass)
+	end
+	B.part(g, "Ridge", Vector3.new(0.8, 0.8, 13.4), wo * CFrame.new(0, 11.5, 0), WOOD[4], M.Wood)
+	B.vcyl(g, "Chimney", 4, 1.6, wo * CFrame.new(3, 11.5, 3), rgb(90, 90, 96), M.Cobblestone)
+	local smoke = B.marker(g, "ChimneySmoke", Vector3.new(1, 1, 1), wo * CFrame.new(3, 13.7, 3))
+	local s = Instance.new("Smoke")
+	s.Color = rgb(170, 255, 150)
+	s.Opacity = 0.15
+	s.RiseVelocity = 3
+	s.Size = 2
+	s.Parent = smoke
+	-- котёл внутри и зелёный свет из окон
+	B.vcyl(g, "Pot", 2, 3, wo * CFrame.new(-2, 1, 1), C.metalDark, M.Metal)
+	local brew = B.vcyl(g, "Brew", 0.2, 2.6, wo * CFrame.new(-2, 2.05, 1), C.slime, M.Neon)
+	B.light(brew, "PointLight", { Range = 14, Brightness = 2, Color = C.slime })
+	-- лестница
+	local ladder = Instance.new("TrussPart")
+	ladder.Name = "Ladder"
+	ladder.Anchored = true
+	ladder.Size = Vector3.new(2, floorY + 2, 2)
+	ladder.CFrame = o * CFrame.new(0, (floorY + 2) / 2 - 1.6, -9.6)
+	ladder.Color = WOOD[4]
+	ladder.Material = M.Wood
+	ladder.Parent = g
+	P.signpost(g, o * CFrame.new(5, 0, -12) * CFrame.Angles(0, math.pi, 0), "ХИЖИНА", "Болотной ведьмы", C.slime, 8, 3)
+	return g
+end
+
+function Z.build(ctx)
+	local m, rng, occ, L = ctx.model, ctx.rng, ctx.occ, ctx.L
+	local zone = ctx.zone
+	local deco = B.model(m, "Decor")
+
+	-- островки травы на топи
+	for _ = 1, 14 do
+		T.patch(rng:range(ctx.x0, ctx.x1), rng:range(zone.z1, zone.z0), L, rng:range(7, 14), rng:chance(0.5) and M.Grass or M.LeafyGrass)
+	end
+	-- настил через болото
+	local pts = {
+		Vector3.new(0, L, zone.z0 - 4), Vector3.new(-30, L, zone.z0 - 36), Vector3.new(-30, L, zone.z0 - 80),
+		Vector3.new(26, L, zone.z0 - 120), Vector3.new(26, L, zone.z0 - 150), Vector3.new(0, L, zone.z1 + 34),
+	}
+	boardwalk(deco, rng, pts, L, 7)
+	for i = 1, #pts - 1 do occ:addLine(pts[i], pts[i + 1], 6) end
+
+	-- пруды
+	local ponds = {}
+	for _ = 1, 6 do
+		local r = rng:range(9, 16)
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, r + 2)
+		if x then
+			T.pond(x, z, L, r, 3, M.Mud)
+			occ:add(x, z, r + 1.5)
+			table.insert(ponds, { x, z, r })
+		end
+	end
+	for _, pd in ipairs(ponds) do
+		local x, z, r = pd[1], pd[2], pd[3]
+		for _ = 1, math.floor(r / 2) do
+			local a, rr = rng:angle(), rng:range(0, r - 2)
+			B.vcyl(deco, "LilyPad", 0.15, rng:range(1.8, 3.6), CFrame.new(x + math.cos(a) * rr, L - 0.7, z + math.sin(a) * rr),
+				rgb(70, 160, 70), M.Grass, { CanCollide = false })
+		end
+		for _ = 1, 4 do
+			local a = rng:angle()
+			reeds(deco, rng, Vector3.new(x + math.cos(a) * (r + 1), L, z + math.sin(a) * (r + 1)), rng:int(4, 8))
+		end
+	end
+
+	-- хижина ведьмы
+	do
+		local x, z = occ:find(rng, ctx.x0 + 10, ctx.x1 - 10, ctx.z0, ctx.z1, 14, 60)
+		if x then
+			hut(deco, Vector3.new(x, L, z), rng:range(-0.6, 0.6))
+			occ:add(x, z, 13)
+		end
+	end
+	-- лужи слизи и слизни
+	for _ = 1, 7 do
+		local r = rng:range(4, 8)
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, r + 2)
+		if x then
+			slimePool(deco, rng, Vector3.new(x, L, z), r)
+			occ:add(x, z, r + 1)
+		end
+	end
+	for _ = 1, 8 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 4)
+		if x then
+			slimeMound(deco, rng, Vector3.new(x, L, z))
+			occ:add(x, z, 3.5)
+		end
+	end
+	-- мёртвые деревья, камни, камыши
+	for _ = 1, 12 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 5)
+		if x then
+			P.deadTree(deco, Vector3.new(x, L, z), rng, rng:range(1, 1.5), rgb(74, 66, 56), rgb(110, 150, 70))
+			occ:add(x, z, 2.5)
+		end
+	end
+	for _ = 1, 8 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 4)
+		if x then
+			P.rock(deco, Vector3.new(x, L, z), rng:range(3, 5), rng, rgb(96, 110, 90), M.Slate)
+			occ:add(x, z, 3)
+		end
+	end
+	for _ = 1, 10 do
+		local x, z = occ:find(rng, ctx.x0, ctx.x1, ctx.z0, ctx.z1, 3)
+		if x then reeds(deco, rng, Vector3.new(x, L, z), rng:int(5, 9)) end
+	end
+	-- туман над топью и светлячки
+	for i = 1, 5 do
+		local z = zone.z0 - 20 - (i - 1) * 40
+		local fog = B.marker(deco, "Mist", Vector3.new(180, 2, 34), CFrame.new(0, L + 1.5, z))
+		B.particles(fog, {
+			Color = ColorSequence.new(rgb(200, 230, 190)), Size = NumberSequence.new(10, 16),
+			Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.4, 0.86), NumberSequenceKeypoint.new(1, 1) }),
+			Lifetime = NumberRange.new(8, 12), Speed = NumberRange.new(0.3, 0.8), SpreadAngle = Vector2.new(180, 10),
+			Rate = 3, LightEmission = 0, LightInfluence = 1, RotSpeed = NumberRange.new(-5, 5), Rotation = NumberRange.new(0, 360),
+		})
+		P.motes(deco, CFrame.new(rng:range(-50, 50), L + 5, z), Vector3.new(60, 8, 30), rgb(190, 255, 120), 8, "Fireflies")
+	end
+	P.signpost(deco, CFrame.new(16, L, zone.z0 - 14) * CFrame.Angles(0, math.rad(-20), 0), "СЛИЗИСТОЕ БОЛОТО", "Слизь, кувшинки, болотный газ", zone.accent, 13, 4)
+	occ:add(16, zone.z0 - 14, 7)
+end
+
+return Z
+]]></ProtectedString></Properties></Item></Item></Item></Item>
+<Item class="StarterPlayer" referent="RBX0000001B"><Properties><string name="Name">StarterPlayer</string><float name="CameraMaxZoomDistance">80</float><float name="CharacterWalkSpeed">16</float><float name="CharacterJumpHeight">7.2</float></Properties><Item class="StarterPlayerScripts" referent="RBX0000001A"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX00000019"><Properties><string name="Name">MapFx</string><ProtectedString name="Source"><![CDATA[-- Клиент: оживляет карту и меняет атмосферу по зонам.
+--   * метки Spin / Bob / Pulse / Zap (ставит сервер при постройке): вращение, покачивание,
+--     пульсация неона, «молнии» катушек Теслы — только рядом с камерой, чтобы не тратить FPS;
+--   * дымка и оттенок плавно меняются, когда игрок переходит в другую зону;
+--   * при входе в зону сверху экрана всплывает её название.
+local CollectionService = game:GetService("CollectionService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local RS = game:GetService("ReplicatedStorage")
+local D = require(RS.Shared.MapData)
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local NEAR = 260 -- анимируем только то, что ближе
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+if not workspace:GetAttribute("MapReady") then
+	workspace:GetAttributeChangedSignal("MapReady"):Wait()
+end
+
+---------------------------------------------------------------------------
+-- Анимации по меткам
+---------------------------------------------------------------------------
+local movers, pulses, zaps = {}, {}, {}
+
+local function pivotOf(inst)
+	if inst:IsA("Model") then return inst:GetPivot() end
+	return inst.CFrame
+end
+
+local function addMover(inst)
+	if movers[inst] then return end
+	movers[inst] = {
+		base = pivotOf(inst),
+		spin = inst:HasTag("Spin") and (inst:GetAttribute("Speed") or 30) or 0,
+		axisX = inst:GetAttribute("Axis") == "X",
+		bobH = inst:HasTag("Bob") and (inst:GetAttribute("Height") or 1) or 0,
+		bobT = inst:GetAttribute("Period") or 3,
+		phase = (pivotOf(inst).Position.X * 0.37 + pivotOf(inst).Position.Z * 0.11) % (math.pi * 2),
+	}
+end
+local function addPulse(inst)
+	if inst:IsA("BasePart") and not pulses[inst] then
+		local light = inst:FindFirstChildWhichIsA("Light")
+		pulses[inst] = { speed = inst:GetAttribute("Speed") or 1.5, light = light, bright = light and light.Brightness or 0,
+			phase = (inst.Position.X + inst.Position.Z) % 6 }
+	end
+end
+local function addZap(inst)
+	if inst:IsA("Beam") and not table.find(zaps, inst) then table.insert(zaps, inst) end
+end
+-- метки уже на месте + те, что появятся позже (детали догружаются)
+for _, tag in ipairs({ "Spin", "Bob" }) do
+	for _, inst in ipairs(CollectionService:GetTagged(tag)) do addMover(inst) end
+	CollectionService:GetInstanceAddedSignal(tag):Connect(addMover)
+end
+for _, inst in ipairs(CollectionService:GetTagged("Pulse")) do addPulse(inst) end
+CollectionService:GetInstanceAddedSignal("Pulse"):Connect(addPulse)
+for _, inst in ipairs(CollectionService:GetTagged("Zap")) do addZap(inst) end
+CollectionService:GetInstanceAddedSignal("Zap"):Connect(addZap)
+
+local zapTimer = 0
+RunService.Heartbeat:Connect(function(dt)
+	local t = os.clock()
+	local cam = camera.CFrame.Position
+	for inst, m in pairs(movers) do
+		local p = m.base.Position
+		if (p - cam).Magnitude < NEAR and inst.Parent then
+			local cf = m.base
+			if m.bobH ~= 0 then
+				cf = cf + Vector3.new(0, math.sin(t * 2 * math.pi / m.bobT + m.phase) * m.bobH, 0)
+			end
+			if m.spin ~= 0 then
+				local a = math.rad(m.spin * t)
+				cf = cf * (m.axisX and CFrame.Angles(a, 0, 0) or CFrame.Angles(0, a, 0))
+			end
+			if inst:IsA("Model") then inst:PivotTo(cf) else inst.CFrame = cf end
+		end
+	end
+	for part, pl in pairs(pulses) do
+		if (part.Position - cam).Magnitude < NEAR then
+			local k = 0.5 + 0.5 * math.sin(t * pl.speed * 2 + pl.phase)
+			part.Transparency = 0.45 * (1 - k)
+			if pl.light then pl.light.Brightness = pl.bright * (0.4 + 0.6 * k) end
+		end
+	end
+	zapTimer = zapTimer + dt
+	if zapTimer > 0.08 then
+		zapTimer = 0
+		for _, beam in ipairs(zaps) do
+			beam.CurveSize0 = math.random() * 8 - 4
+			beam.CurveSize1 = math.random() * 8 - 4
+			beam.Transparency = NumberSequence.new(math.random() < 0.15 and 1 or 0.1, 0.3)
+		end
+	end
+end)
+
+---------------------------------------------------------------------------
+-- Атмосфера зон и название зоны
+---------------------------------------------------------------------------
+local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+local correction = Lighting:FindFirstChildOfClass("ColorCorrectionEffect")
+local FADE = TweenInfo.new(2.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+
+local function applyAmbience(key)
+	local a = D.Ambience[key] or D.Ambience.Hub
+	if atmosphere then
+		TweenService:Create(atmosphere, FADE, { Density = a.density, Haze = a.haze, Color = a.color, Decay = a.decay, Glare = a.glare }):Play()
+	end
+	if correction then
+		TweenService:Create(correction, FADE, { TintColor = a.tint, Saturation = a.saturation, Contrast = a.contrast, Brightness = a.brightness }):Play()
+	end
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "ZoneTitle"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.Parent = player:WaitForChild("PlayerGui")
+local title = Instance.new("TextLabel")
+title.AnchorPoint = Vector2.new(0.5, 0)
+title.Position = UDim2.fromScale(0.5, 0.12)
+title.Size = UDim2.fromScale(0.6, 0.07)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBlack
+title.TextScaled = true
+title.TextColor3 = Color3.new(1, 1, 1)
+title.TextStrokeColor3 = Color3.fromRGB(20, 20, 30)
+title.TextTransparency = 1
+title.TextStrokeTransparency = 1
+title.Text = ""
+title.Parent = gui
+local sub = Instance.new("TextLabel")
+sub.AnchorPoint = Vector2.new(0.5, 0)
+sub.Position = UDim2.fromScale(0.5, 0.19)
+sub.Size = UDim2.fromScale(0.4, 0.035)
+sub.BackgroundTransparency = 1
+sub.Font = Enum.Font.GothamBold
+sub.TextScaled = true
+sub.TextColor3 = Color3.fromRGB(220, 230, 240)
+sub.TextStrokeTransparency = 1
+sub.TextTransparency = 1
+sub.Text = ""
+sub.Parent = gui
+
+local showToken = 0
+local function showTitle(area)
+	local name = D.AreaNames[area]
+	if not name then return end
+	local zone = D.ZoneById[area]
+	title.Text = name
+	title.TextColor3 = zone and zone.accent:Lerp(Color3.new(1, 1, 1), 0.35) or Color3.new(1, 1, 1)
+	sub.Text = zone and ("Зона " .. zone.index) or ""
+	showToken = showToken + 1
+	local my = showToken
+	local fadeIn = TweenInfo.new(0.5)
+	TweenService:Create(title, fadeIn, { TextTransparency = 0, TextStrokeTransparency = 0.3 }):Play()
+	TweenService:Create(sub, fadeIn, { TextTransparency = 0.1 }):Play()
+	task.delay(3, function()
+		if my ~= showToken then return end
+		local fadeOut = TweenInfo.new(1)
+		TweenService:Create(title, fadeOut, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+		TweenService:Create(sub, fadeOut, { TextTransparency = 1 }):Play()
+	end)
+end
+
+local currentArea, currentAmbience
+local checkTimer = 0
+RunService.Heartbeat:Connect(function(dt)
+	checkTimer = checkTimer + dt
+	if checkTimer < 0.4 then return end
+	checkTimer = 0
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+	local area, amb = D.areaAt(root.Position)
+	if amb ~= currentAmbience then
+		currentAmbience = amb
+		applyAmbience(amb)
+	end
+	if area ~= currentArea then
+		local prev = currentArea
+		currentArea = area
+		if area ~= "Wild" and not (area == "Plots" and prev == "Wild") then showTitle(area) end
+	end
+end)
+]]></ProtectedString></Properties></Item></Item></Item>
+<Item class="SoundService" referent="RBX0000001C"><Properties><string name="Name">SoundService</string><bool name="RespectFilteringEnabled">true</bool></Properties></Item>
+</roblox>
