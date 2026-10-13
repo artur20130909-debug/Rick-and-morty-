@@ -26,6 +26,11 @@ const U = {
     return many;
   },
   cap(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; },
+  // кириллица латиницей: для имён файлов
+  translit(s) {
+    const m = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya' };
+    return String(s).replace(/[а-яё]/gi, c => { const r = m[c.toLowerCase()]; return c === c.toLowerCase() ? r : U.cap(r); });
+  },
   // число по-русски: 2,5 и 1 000 000
   num(x) {
     if (!isFinite(x)) return String(x);

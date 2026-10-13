@@ -130,7 +130,7 @@ class App {
     if (meta.codeSpec) {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'link-btn'; b.textContent = '📋 Скопировать полный код (HTML)';
       b.addEventListener('click', () => this.copyCode(meta.codeSpec)); parts.push(b);
-      if (!window.claude) { const d = document.createElement('button'); d.type = 'button'; d.className = 'link-btn'; d.textContent = '⬇️ Скачать игру'; d.addEventListener('click', () => this.downloadCode(meta.codeSpec)); parts.push(d); }
+      const d = document.createElement('button'); d.type = 'button'; d.className = 'link-btn'; d.textContent = '⬇️ Скачать игру'; d.addEventListener('click', () => this.downloadCode(meta.codeSpec)); parts.push(d);
     }
     if (meta.link && /^https:\/\//.test(meta.link.url)) {
       const a = document.createElement('a'); a.href = meta.link.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'статья: ' + meta.link.title; parts.push(a);
@@ -669,10 +669,25 @@ class App {
     const fallback = () => { const ta = document.createElement('textarea'); ta.value = html; ta.className = 'code-copy'; ta.readOnly = true; this.logEl.appendChild(ta); ta.select(); this.toast('Выдели и скопируй код из поля ниже'); this.scroll(); };
     try { navigator.clipboard.writeText(html).then(() => this.toast('Код скопирован! Вставь его в файл .html и открой в браузере 📋'), fallback); } catch (e) { fallback(); }
   }
-  downloadCode(spec) {
+  async downloadCode(spec) {
+    const html = CodexView.exportHtml(spec, this.codeSources()), filename = U.translit(spec.title || 'igra').replace(/[^\w-]+/g, '_') + '.html';
+    // внутри приложения Claude файл отдаёт само приложение (спросит разрешение)
+    if (window.claude && typeof window.claude.use === 'function') {
+      let dl = null;
+      try { dl = await window.claude.use('downloads'); } catch (e) { dl = null; }
+      if (!dl) { this.toast('Скачать здесь нельзя — скопируй код'); return this.copyCode(spec); }
+      try { await dl.save({ filename, data: html }); this.toast('Игра сохранена! Открой файл в браузере 🎮'); }
+      catch (e) {
+        const code = e && e.code;
+        if (code === 'declined') return;
+        if (code === 'rate_limited') return this.toast('Подожди секунду и нажми ещё раз');
+        this.toast('Скачать не получилось — скопируй код'); this.copyCode(spec);
+      }
+      return;
+    }
     try {
-      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([CodexView.exportHtml(spec, this.codeSources())], { type: 'text/html' }));
-      a.download = (spec.title || 'игра').replace(/[^\wа-яё-]+/gi, '_') + '.html'; document.body.appendChild(a); a.click(); a.remove();
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+      a.download = filename; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     } catch (e) { this.copyCode(spec); }
   }
