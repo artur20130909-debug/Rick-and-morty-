@@ -193,27 +193,105 @@ function fakeOnline(over = {}) {
     const b = mk(); const a = await b.reply('сделай игру'); assert.ok(!a.game); assert.strictEqual(b.ctx.type, 'game_wait');
     const a2 = await b.reply('тетрис'); assert.strictEqual(a2.game.key, 'tetris');
   });
-  await test('своя игра без супер-мозга: честно говорит, как включить', async () => {
-    const a = await mk().reply('сделай игру про динозавра на скейте'); assert.ok(!a.game); has(a.text, 'супер-мозг');
-    const a2 = await mk().reply('сделай игру где надо ловить звёзды'); assert.strictEqual(a2.game && a2.game.key, 'catcher', 'похожая встроенная игра');
-  });
-  await test('своя игра от супер-мозга и её изменение', async () => {
-    let lastOpts = null;
-    const html = '<!doctype html><html><head><title>Кот-рыбак</title></head><body><canvas></canvas><script>let x=1</script></body></html>';
-    const b = mk({ online: fakeSuper((text, opts) => { lastOpts = opts; return 'Вот игра:\n```html\n' + (/Игрок просит её изменить/.test(text) ? html.replace('x=1', 'x=2') : html) + '\n```'; }) });
-    const a = await b.reply('сделай игру про кота который ловит рыбу');
-    assert.strictEqual(a.game.kind, 'custom'); assert.strictEqual(a.game.title, 'Кот-рыбак'); assert.ok(lastOpts.raw); assert.strictEqual(lastOpts.tier, 'default');
-    const a2 = await b.reply('сделай её быстрее'); assert.strictEqual(a2.game.kind, 'custom'); has(a2.game.html, 'x=2');
-    const fixed = await b.fixGame(a2.game.html, 'ReferenceError: y is not defined'); has(fixed, '<canvas>');
-    const a3 = await b.reply('а теперь сделай игру про динозавра'); assert.strictEqual(a3.game.kind, 'custom'); has(a3.game.html, 'x=1');
+  await test('своя игра по описанию: Амиго программирует её сам, без Claude', async () => {
+    let asked = 0;
+    const online = fakeOnline({ Super: { mode: () => 'api', avail: () => 'api', ask: async () => { asked++; return { text: 'x' }; } } });
+    const b = mk({ online }); const a = await b.reply('сделай игру про динозавра который прыгает через кактусы');
+    assert.strictEqual(a.game.key, 'codex'); assert.strictEqual(a.src, 'codex'); assert.strictEqual(a.game.opts.genre, 'runner'); assert.strictEqual(asked, 0, 'Claude не нужен');
+    has(a.text, 'сам'); assert.strictEqual(a.game.opts.hero.emoji, '🦖');
   });
   await test('не путает игры с обычными фразами', async () => {
     const b = mk();
     for (const q of ['сколько дней до лета', 'что такое змея', 'посчитай звёзды', 'сколько будет 2048 / 2', 'у меня есть кот']) { const a = await b.reply(q); assert.ok(!a.game, q + ' → игра ' + (a.game && a.game.key)); }
   });
-  await test('вытаскивает код игры из ответа', () => {
-    assert.strictEqual(A.extractHtml('текст\n```html\n<!doctype html><body><script>1</script></body>\n```'), '<!doctype html><body><script>1</script></body>');
-    assert.strictEqual(A.extractHtml('просто текст без кода'), null);
+  console.log('Кодекс');
+  const fakeClaude = (answer) => { const calls = []; return { calls, online: fakeOnline({ Super: { mode: () => null, avail: () => 'api', ask: async (st, p, h, text) => { calls.push(text); return { text: answer(text) }; } } }) }; };
+  await test(`нейросеть Кодекса понимает жанр новых описаний ≥ 90% (сейчас ${(model.codex.val.acc * 100).toFixed(1)}%)`, () => assert.ok(model.codex.val.acc >= 0.9));
+  await test('понимает жанры, героев, врагов и миры', () => {
+    const cases = [['кот ловит рыбу под водой и уворачивается от акул', 'catch', '🐱', '🐟', '🦈', 'water'], ['космический корабль стреляет в пришельцев', 'shooter', '🚀', null, '👾', 'space'],
+      ['динозавр прыгает через кактусы', 'runner', '🦖', null, '🌵', 'desert'], ['машинка уворачивается от машин на дороге', 'racer', '🚗', null, null, 'city'],
+      ['собирай монетки и убегай от призраков', 'topdown', null, '🪙', '👻', null], ['лопай шарики на время', 'tapper', null, '🎈', null, null],
+      ['пингвин прыгает по льдинам вверх', 'jumper', '🐧', null, null, 'winter'], ['вертолёт летит между горами', 'flappy', '🚁', null, '⛰️', null]];
+    for (const [q, g, h, gd, bd, th] of cases) {
+      const s = A.Codex.design(A.Codex.understand(q, { words: {}, recipes: [] }), 'high');
+      assert.strictEqual(s.genre, g, q);
+      if (h) assert.strictEqual(s.hero.emoji, h, q + ' герой'); if (gd) assert.strictEqual(s.things.good.emoji, gd, q + ' приз');
+      if (bd) assert.strictEqual(s.things.bad.emoji, bd, q + ' враг'); if (th) assert.strictEqual(s.theme.id, th, q + ' мир');
+    }
+  });
+  await test('все жанры работают на всех уровнях: робот играет без ошибок', () => {
+    for (const g of Object.keys(A.CODEX_GENRES)) for (const lv of ['medium', 'high', 'ultra']) {
+      const s = A.Codex.design(A.Codex.understand('игра', { words: {}, recipes: [] }), lv, { genre: g });
+      const r = A.CodexEngine.playtest(s, { seconds: 40, seeds: [1, 2] });
+      assert.ok(r.time > 3, g + ' ' + lv + ' слишком быстро закончилась: ' + r.time);
+    }
+  });
+  await test('уровни различаются: высокий добавляет бонусы, уровни, босса и эффекты', () => {
+    const u = A.Codex.understand('корабль стреляет в пришельцев', { words: {}, recipes: [] });
+    const m = A.Codex.design(u, 'medium'), h = A.Codex.design(u, 'high'), x = A.Codex.design(u, 'ultra');
+    assert.ok(!m.powers.length && !m.boss.on && !m.fx.particles);
+    assert.ok(h.powers.length && h.boss.on && h.fx.particles && h.fx.combo);
+    assert.ok(x.goal.level > 0);
+  });
+  await test('команды режима Кодекс', async () => {
+    const b = mk();
+    await b.reply('включи кодекс'); assert.strictEqual(b.settings.codexOn, true);
+    await b.reply('кодекс ультра'); assert.strictEqual(b.settings.codexLevel, 'ultra');
+    await b.reply('средний'); assert.strictEqual(b.settings.codexLevel, 'medium');
+    const a = await b.reply('кот ловит рыбу'); assert.strictEqual(a.game && a.game.key, 'codex');
+    assert.strictEqual((await b.reply('привет')).intent, 'greet', 'обычные фразы в Кодексе — как обычно');
+    const c = await b.reply('покажи код'); assert.strictEqual(c.action.type, 'code');
+    await b.reply('выключи кодекс'); assert.strictEqual(b.settings.codexOn, false);
+  });
+  await test('правки игры словами', async () => {
+    const b = mk(); const a = await b.reply('сделай игру где кот ловит рыбу');
+    const p0 = a.game.opts.pace;
+    const e1 = await b.reply('сделай её быстрее'); assert.ok(e1.game.opts.pace > p0); has(e1.text, 'быстрее');
+    const e2 = await b.reply('вместо кота собака'); assert.strictEqual(e2.game.opts.hero.emoji, '🐶');
+    const e3 = await b.reply('добавь босса и 5 жизней'); assert.ok(e3.game.opts.boss.on); assert.strictEqual(e3.game.opts.lives, 5);
+    const e4 = await b.reply('поменяй мир на космос'); assert.strictEqual(e4.game.opts.theme.id, 'space');
+  });
+  await test('Ультра: думает по шагам, тестирует роботом и подбирает сложность', async () => {
+    const b = mk(); b.fastThink = true; b.settings.codexLevel = 'ultra'; const seen = [];
+    const a = await b.reply('сделай игру про корабль который стреляет в пришельцев', { onThink: l => seen.push(l.length) });
+    assert.ok(a.think.length >= 8, 'мало шагов'); assert.ok(seen.length >= 8);
+    assert.ok(a.think.some(l => /Вариант 3/.test(l)) && a.think.some(l => /темп/.test(l)));
+    assert.strictEqual(a.game.opts.level, 'ultra'); assert.ok(a.game.opts.goal.level > 0);
+  });
+  await test('Ультра: спрашивает у Claude только «как это сделать», учится и потом делает сам', async () => {
+    const recipe = { possible: true, name: 'ловушки', explain: 'Игрок ставит ловушку кнопкой, а враг, который на неё наступил, исчезает.', rules: [
+      { type: 'thing', tag: 'trap', emoji: '🪤', name: 'ловушка', move: 'still', life: 8, role: 'neutral' },
+      { type: 'ability', do: 'place', spawn: 'trap', cooldown: 1.5, label: '🪤' },
+      { type: 'touch', a: 'trap', b: ['bad', 'bad2'], do: ['remove_b', 'remove_a', 'score:3', 'burst'] }] };
+    const { calls, online } = fakeClaude(text => /нарисовать/.test(text) ? '[{"word":"капибару","name":"капибара","emoji":"🦫","role":"hero"}]' : '```json\n' + JSON.stringify(recipe) + '\n```');
+    const b = mk({ online }); b.fastThink = true; b.settings.codexLevel = 'ultra';
+    const a = await b.reply('сделай игру про капибару которая собирает яблоки и можно ставить ловушки на волков');
+    assert.strictEqual(calls.length, 2, 'два вопроса: как нарисовать и как сделать');
+    assert.ok(calls.every(c => /КАК|как нарисовать|Подскажи, как/.test(c) && !/HTML-игр|<!doctype/i.test(c)), 'Claude не просят писать игру');
+    assert.strictEqual(a.game.opts.hero.emoji, '🦫'); assert.ok(a.game.opts.things.trap); assert.ok(a.game.opts.abilities.some(x => x.do === 'place'));
+    assert.ok(a.think.some(l => /Понял, как делать/.test(l)));
+    assert.ok(b.codexMem.recipes.length === 1 && Object.keys(b.codexMem.words).length >= 1);
+    // второй раз — сам, без вопросов
+    const a2 = await b.reply('игра где капибара ловит рыбу и можно ставить ловушки');
+    assert.strictEqual(calls.length, 2, 'второй раз Амиго не спрашивает'); assert.ok(a2.game.opts.things.trap); assert.strictEqual(a2.game.opts.hero.emoji, '🦫');
+    const r = A.CodexEngine.playtest(a2.game.opts, { seconds: 30, seeds: [1] }); assert.ok(r.time > 5);
+  });
+  await test('Ультра без Claude: всё равно делает игру и честно говорит, чего не умеет', async () => {
+    const b = mk(); b.fastThink = true; b.settings.codexLevel = 'ultra';
+    const a = await b.reply('игра где можно строить мосты через реку');
+    assert.strictEqual(a.game.key, 'codex'); assert.ok(a.think.some(l => /не умею|Спросить у Claude сейчас нельзя/.test(l)));
+  });
+  await test('проверка выученных приёмов не пропускает лишнего', () => {
+    assert.ok(!A.Codex.validateRecipe({ possible: false }).ok);
+    const v = A.Codex.validateRecipe({ name: 'x', rules: [{ type: 'touch', a: 'hero', b: 'bad', do: ['eval:alert(1)', 'score:1'] }, { type: 'thing', tag: 'hero', emoji: '🦫' }, { type: 'thing', tag: 'ok', emoji: 'не эмодзи' }, { type: 'spawn', tag: 'nope', every: 1 }] });
+    assert.ok(!v.ok, 'неизвестные эффекты, теги и не-эмодзи отбрасываются');
+    const w = A.Codex.validateRecipe({ name: 'x', rules: [{ type: 'thing', tag: 'coin2', emoji: '🪙', speed: 99, move: 'teleport' }, { type: 'spawn', tag: 'coin2', every: 0.01, from: 'moon' }] });
+    assert.ok(w.ok); assert.strictEqual(w.recipe.rules[0].speed, 4); assert.strictEqual(w.recipe.rules[0].move, 'still'); assert.strictEqual(w.recipe.rules[1].every, 0.3); assert.strictEqual(w.recipe.rules[1].from, 'random');
+  });
+  await test('супер-мозг для разговоров по умолчанию выключен: Амиго отвечает сам', () => {
+    assert.strictEqual(mk().settings.superOn, false);
+    assert.strictEqual(mk({ settings: { superOn: true } }).settings.superOn, false, 'старые настройки переводятся');
+    assert.strictEqual(mk({ settings: { superOn: true, v: 2 } }).settings.superOn, true, 'новые настройки сохраняются');
   });
 
   console.log(`\nИтого: ${passed} прошло, ${failed} упало`);

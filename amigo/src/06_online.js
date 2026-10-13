@@ -55,6 +55,12 @@ const Online = (() => {
         } else this.sampleState = 'off';
       } catch (e) { this.sampleState = 'off'; }
     },
+    // доступен ли Claude вообще (даже если супер-мозг для разговоров выключен) — для вопросов Кодекса «как это сделать»
+    avail(settings) {
+      if (this.sample && this.sampleState === 'ready') return 'sample';
+      if (settings.apiKey) return 'api';
+      return null;
+    },
     mode(settings) {
       if (!settings.superOn) return null;
       if (this.sample && this.sampleState === 'ready') return 'sample';
@@ -77,7 +83,7 @@ const Online = (() => {
     // history — [{role:'user'|'assistant', content}] последних реплик; text — новый вопрос
     // opts: raw — без правил Амиго (для игр), tier — уровень модели, effort и maxTokens — для ключа API
     async ask(settings, profile, history, text, onText, signal, opts = {}) {
-      const mode = this.mode(settings);
+      const mode = opts.force ? this.avail(settings) : this.mode(settings);
       if (!mode) throw { code: 'no_super' };
       const turns = history.filter(t => t.content && t.content.trim()).slice(-12);
       while (turns.length && turns[0].role !== 'user') turns.shift();

@@ -19,7 +19,12 @@ class Brain {
     this.now = opts.now || (() => new Date());
     this.online = opts.online || Online;
     this.profile = Object.assign({ name: '', facts: [], city: null, age: 0 }, opts.profile || {});
-    this.settings = Object.assign({ voice: false, superOn: true, superTier: 'quick', apiKey: '', model: 'claude-opus-5-5', online: true }, opts.settings || {});
+    this.settings = Object.assign({ voice: false, superOn: false, superTier: 'quick', apiKey: '', model: 'claude-opus-5-5', online: true, codexOn: false, codexLevel: 'high', codexAsk: true }, opts.settings || {});
+    // с версии 2 Амиго по умолчанию отвечает сам, без супер-мозга
+    if (!this.settings.v) { this.settings.superOn = false; this.settings.v = 2; }
+    this.codexMem = { words: Object.assign({}, opts.codexMem && opts.codexMem.words), recipes: (opts.codexMem && opts.codexMem.recipes || []).slice() };
+    this.lastSpec = null;
+    if (model.codex) Codex.setNet(model.codex);
     this.customs = (opts.customs || []).map(c => Object.assign({}, c, { custom: true }));
     this.ctx = null;        // текущий режим: игра, вопрос, обучение
     this.lastAct = null;    // для «ещё»
@@ -91,7 +96,12 @@ class Brain {
   }
 
   // ---------- память ----------
-  save() { if (this.onSave) this.onSave({ profile: this.profile, settings: this.settings, customs: this.customs.map(({ tag, t, p, r }) => ({ tag, t, p, r })) }); }
+  save() { if (this.onSave) this.onSave({ profile: this.profile, settings: this.settings, customs: this.customs.map(({ tag, t, p, r }) => ({ tag, t, p, r })), codexMem: this.codexMem }); }
+  forgetCodex(kind, key) {
+    if (kind === 'recipe') this.codexMem.recipes = this.codexMem.recipes.filter(r => r.name !== key);
+    else { for (const k of Object.keys(this.codexMem.words)) if (k === key || this.codexMem.words[k].name === key) delete this.codexMem.words[k]; }
+    this.save();
+  }
   learn(phrase, answer) {
     const p = Text.clean(phrase), a = String(answer).trim();
     if (!p || !a) return null;
@@ -174,6 +184,12 @@ class Brain {
       if (r) return r;
     }
 
+    // режим Кодекс: команды и описания игр
+    const cc = this.codexCommand(text, t, cls);
+    if (cc) return cc;
+    if (this.settings.codexOn && !CRISIS_RE.test(t)) { const r = await this.codexMessage(text, t, cls, io); if (r) return r; }
+    else if (this.lastSpec && this.looksEdit(t) && /(игр|ее|её|его|быстрее|медленнее|сложнее|легче|босс|вместо|жизн|мир|фон|поменя|добав|назови|переименуй)/.test(t) && !GameList.find(text)) return this.codexEdit(text, io);
+
     // «ты Claude?» — отвечает сам Амиго, честно и от своего имени
     if (WHO_AI_RE.test(t) && (YOU_RE.test(t) || t.split(' ').length <= 2)) return this.handle('are_you_claude', text, t, cls, io);
     if (OTHER_AI_RE.test(t) && YOU_RE.test(t)) return this.handle('compare_ai', text, t, cls, io);
@@ -183,7 +199,8 @@ class Brain {
     if (m) { this.lastAct = null; return this.say(Skills.calcText(m), { src: 'skill', intent: 'calc', conf: cls.tag === 'calc' ? cls.conf : undefined }); }
 
     // игры в чате
-    if (GameList.find(text) || (cls.tag === 'make_game' && cls.conf >= BRAIN_TH)) return this.makeGame(text, t, cls, io);
+    const gameDesc = /(^|\s)(сделай|создай|придумай|напиши|запрограммируй|сочини|собери)\s+(мне\s+|нам\s+)?(\S+\s+)?(игр|игрушк)/.test(t) || /^(игр\S*|игрушк\S*)\s+(про|где|о|об|в\s+которой|с)\s/.test(t + ' ');
+    if (GameList.find(text) || gameDesc || (cls.tag === 'make_game' && cls.conf >= BRAIN_TH)) return this.makeGame(text, t, cls, io);
 
     // «меня зовут ...»
     const nm = NAME_RE.exec(text);
@@ -354,13 +371,6 @@ class Brain {
         if (switchTopic && tag !== 'make_game' && tag !== 'play' && !GameList.find(text, true)) return null;
         return this.makeGame(text, t, cls, io, true);
       }
-      case 'game_made': {
-        this.ctx = null;
-        const wish = /(добав|измени|поменя|убер|исправ|почини|сделай\s+(ее|его|так|чтобы|побольше|поменьше|быстрее|медленнее|сложнее|проще|легче)|пусть|хочу\s+чтобы|быстрее|медленнее|больше|меньше|сложнее|легче|цвет|фон)/.test(t);
-        const fresh = /(нов|друг)\S*\s+игр|игр\S*\s+(про|о|об|где)\s/.test(t + ' ');
-        if (wish && !fresh && !GameList.find(text) && this.superMode() && this.lastGame) return this.editGame(text, io, cls);
-        return null;
-      }
       case 'confirm_forget': {
         this.ctx = null;
         if (tag === 'yes' || /^(да|давай|ага|конечно|уверен)/.test(t)) {
@@ -467,7 +477,7 @@ class Brain {
       case 'crisis': this.ctx = null; return this.say(CRISIS_TEXT, Object.assign(meta, { mood: 'care' }));
       case 'gibberish': return this.say(U.pick(['Кажется, по клавиатуре прошёлся кот 🐱 Попробуешь ещё раз?', 'Это какой-то шифр? Я пока не умею такие разгадывать 😅', 'Ыыы... Я не понял ни буквы 😄 Напиши по-другому?'], this.rnd), Object.assign(meta, { src: 'rule', mood: 'think' }));
       case 'play': this.lastAct = null; return this.say(`Давай поиграем! 🎮\n• **Прямо в чате:** ${GameList.list()}\n• **Словами:** угадай число, угадай моё число, камень-ножницы-бумага, загадки, викторина, монетка и кубики` +
-        (this.superMode() ? '\n• **Свою игру:** опиши её, например «сделай игру про кота-космонавта», и я её напишу' : '') + '\nВо что сыграем?',
+        '\n• **Свою игру:** опиши её, например «сделай игру про кота-космонавта», и я сам её запрограммирую в Кодексе 🧑‍💻' + '\nВо что сыграем?',
         Object.assign(meta, { chips: ['Змейка', 'Тетрис', 'Игра 2048', 'Крестики-нолики', 'Угадай число', 'Загадка'] }));
       case 'name_bot':
         if (!P.name) { this.ctx = { type: 'ask_name' }; return this.say('Меня зовут Амиго! По-испански это «друг». А тебя как зовут?', meta); }
@@ -477,13 +487,19 @@ class Brain {
         return this.say(`Внутри меня настоящая нейросеть, написанная с нуля:\n• **${U.num(net.D)}** входов — это признаки фразы: слова, пары слов и кусочки слов по 3 буквы\n• **${net.H}** скрытых нейронов\n• **${net.C}** выходов — по одному на каждую тему, которую я знаю\nВсего **${U.num(net.params)}** параметров. Я разбиваю твою фразу на признаки, пропускаю через сеть и получаю, о чём ты говоришь, с уверенностью в процентах. Потом мои навыки строят ответ. А когда ты меня учишь, я дообучаюсь прямо здесь, в браузере. Нажми «Мозг», чтобы посмотреть, как я думаю!`,
           Object.assign(meta, { chips: ['Показать мозг'], mood: 'learn' }));
       }
-      case 'help': return this.say('Вот что я умею:\n• **болтать** и запоминать твоё имя и факты о тебе\n• **считать**: «сколько будет 17 × 23», «корень из 144», «15% от 300»\n• **запускать игры прямо в чате**: змейка, тетрис, 2048, сапёр, крестики-нолики и другие\n• **играть словами**: угадай число, камень-ножницы-бумага, загадки, викторина\n• **шутить**, рассказывать **факты**, **сказки** и **стихи**\n• говорить **время и дату**, ставить **таймер**\n• узнавать **погоду** и отвечать на вопросы «**что такое...**»\n• **переводить** слова на английский и испанский\n• **учиться**: если я что-то не понял, научи меня!',
+      case 'help': return this.say('Вот что я умею:\n• **болтать** и запоминать твоё имя и факты о тебе\n• **считать**: «сколько будет 17 × 23», «корень из 144», «15% от 300»\n• **сам программировать игры** в режиме **Кодекс**: опиши игру, и я её сделаю\n• **запускать готовые игры**: змейка, тетрис, 2048, сапёр, крестики-нолики и другие\n• **играть словами**: угадай число, камень-ножницы-бумага, загадки, викторина\n• **шутить**, рассказывать **факты**, **сказки** и **стихи**\n• говорить **время и дату**, ставить **таймер**\n• узнавать **погоду** и отвечать на вопросы «**что такое...**»\n• **переводить** слова на английский и испанский\n• **учиться**: если я что-то не понял, научи меня!',
         Object.assign(meta, { chips: ['Змейка', 'Расскажи шутку', 'Сколько будет 17 × 23?', 'Что такое нейросеть?'] }));
       case 'are_you_claude':
         return this.say('Нет, я Амиго! 🙂 У меня своя маленькая нейросеть: она живёт прямо в этом браузере, и обычные разговоры, игры, счёт и память — это я сам. ' +
           'А когда вопрос сложный, я могу позвать на помощь «супер-мозг» — это Claude от компании Anthropic. Такие ответы подписаны «супер-мозг Claude». Но разговариваю с тобой всегда я, Амиго 💛',
           Object.assign(meta, { src: meta.conf != null && cls && cls.tag === 'are_you_claude' ? 'net' : 'rule', mood: 'happy' }));
       case 'make_game': return this.makeGame(text, t, cls, io);
+      case 'codex_on': case 'codex_off': case 'codex_how': case 'show_code': {
+        const r = this.codexCommand(text, t, Object.assign({}, cls, { conf: 1 }));
+        if (r) return r;
+        if (tag === 'codex_on') { this.settings.codexOn = true; this.save(); return this.say('🧑‍💻 Режим Кодекс включён! Опиши игру, и я её запрограммирую.', { src: 'rule', action: { type: 'codex', on: true } }); }
+        return this.notUnderstood(text, cls);
+      }
       case 'age_bot': return this.say(`Я совсем молодой: появился в 2026 году. Но уже знаю ${this.tags.length} ${U.plural(this.tags.length, 'тему', 'темы', 'тем')} и учусь каждый день!`, meta);
       case 'yes':
         return this.say(U.pick(['Отлично! 😊 Чем займёмся?', 'Супер! Что будем делать?'], this.rnd), Object.assign(meta, { chips: ['Расскажи шутку', 'Сыграем', 'Интересный факт'] }));
@@ -701,69 +717,204 @@ class Brain {
   // ---------- игры в чате ----------
   async makeGame(text, t, cls, io, fromCtx) {
     const meta = { src: cls && cls.tag === 'make_game' ? 'net' : 'skill', intent: 'make_game', conf: cls && cls.tag === 'make_game' ? cls.conf : undefined, top: cls && cls.top };
-    const described = fromCtx || /(игр\S*|игрушк\S*)\s+(про|о|об|где|в\s+которой|с|как|на)\s/.test(t + ' ') || t.split(' ').length >= 5;
-    // точное название — встроенная игра; описание своей игры — супер-мозг; похожее слово — ближайшая встроенная
-    let key = GameList.find(text, true, true);
-    if (!key && described && this.superMode()) return this.customGame(text, io, meta);
-    if (!key) key = GameList.find(text, true);
+    const described = fromCtx || /(игр\S*|игрушк\S*)\s+(про|о|об|где|в\s+которой|с|как|на)\s/.test(t + ' ') || t.split(' ').length >= 4;
+    // точное название — встроенная игра; описание — Амиго программирует её сам в Кодексе
+    const key = GameList.find(text, true, true);
     if (key) {
       const g = GAME_LIST[key];
       this.lastAct = null;
       const intro = U.pick([`Запускаю «${g.title}» ${g.icon}`, `Держи «${g.title}» ${g.icon} Удачи{,name}!`, `Поехали! «${g.title}» ${g.icon}`], this.rnd);
       return this.say(intro + '\n' + g.help, Object.assign(meta, { mood: 'happy', game: { kind: 'builtin', key, opts: GameList.opts(text) } }));
     }
-    const chips = ['Змейка', 'Тетрис', 'Игра 2048', 'Сапёр', 'Крестики-нолики', 'Арканоид'];
-    if (!described) {
-      this.ctx = { type: 'game_wait' };
-      return this.say(`Какую игру? Прямо в чате могу запустить: ${GameList.list()}.` +
-        (this.superMode() ? '\nИли опиши свою, например «игра про кота, который ловит рыбу», и я её напишу!' : ''), Object.assign(meta, { chips }));
-    }
-    return this.say(`Новые игры по описанию пишет «супер-мозг»: включи его в настройках, и я сделаю любую игру. А прямо сейчас могу запустить: ${GameList.list()}.`,
-      Object.assign(meta, { chips: chips.slice(0, 4).concat('Настройки') }));
+    if (described) return this.codexBuild(text, io, meta);
+    this.ctx = { type: 'game_wait' };
+    return this.say(`Какую игру? Опиши её, и я сам её запрограммирую 🧑‍💻 Например: «кот ловит рыбу под водой» или «динозавр прыгает через кактусы».\nА ещё у меня есть готовые: ${GameList.list()}.`,
+      Object.assign(meta, { chips: ['Кот ловит рыбу под водой', 'Корабль стреляет в пришельцев', 'Змейка', 'Тетрис'] }));
   }
-  async customGame(request, io, meta = {}) {
-    if (io.onThinking) io.onThinking('game');
-    try {
-      const r = await this.online.Super.ask(this.settings, this.profile, [], gamePrompt(request), t => io.onProgress && io.onProgress(t.length), io.signal,
-        { raw: true, tier: 'default', effort: 'medium', maxTokens: 32000 });
-      const html = extractHtml(r.text);
-      if (!html) return this.say('Супер-мозг прислал что-то непохожее на игру 😅 Попробуй попросить ещё раз, чуть подробнее.', Object.assign(meta, { src: 'claude' }));
-      const tm = /<title>\s*([^<]{1,60}?)\s*<\/title>/i.exec(html);
-      const title = tm ? tm[1] : 'Новая игра';
-      this.lastGame = { html, title, request };
-      this.ctx = { type: 'game_made' };
-      return this.say(`Готово! Вот игра «${title}» 🎮 Если что-то не работает, нажми «Починить». А если хочешь что-то поменять, просто напиши, например «сделай быстрее» или «добавь врагов».`,
-        Object.assign(meta, { src: 'claude', mood: 'happy', game: { kind: 'custom', html, title, request } }));
-    } catch (e) {
-      if (e && e.code === 'cancelled') return this.say('Хорошо, не пишу игру.', { src: 'rule' });
-      return this.say(Online.superError(e) + ' А пока можно сыграть в готовые игры!', Object.assign(meta, { src: 'rule', chips: ['Змейка', 'Тетрис', 'Игра 2048'] }));
+
+  // ---------- Кодекс: Амиго сам программирует игры ----------
+  codexLevelName(l) { return (CODEX_LEVELS[l || this.settings.codexLevel] || CODEX_LEVELS.high).name; }
+  canAskClaude() { return this.settings.codexAsk !== false && !!this.online.Super.avail && !!this.online.Super.avail(this.settings); }
+  codexCommand(text, t, cls) {
+    const lv = /(средн|высок|ультр)/.exec(t), level = lv ? { средн: 'medium', высок: 'high', ультр: 'ultra' }[lv[1]] : null;
+    const on = /(^|\s)(включи|открой|запусти|включить|режим|давай)\s+(режим\s+)?кодекс|^кодекс(\s|$)/.test(t) || (cls.tag === 'codex_on' && cls.conf >= 0.6);
+    const off = /(выключи|закрой|выйди из|выйти из|отключи|хватит)\s+(режим\s+)?кодекс/.test(t) || (cls.tag === 'codex_off' && cls.conf >= 0.6);
+    if (off) {
+      this.settings.codexOn = false; this.save();
+      return this.say('Режим Кодекс выключен. Если захочешь программировать игры, скажи «включи Кодекс» 🧑‍💻', { src: 'rule', intent: 'codex_off', action: { type: 'codex', on: false } });
     }
-  }
-  async editGame(wish, io, cls) {
-    const g = this.lastGame;
-    if (io.onThinking) io.onThinking('game');
-    try {
-      const r = await this.online.Super.ask(this.settings, this.profile, [], changePrompt(g.html, wish), t => io.onProgress && io.onProgress(t.length), io.signal,
-        { raw: true, tier: 'default', effort: 'medium', maxTokens: 32000 });
-      const html = extractHtml(r.text);
-      if (!html) return this.say('Не получилось поменять игру 😅 Попробуй сказать по-другому.', { src: 'claude' });
-      this.lastGame = { html, title: g.title, request: g.request + '; ' + wish };
-      this.ctx = { type: 'game_made' };
-      return this.say(`Поменял! Вот новая версия «${g.title}» 🎮`, { src: 'claude', intent: 'make_game', mood: 'happy', game: { kind: 'custom', html, title: g.title, request: this.lastGame.request } });
-    } catch (e) {
-      if (e && e.code === 'cancelled') return this.say('Хорошо, оставим как есть.', { src: 'rule' });
-      return this.say(Online.superError(e), { src: 'rule' });
+    if (on || (level && (/кодекс|режим|уровень/.test(t) || (this.settings.codexOn && t.split(' ').length <= 2)))) {
+      this.settings.codexOn = true; if (level) this.settings.codexLevel = level; this.save();
+      const L = this.settings.codexLevel;
+      const about = { medium: 'Средний — простые игры без лишнего, быстро и понятно.', high: 'Высокий — игры качественнее: эффекты, звуки, бонусы, уровни и боссы.',
+        ultra: 'Ультра — я долго думаю: собираю несколько вариантов, даю роботу-тестеру поиграть и подбираю сложность. Если не знаю, как что-то сделать, спрашиваю у Claude только «как это делается», запоминаю и дальше делаю сам.' }[L];
+      return this.say(`🧑‍💻 Режим Кодекс: **${this.codexLevelName(L)}**.\n${about}\n\nОпиши игру: кто герой, что он делает и где. Например: «кот ловит рыбу под водой».`,
+        { src: 'rule', intent: 'codex_on', mood: 'learn', action: { type: 'codex', on: true, level: L }, chips: ['Кот ловит рыбу под водой', 'Динозавр прыгает через кактусы', 'Корабль стреляет в пришельцев', 'Пингвин прыгает по льдинам вверх'] });
     }
+    if (/(покажи|показать|дай|открой)\s+(мне\s+)?(код|чертеж)/.test(t) || (cls.tag === 'show_code' && cls.conf >= 0.6)) {
+      if (!this.lastSpec) return this.say('Сначала давай сделаем игру! Опиши её, например «кот ловит рыбу».', { src: 'rule', intent: 'show_code' });
+      return this.say(`Вот код игры «${this.lastSpec.title}». Сверху — чертёж: из него мой движок собирает игру. Полный код можно скопировать кнопкой ниже.`, { src: 'rule', intent: 'show_code', action: { type: 'code', spec: this.lastSpec } });
+    }
+    if (/как\s+(ты\s+)?(делаешь|программируешь|создаешь|пишешь|придумываешь)\s+игр|как\s+работает\s+кодекс|что\s+такое\s+кодекс|ты\s+сам\s+(делаешь|программируешь|пишешь)/.test(t) || (cls.tag === 'codex_how' && cls.conf >= 0.6)) {
+      const nn = this.model.codex ? `${Object.keys(CODEX_GENRES).length} жанров, ${U.num(this.model.codex.params)} параметров` : '';
+      return this.say('Я программирую игры сам, в режиме **Кодекс**:\n' +
+        `• своя нейросеть Кодекса (${nn}) понимает, какой жанр ты описал\n• из описания я нахожу героя, призы, врагов и мир (знаю около ${CODEX_WORDS.length} слов и могу выучить новые)\n` +
+        '• собираю чертёж игры из своих приёмов: появление предметов, касания, умения, бонусы, уровни, боссы\n• мой движок оживляет чертёж прямо в чате\n' +
+        '• в режиме **Ультра** робот-тестер играет в разные варианты, а я подбираю сложность. Если чего-то не умею, спрашиваю у Claude, КАК это делается, запоминаю приём и дальше делаю сам.' +
+        (this.codexMem.recipes.length || Object.keys(this.codexMem.words).length ? `\nУже выучил сам: ${this.codexMem.recipes.length} ${U.plural(this.codexMem.recipes.length, 'приём', 'приёма', 'приёмов')} и ${Object.keys(this.codexMem.words).length} ${U.plural(Object.keys(this.codexMem.words).length, 'слово', 'слова', 'слов')}.` : ''),
+        { src: 'rule', intent: 'codex_how', chips: ['Включи Кодекс', 'Кодекс ультра'] });
+    }
+    return null;
   }
-  // кнопка «Починить» под игрой: отправить ошибку супер-мозгу и получить исправленный код
-  async fixGame(html, error, io = {}) {
-    if (!this.superMode()) throw { code: 'no_super' };
-    const r = await this.online.Super.ask(this.settings, this.profile, [], fixPrompt(html, error || 'игра не запускается или работает неправильно'),
-      t => io.onProgress && io.onProgress(t.length), io.signal, { raw: true, tier: 'default', effort: 'medium', maxTokens: 32000 });
-    const fixed = extractHtml(r.text);
-    if (!fixed) throw { code: 'empty' };
-    if (this.lastGame && this.lastGame.html === html) this.lastGame.html = fixed;
-    return fixed;
+  // в режиме Кодекс почти всё — описание игры или правка последней игры
+  async codexMessage(text, t, cls, io) {
+    if (this.lastSpec && this.looksEdit(t)) return this.codexEdit(text, io);
+    const other = cls.conf >= 0.6 && !['make_game', 'play', 'statement', 'knowledge', 'gibberish', 'more', 'dont_know', 'pets', 'story', 'fav_game'].includes(cls.tag);
+    const gamey = /(игр|про |где |лов|прыга|стреля|собира|уворач|бега|беж|лета|лети|гонк|лопа|ход|убега|сбива)/.test(t) || Codex.genreProbs(text)[0].p > 0.45;
+    if (other && !gamey) return null;
+    if (t.split(' ').length < 2 && !gamey) return null;
+    return this.codexBuild(text, io, { src: 'skill', intent: 'make_game' });
+  }
+  looksEdit(t) {
+    if (/игр\S*\s+(про|где|о|об)\s|нов\S*\s+игр|друг\S*\s+игр/.test(t + ' ')) return false;
+    return /(быстрее|медленнее|сложнее|легче|проще|больше|меньше|добав|убер|вместо|поменя|измени|назови|переименуй|жизн|фон|мир на|без звук|со звук|красивее|пусть|сделай\s+(ее|её|его|так|чтобы))/.test(t);
+  }
+  explainUnknown(u) {
+    const words = u.unknown.map(x => '«' + x.word + '»');
+    return words.length ? `Я пока не знаю, как выглядит ${words.join(', ')}, поэтому нарисовал по-своему.` : '';
+  }
+  async codexBuild(text, io, meta = {}) {
+    const level = this.settings.codexLevel || 'high';
+    if (level === 'ultra') return this.codexUltra(text, io, meta);
+    if (io.onThinking) io.onThinking('codex');
+    const u = Codex.understand(text, this.codexMem);
+    const spec = Codex.design(u, level);
+    this.lastSpec = spec;
+    const lines = [];
+    const unk = this.explainUnknown(u);
+    if (unk) lines.push(unk + ' В режиме Ультра я спрошу, как это нарисовать, и запомню.');
+    if (u.unknownMech.length) lines.push(`Делать «${u.unknownMech.join('», «')}» я ещё не умею. В режиме Ультра я спрошу, как это делается, и научусь.`);
+    const notes = spec.notes.length ? '\nДобавил: ' + spec.notes.join(', ') + '.' : '';
+    const intro = U.pick([`Готово! Я сам запрограммировал игру «${spec.title}» 🧑‍💻`, `Сам написал игру «${spec.title}»! 🎮`, `Вот твоя игра «${spec.title}» — код я написал сам 🧑‍💻`], this.rnd);
+    return this.say(`${intro}\n${Codex.describe(spec)}.${notes}` + (lines.length ? '\n' + lines.join('\n') : '') + '\nХочешь что-то поменять? Напиши, например: «быстрее», «добавь босса», «вместо кота собака».',
+      Object.assign({}, meta, { src: 'codex', intent: 'make_game', mood: 'happy', codexLevel: level, game: { kind: 'builtin', key: 'codex', opts: spec } }));
+  }
+  // спросить у Claude, КАК что-то сделать (только в Ультра), и запомнить ответ
+  async askHow(prompt, io) {
+    const r = await this.online.Super.ask(this.settings, this.profile, [], prompt, null, io.signal, { raw: true, force: true, tier: 'default', effort: 'low', maxTokens: 4000 });
+    return Codex.parseJSON(r.text);
+  }
+  async codexUltra(text, io, meta) {
+    const t0 = Date.now(), lines = [];
+    const tick = () => new Promise(r => setTimeout(r, 0));
+    const pause = ms => (this.fastThink ? tick() : new Promise(r => setTimeout(r, ms)));
+    const think = async (s, ms = 380) => { lines.push(s); if (io.onThink) io.onThink(lines.slice()); await pause(ms); };
+    const update = s => { lines[lines.length - 1] = s; if (io.onThink) io.onThink(lines.slice()); };
+    if (io.onThinking) io.onThinking('ultra');
+    await think(`📖 Читаю задание: «${text}»`);
+    let u = Codex.understand(text, this.codexMem);
+    const g = u.genres.slice(0, 3).map(x => `${CODEX_GENRES[x.g].name} ${Math.round(x.p * 100)}%`).join(', ');
+    await think(`🧠 Моя нейросеть Кодекса решает, какой это жанр: ${g}. Беру «${CODEX_GENRES[u.genres[0].g].name}».`, 500);
+    const roleLine = uu => {
+      const r = uu.roles, bits = [];
+      if (r.h[0]) bits.push(`герой ${r.h[0].entry.emoji} ${r.h[0].entry.name}`);
+      if (r.g.length) bits.push('призы ' + r.g.map(f => f.entry.emoji).join(''));
+      if (r.b.length) bits.push('враги ' + r.b.map(f => f.entry.emoji).join(''));
+      if (r.p[0]) bits.push('платформы ' + r.p[0].entry.emoji);
+      return bits.length ? bits.join(', ') : 'ничего не назвали — придумаю сам';
+    };
+    await think(`🔎 Нахожу, кто есть кто: ${roleLine(u)}.`);
+    const asked = [];
+    if (u.unknown.length) {
+      const words = u.unknown.map(x => '«' + x.word + '»').join(', ');
+      if (this.canAskClaude()) {
+        await think(`❓ Я не знаю, как выглядит ${words}. Спрашиваю у Claude, как это нарисовать…`, 100);
+        try {
+          const ans = await this.askHow(Codex.wordsPrompt(u.unknown), io);
+          const got = Codex.learnWords(this.codexMem, ans);
+          if (got.length) { this.save(); asked.push('слова'); update(`📚 Запомнил: ${got.map(x => x.name + ' — ' + x.emoji).join(', ')}. В следующий раз нарисую сам.`); await pause(450); u = Codex.understand(text, this.codexMem); }
+          else { update(`❓ Не понял ответ про ${words}, нарисую по-своему.`); await pause(300); }
+        } catch (e) { if (e && e.code === 'cancelled') return this.say('Хорошо, остановился.', { src: 'rule' }); update(`❓ Спросить не получилось (${Online.superError(e)}). Нарисую по-своему.`); await pause(300); }
+      } else await think(`❓ Я не знаю, как выглядит ${words}. Спросить у Claude сейчас нельзя, поэтому нарисую по-своему.`);
+    }
+    for (const phrase of u.unknownMech) {
+      if (!this.canAskClaude()) { await think(`❓ Я ещё не умею «${phrase}». Спросить у Claude сейчас нельзя: это можно включить в настройках. Сделаю игру без этого.`); continue; }
+      await think(`❓ Я не умею «${phrase}». Спрашиваю у Claude, КАК это делается, чтобы научиться самому…`, 100);
+      try {
+        const base = Codex.design(u, 'ultra');
+        const ans = await this.askHow(Codex.mechPrompt(phrase, base), io);
+        const v = Codex.validateRecipe(ans);
+        if (v.ok) {
+          const r = Codex.learnRecipe(this.codexMem, phrase, v.recipe);
+          this.save(); asked.push('приём');
+          update(`📚 Понял, как делать «${r.name}»: ${r.explain || 'запомнил правила.'} Записал этот приём себе — дальше умею сам.`); await pause(700);
+          u = Codex.understand(text, this.codexMem);
+        } else {
+          update(`❓ Claude объяснил, но этого не сделать моими блоками${ans && ans.explain ? ': ' + ans.explain : ''}. Сделаю без этого.`); await pause(400);
+        }
+      } catch (e) { if (e && e.code === 'cancelled') return this.say('Хорошо, остановился.', { src: 'rule' }); update(`❓ Спросить не получилось (${Online.superError(e)}). Сделаю без этого.`); await pause(300); }
+    }
+    const spec0 = Codex.design(u, 'ultra');
+    await think(`🌍 Мир: ${spec0.theme.name}. Беру из своей библиотеки: ${spec0.notes.join(', ') || 'основные правила'}${spec0.goal.level ? `, цель — ${spec0.goal.level} уровней и финальный босс` : ''}.`);
+    const vars = Codex.variants(spec0);
+    await think(`🧪 Собираю ${vars.length} варианта игры и даю роботу-тестеру в них поиграть…`, 200);
+    const tested = [];
+    for (let i = 0; i < vars.length; i++) {
+      await tick();
+      const res = Codex.playtestSpec(vars[i].spec, 150);
+      tested.push({ v: vars[i], res, score: Codex.rate(res, vars[i].spec) });
+      await think(`   Вариант ${i + 1} «${vars[i].name}»: робот ${spec0.timeLimit ? `успел ${res.score} очков за ${res.time} с` : `продержался ${res.time} с`}, дошёл до ${res.level} уровня.`, 260);
+    }
+    tested.sort((a, b) => b.score - a.score);
+    const pick = tested[0];
+    await think(`⚖️ Самым интересным получился вариант «${pick.v.name}».`);
+    await think('🎛 Подбираю сложность, чтобы было не скучно и не слишком трудно…', 150);
+    const best = await Codex.tune(pick.v.spec, it => {
+      const verdict = pick.v.spec.timeLimit ? (it.m > 0.82 ? 'легко' : it.m < 0.62 ? 'трудно' : 'то что надо') : (it.m > 110 ? 'слишком легко' : it.m < 70 ? 'слишком трудно' : 'то что надо');
+      lines.push(`   темп ${it.pace.toFixed(2)}: робот ${pick.v.spec.timeLimit ? `поймал ${Math.round(it.m * 100)}%` : `продержался ${Math.round(it.m)} с`} — ${verdict}`);
+      if (io.onThink) io.onThink(lines.slice());
+    }, { tick: () => pause(220) });
+    const spec = Object.assign({}, pick.v.spec, { pace: best.pace });
+    spec.id = spec.id + 'u';
+    const n = spec.spawns.length + spec.touch.length + spec.events.length + spec.abilities.length + Object.keys(spec.things).length;
+    await think(`💾 Пишу код: чертёж из ${n} правил для своего движка.`, 300);
+    const secs = Math.round((Date.now() - t0) / 1000);
+    await think(`✅ Готово! Думал ${secs} с, робот сыграл ${3 * (vars.length + (best ? 1 : 0))}+ партий.`, 100);
+    this.lastSpec = spec;
+    const learned = asked.length ? `\nПо ходу я спросил у Claude, как это делается, и научился: теперь это умею сам 📚` : '';
+    return this.say(`Готово! Я сам сделал игру «${spec.title}» 🧑‍💻 (Кодекс · Ультра)\n${Codex.describe(spec)}.\nДобавил: ${spec.notes.join(', ') || 'основные правила'}. Сложность подобрал по тестам робота.${learned}\nХочешь что-то поменять? Напиши «быстрее», «добавь босса» или «вместо … …».`,
+      Object.assign({}, meta, { src: 'codex', intent: 'make_game', mood: 'happy', codexLevel: 'ultra', think: lines.slice(), thinkSecs: secs, game: { kind: 'builtin', key: 'codex', opts: spec } }));
+  }
+  async codexEdit(text, io) {
+    const level = this.settings.codexLevel || 'high';
+    let r = Codex.edit(this.lastSpec, text, this.codexMem);
+    const lines = [];
+    if (!r.changes.length && r.unknownMech.length && level === 'ultra' && this.canAskClaude()) {
+      const phrase = r.unknownMech[0];
+      if (io.onThinking) io.onThinking('ultra');
+      lines.push(`❓ Я не умею «${phrase}». Спрашиваю у Claude, как это делается…`); if (io.onThink) io.onThink(lines.slice());
+      try {
+        const ans = await this.askHow(Codex.mechPrompt(phrase, this.lastSpec), io);
+        const v = Codex.validateRecipe(ans);
+        if (v.ok) {
+          const rec = Codex.learnRecipe(this.codexMem, phrase, v.recipe); this.save();
+          lines.push(`📚 Понял, как делать «${rec.name}»: ${rec.explain} Запомнил.`); if (io.onThink) io.onThink(lines.slice());
+          const s = JSON.parse(JSON.stringify(this.lastSpec)); Codex.applyRecipe(s, rec, s.notes); s.version = (s.version || 1) + 1;
+          r = { spec: s, changes: ['приём «' + rec.name + '» (выучил сам)'] };
+        }
+      } catch (e) { if (e && e.code === 'cancelled') return this.say('Хорошо, оставим как есть.', { src: 'rule' }); }
+    }
+    if (!r.changes.length) {
+      return this.say('Не понял, что поменять 🤔 Можно так: «быстрее», «медленнее», «сложнее», «легче», «больше врагов», «добавь босса», «добавь бонусы», «5 жизней», «вместо кота собака», «поменяй мир на космос», «назови игру …».' +
+        (level === 'ultra' ? '' : '\nА в режиме Ультра я могу спросить у Claude, как сделать что-то новое, и научиться.'), { src: 'rule', intent: 'make_game', chips: ['Быстрее', 'Добавь босса', 'Сложнее', 'Покажи код'] });
+    }
+    let spec = r.spec;
+    if (level === 'ultra' && r.changes.some(c => /быстрее|медленнее|сложнее|легче|врагов|босс/.test(c)) === false && r.changes.some(c => /приём|добавил/.test(c))) {
+      const res = Codex.playtestSpec(spec, 120);
+      lines.push(`🧪 Проверил роботом: продержался ${res.time} с.`);
+    }
+    this.lastSpec = spec;
+    return this.say(`Поменял: ${r.changes.join(', ')} ✅ Вот новая версия «${spec.title}».`, { src: 'codex', intent: 'make_game', mood: 'happy', codexLevel: level, think: lines.length ? lines : undefined, game: { kind: 'builtin', key: 'codex', opts: spec } });
   }
 
   // кнопка «Не то»: научить другому ответу на фразу

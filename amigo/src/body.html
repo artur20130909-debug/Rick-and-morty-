@@ -30,6 +30,9 @@
         <button class="icon-btn" id="btnVoice" type="button" aria-pressed="false" aria-label="Читать ответы вслух" title="Читать ответы вслух">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path class="wave" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
         </button>
+        <button class="icon-btn codex-btn" id="btnCodex" type="button" aria-pressed="false" aria-label="Режим Кодекс: Амиго программирует игры" title="Кодекс: Амиго сам программирует игры">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7 3 12l5 5M16 7l5 5-5 5M13.5 5l-3 14"/></svg>
+        </button>
         <button class="icon-btn" id="btnBrain" type="button" aria-expanded="false" aria-controls="brain" aria-label="Мозг Амиго" title="Мозг Амиго: как работает нейросеть">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="12" cy="12" r="2.2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 7l3.2 3.6M7 17l3.2-3.6M13.8 10.6 17 7M13.8 13.4 17 17M7 6h10M7 18h10"/></svg>
         </button>
@@ -40,6 +43,16 @@
     </header>
     <div class="log" id="log" role="log" aria-live="polite" aria-label="Переписка"></div>
     <div class="dock">
+      <div class="codex-bar" id="codexBar" hidden>
+        <span class="codex-label">🧑‍💻 Кодекс</span>
+        <div class="seg" role="radiogroup" aria-label="Уровень Кодекса">
+          <button type="button" role="radio" data-level="medium" aria-checked="false">Средний</button>
+          <button type="button" role="radio" data-level="high" aria-checked="true">Высокий</button>
+          <button type="button" role="radio" data-level="ultra" aria-checked="false">Ультра</button>
+        </div>
+        <span class="codex-hint" id="codexHint"></span>
+        <button class="icon-btn codex-close" id="codexClose" type="button" aria-label="Выключить Кодекс"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
       <div class="chips" id="chips" aria-label="Подсказки"></div>
       <form class="composer" id="composer" autocomplete="off">
         <textarea id="input" rows="1" placeholder="Напиши Амиго…" aria-label="Сообщение для Амиго" enterkeyhint="send"></textarea>
@@ -79,6 +92,10 @@
       <h3 class="eyebrow">Чему ты меня научил</h3>
       <ul class="learned" id="taught"></ul>
     </section>
+    <section class="brain-sec">
+      <h3 class="eyebrow">Что Кодекс выучил сам</h3>
+      <ul class="learned" id="codexMem"></ul>
+    </section>
   </aside>
 
   <div class="backdrop" id="backdrop" hidden></div>
@@ -91,6 +108,17 @@
       <h3>Голос</h3>
       <label class="switch"><input type="checkbox" id="setVoice"><span>Читать ответы вслух</span></label>
       <label class="field"><span>Скорость речи: <b id="rateVal">1</b></span><input type="range" id="setRate" min="0.6" max="1.6" step="0.1" value="1"></label>
+    </div>
+    <div class="set-group">
+      <h3>Кодекс 🧑‍💻</h3>
+      <p class="hint">В режиме Кодекс я сам программирую игры по твоему описанию. Включается кнопкой &lt;/&gt; наверху или словами «включи Кодекс».</p>
+      <label class="field"><span>Уровень</span><select id="setCodexLevel">
+        <option value="medium">Средний — простые игры</option>
+        <option value="high">Высокий — эффекты, бонусы, уровни, боссы</option>
+        <option value="ultra">Ультра — долго думаю, тестирую роботом, учусь новому</option>
+      </select></label>
+      <label class="switch"><input type="checkbox" id="setCodexAsk"><span>В Ультра можно спрашивать у Claude, КАК что-то сделать (сам Claude игру не пишет)</span></label>
+      <p class="hint" id="codexAskHint"></p>
     </div>
     <div class="set-group">
       <h3>Интернет</h3>

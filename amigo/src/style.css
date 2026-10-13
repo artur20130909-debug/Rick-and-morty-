@@ -255,3 +255,27 @@ button { cursor: pointer; }
 .memory button { aspect-ratio: 1; min-width: 0; padding: 0; border: 0; border-radius: 12px; background: var(--user); font-size: 1.9rem; line-height: 1; transition: background .15s; }
 .memory .up { background: var(--surface); box-shadow: inset 0 0 0 2px var(--accent); }
 .memory .done { background: var(--accent-soft); }
+
+/* ---------- Кодекс ---------- */
+.codex-btn[aria-pressed="true"] { background: var(--user); color: var(--user-ink); }
+.codex-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 6px 6px 6px 12px; border: 1.5px solid var(--user); border-radius: 16px; background: var(--surface); }
+.codex-label { font: 700 .85rem var(--f-display); white-space: nowrap; }
+.codex-hint { flex: 1; min-width: 0; font: .72rem var(--f-mono); color: var(--muted); }
+.codex-close { width: 32px; height: 32px; margin-left: auto; }
+.codex-close svg { width: 18px; height: 18px; }
+.seg { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--surface-2); }
+.seg button { padding: 6px 12px; border: 0; border-radius: 9px; background: transparent; font-size: .82rem; font-weight: 500; white-space: nowrap; }
+.seg button[aria-checked="true"] { background: var(--user); color: var(--user-ink); }
+.src.codex::before { background: var(--user); }
+.think-live { min-width: min(100%, 420px); }
+.think-head { font: 700 .85rem var(--f-display); margin-bottom: 6px; }
+.think-list { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 4px; font-size: .86rem; }
+.think-list li { color: var(--muted); }
+.think-list li.sub { list-style: none; margin-left: .2em; font: .78rem var(--f-mono); }
+.think-list li.now { color: var(--ink); font-weight: 600; }
+.think-list li.now::after { content: ' …'; animation: blink 1s infinite; }
+.think-log { border: 1px dashed var(--line); border-radius: 12px; padding: 6px 12px; background: var(--surface); font-size: .86rem; }
+.think-log summary { cursor: pointer; font-weight: 600; color: var(--muted); }
+.think-log[open] summary { margin-bottom: 6px; }
+.think-log .think-list li { color: var(--ink); }
+.code-copy { width: 100%; min-height: 140px; font: .72rem/1.4 var(--f-mono); border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); color: var(--ink); padding: 8px; }

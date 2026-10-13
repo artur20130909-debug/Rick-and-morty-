@@ -1,7 +1,8 @@
 // Интерфейс Амиго: чат, аватар, голос, таймеры, панель «Мозг» и настройки.
 const STORE_KEY = 'amigo.v1', CHAT_KEY = 'amigo.chat.v1', UI_KEY = 'amigo.ui.v1';
 const DEFAULT_CHIPS = ['Что ты умеешь?', 'Расскажи шутку', 'Сколько будет 17 × 23?', 'Загадай загадку', 'Что такое чёрная дыра?', 'Как ты работаешь?', 'Сыграем в угадай число', 'Интересный факт', 'Викторина', 'Какой сегодня день?'];
-const SRC_LABEL = { memory: 'из моей памяти', wiki: 'Википедия', claude: 'супер-мозг Claude', web: 'интернет', taught: 'ты научил' };
+const SRC_LABEL = { memory: 'из моей памяти', wiki: 'Википедия', claude: 'супер-мозг Claude', web: 'интернет', taught: 'ты научил', codex: 'Кодекс' };
+const CODEX_CHIPS = ['Кот ловит рыбу под водой', 'Динозавр прыгает через кактусы', 'Корабль стреляет в пришельцев', 'Пингвин прыгает по льдинам вверх', 'Машинка объезжает машины', 'Собирай монетки и убегай от призраков', 'Лопай шарики на время', 'Вертолёт летит между горами'];
 
 class App {
   constructor(brain) {
@@ -35,6 +36,9 @@ class App {
       else if (!$('brain').hidden && window.innerWidth < 1000) this.toggleBrain(false);
     });
     this.bindSettings();
+    $('btnCodex').addEventListener('click', () => this.setCodex(!this.brain.settings.codexOn));
+    $('codexClose').addEventListener('click', () => this.setCodex(false));
+    for (const b of document.querySelectorAll('#codexBar [data-level]')) b.addEventListener('click', () => { this.brain.settings.codexLevel = b.dataset.level; this.brain.save(); this.renderCodex(); this.toast('Кодекс: ' + CODEX_LEVELS[b.dataset.level].name); });
     this.initMic();
     if (!('speechSynthesis' in window)) $('btnVoice').hidden = true;
 
@@ -50,7 +54,7 @@ class App {
 
     const wide = window.innerWidth >= 1000;
     this.toggleBrain(this.uiState.brain == null ? wide : this.uiState.brain && wide, false);
-    this.renderStats(); this.renderTaught(); this.setVoice(this.brain.settings.voice, false);
+    this.renderStats(); this.renderTaught(); this.renderCodex(); this.setVoice(this.brain.settings.voice, false);
     this.restore();
     this.setStatus();
     if (this.brain.needsTuning) this.tune();
@@ -62,6 +66,7 @@ class App {
     if (Array.isArray(saved) && saved.length) {
       for (const m of saved) this.addMsg(m.who, m.text, m.meta || {}, { restore: true });
       this.brain.history = saved.slice(-20).map(m => ({ role: m.who === 'me' ? 'user' : 'assistant', content: m.text }));
+      for (let i = saved.length - 1; i >= 0; i--) { const g = saved[i].meta && saved[i].meta.game; if (g && g.key === 'codex') { this.brain.lastSpec = g.opts; break; } }
       this.chips(null);
       this.scroll(true);
     } else this.greet();
@@ -93,6 +98,7 @@ class App {
     b.className = 'bubble';
     this.renderText(b, text);
     wrap.appendChild(b);
+    if (meta.think && meta.think.length) wrap.appendChild(this.thinkLog(meta.think, meta.thinkSecs));
     if (meta.game) {
       wrap.classList.add('game');
       const card = new GameCard(this, meta.game);
@@ -100,12 +106,6 @@ class App {
     }
     if (who === 'bot') {
       const m = this.metaEl(meta);
-      // код игры в ответе супер-мозга можно сразу запустить
-      if (meta.src === 'claude' && !meta.game && /```html/i.test(text) && extractHtml(text)) {
-        const run = document.createElement('button'); run.type = 'button'; run.className = 'link-btn'; run.textContent = '▶ Запустить игру';
-        run.addEventListener('click', () => this.runHtml(extractHtml(text)));
-        (m || wrap).appendChild(run);
-      }
       if (m) wrap.appendChild(m);
     }
     this.logEl.appendChild(wrap);
@@ -121,11 +121,21 @@ class App {
     if (meta.src === 'net' || (meta.src === 'skill' && meta.conf != null)) label = `нейросеть · ${meta.title || 'тема'} · ${Math.round((meta.conf || 0) * 100)}%`;
     else if (meta.src === 'skill') label = 'навык';
     else if (SRC_LABEL[meta.src]) label = SRC_LABEL[meta.src];
+    if (meta.src === 'codex') label = 'Кодекс · ' + (CODEX_LEVELS[meta.codexLevel] || CODEX_LEVELS.high).name + ' · сам запрограммировал';
     if (label) { const s = document.createElement('span'); s.className = 'src ' + meta.src; s.textContent = label; parts.push(s); }
+    if (meta.game && meta.game.key === 'codex') {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'link-btn'; b.textContent = 'Показать код';
+      b.addEventListener('click', () => this.showCode(meta.game.opts)); parts.push(b);
+    }
+    if (meta.codeSpec) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'link-btn'; b.textContent = '📋 Скопировать полный код (HTML)';
+      b.addEventListener('click', () => this.copyCode(meta.codeSpec)); parts.push(b);
+      if (!window.claude) { const d = document.createElement('button'); d.type = 'button'; d.className = 'link-btn'; d.textContent = '⬇️ Скачать игру'; d.addEventListener('click', () => this.downloadCode(meta.codeSpec)); parts.push(d); }
+    }
     if (meta.link && /^https:\/\//.test(meta.link.url)) {
       const a = document.createElement('a'); a.href = meta.link.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'статья: ' + meta.link.title; parts.push(a);
     }
-    if (meta.phrase && (meta.conf != null || ['memory', 'taught', 'wiki', 'claude'].includes(meta.src)) && meta.src !== 'rule' && !meta.unsure) {
+    if (meta.phrase && (meta.conf != null || ['memory', 'taught', 'wiki', 'claude'].includes(meta.src)) && meta.src !== 'rule' && meta.src !== 'codex' && !meta.unsure) {
       const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'link-btn'; btn.textContent = 'Не то';
       btn.title = 'Научить Амиго другому ответу';
       btn.addEventListener('click', () => this.teachFix(meta.phrase));
@@ -162,25 +172,6 @@ class App {
     if (!U.store.set(CHAT_KEY, out)) U.store.set(CHAT_KEY, out.map(m => m.meta && m.meta.game && m.meta.game.html ? Object.assign({}, m, { meta: Object.assign({}, m.meta, { game: Object.assign({}, m.meta.game, { html: null }) }) }) : m));
   }
   clearChat() { this.cards.forEach(c => c.destroy()); this.cards = []; this.activeGame = null; this.log = []; this.logEl.innerHTML = ''; this.saveChat(); this.brain.history = []; }
-  runHtml(html) {
-    const t = /<title>\s*([^<]{1,60}?)\s*<\/title>/i.exec(html);
-    const w = this.addMsg('bot', 'Запускаю игру 🎮', { src: 'claude', game: { kind: 'custom', html, title: t ? t[1] : 'Игра' } });
-    if (w.card) w.card.launch();
-  }
-  canFix() { return !!Online.Super.mode(this.brain.settings); }
-  async fixGame(card, auto) {
-    if (!this.canFix()) { card.status('Чинить игры умеет супер-мозг: включи его в настройках.'); return; }
-    if (card.fixing) return;
-    card.fixing = true;
-    card.status(auto ? '⚠️ В игре ошибка. Уже чиню…' : 'Чиню игру…');
-    this.setStatus('супер-мозг чинит игру…', true); this.mood('think');
-    try {
-      const html = await this.brain.fixGame(card.spec.html, card.error, { onProgress: n => card.status(`Чиню игру… ${U.num(n)} символов кода`) });
-      card.setHtml(html); this.saveChat();
-      this.toast('Игра исправлена 🛠');
-    } catch (e) { card.status(e && e.code === 'empty' ? 'Не получилось исправить. Попробуй ещё раз.' : Online.superError(e)); }
-    card.fixing = false; this.setStatus(); this.mood('idle');
-  }
   gameRecord(title, points, label) {
     const text = `🏆 Новый рекорд в игре «${title}»! ${label}: ${points}. Так держать{,name}!`.replace('{,name}', this.brain.profile.name ? ', ' + this.brain.profile.name : '');
     this.addMsg('bot', text, { src: 'skill' });
@@ -191,7 +182,7 @@ class App {
   chips(list) {
     const box = this.el('chips');
     box.innerHTML = '';
-    const items = list && list.length ? list : U.shuffle(DEFAULT_CHIPS.slice()).slice(0, 4);
+    const items = list && list.length ? list : U.shuffle((this.brain.settings.codexOn ? CODEX_CHIPS : DEFAULT_CHIPS).slice()).slice(0, 4);
     for (const c of items) {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = c;
       b.addEventListener('click', () => {
@@ -217,8 +208,9 @@ class App {
     this.ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const io = {
       signal: this.ctl ? this.ctl.signal : undefined,
-      onThinking: k => this.setStatus(k === 'super' ? 'спрашиваю супер-мозг…' : k === 'game' ? 'пишу игру…' : k === 'wiki' ? 'ищу в Википедии…' : 'смотрю в интернете…', true),
+      onThinking: k => { this.setStatus(k === 'super' ? 'спрашиваю супер-мозг…' : k === 'codex' ? 'программирую игру…' : k === 'ultra' ? 'Кодекс Ультра думает…' : k === 'wiki' ? 'ищу в Википедии…' : 'смотрю в интернете…', true); if (k === 'codex' || k === 'ultra') this.mood('learn'); },
       onProgress: n => { const b = typing.querySelector('.bubble'); if (b) { b.classList.add('progress-text'); b.textContent = `🛠️ Пишу игру… ${U.num(n)} символов кода`; } this.setStatus('пишу игру…', true); },
+      onThink: lines => { const b = typing.querySelector('.bubble'); if (b) { b.className = 'bubble think-live'; b.innerHTML = ''; b.appendChild(this.thinkList(lines, true)); } this.scroll(); },
       onStream: t => {
         if (!t) return;
         if (!live) { typing.remove(); live = this.addMsg('bot', t, {}, { live: true }); this.mood('think'); }
@@ -232,7 +224,7 @@ class App {
     catch (e) { a = { text: 'Ой, что-то сломалось 😵 Попробуй ещё раз.', src: 'rule' }; }
     if (!live) { const wait = 250 + Math.min(450, a.text.length * 3) - (Date.now() - t0); if (wait > 0) await new Promise(r => setTimeout(r, wait)); }
     typing.remove();
-    const meta = { src: a.src, conf: a.conf, title: this.titleOf(a), link: a.link, phrase: text, unsure: a.unsure, game: a.game };
+    const meta = { src: a.src, conf: a.conf, title: this.titleOf(a), link: a.link, phrase: text, unsure: a.unsure, game: a.game, codexLevel: a.codexLevel, think: a.think, thinkSecs: a.thinkSecs };
     if (live) live.remove();
     const w = this.addMsg('bot', a.text, meta);
     if (w.card) { w.card.focus(); this.scroll(); }
@@ -262,6 +254,8 @@ class App {
     else if (act.type === 'voice') this.setVoice(act.on, false);
     else if (act.type === 'dance') this.mood('dance', 3200);
     else if (act.type === 'learned') { this.renderTaught(); this.tune(); }
+    else if (act.type === 'codex') this.renderCodex();
+    else if (act.type === 'code') this.showCode(act.spec);
   }
 
   // ---------- статус и настроение ----------
@@ -562,6 +556,7 @@ class App {
     const m = this.brain.model, net = this.brain.net;
     const rows = [['Входов', U.num(net.D)], ['Скрытых нейронов', net.H], ['Тем (выходов)', net.C], ['Параметров', U.num(net.params)],
       ['Примеров для обучения', U.num(m.examples)], ['Точность на новых фразах', Math.round(m.val.acc * 100) + '%']];
+    if (m.codex) rows.push(['Нейросеть Кодекса', `${m.codex.tags.length} жанров · ${Math.round(m.codex.params / 1000)} тыс.`], ['Кодекс понимает жанр', Math.round(m.codex.val.acc * 100) + '%']);
     const dl = this.el('stats'); dl.innerHTML = '';
     for (const [k, v] of rows) { const d = document.createElement('div'); const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; d.append(dt, dd); dl.appendChild(d); }
   }
@@ -599,13 +594,15 @@ class App {
     $('setTier').addEventListener('change', e => { S.superTier = e.target.value; save(); });
     $('setKey').addEventListener('change', e => { S.apiKey = e.target.value.trim(); save(); if (S.apiKey) this.toast('Ключ сохранён 🔑'); });
     $('setModel').addEventListener('change', e => { S.model = e.target.value; save(); });
+    $('setCodexLevel').addEventListener('change', e => { S.codexLevel = e.target.value; save(); this.renderCodex(); });
+    $('setCodexAsk').addEventListener('change', e => { S.codexAsk = e.target.checked; save(); });
     $('btnClear').addEventListener('click', () => { this.clearChat(); this.openSettings(false); this.greet(); this.toast('Чат очищен'); });
     $('btnForgetAll').addEventListener('click', e => {
       const b = e.currentTarget;
       if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Точно забыть? Нажми ещё раз'; setTimeout(() => { delete b.dataset.sure; b.textContent = 'Забыть всё обо мне'; }, 4000); return; }
       delete b.dataset.sure; b.textContent = 'Забыть всё обо мне';
       this.brain.profile = { name: '', facts: [], city: null, age: 0 };
-      this.brain.customs = []; this.brain.reset(); this.brain.save();
+      this.brain.customs = []; this.brain.codexMem = { words: {}, recipes: [] }; this.brain.lastSpec = null; this.brain.reset(); this.brain.save();
       this.clearChat(); this.renderTaught(); this.renderStats(); this.setStatus(); this.openSettings(false); this.greet();
       this.toast('Я всё забыл. Будем знакомиться заново!');
     });
@@ -615,6 +612,8 @@ class App {
     $('setVoice').checked = !!S.voice; $('setRate').value = S.rate || 1; $('rateVal').textContent = (S.rate || 1).toFixed(1);
     $('setOnline').checked = S.online !== false; $('setSuper').checked = !!S.superOn; $('setTier').value = S.superTier || 'quick';
     $('setKey').value = S.apiKey || ''; $('setModel').value = S.model || 'claude-opus-5-5';
+    $('setCodexLevel').value = S.codexLevel || 'high'; $('setCodexAsk').checked = S.codexAsk !== false;
+    $('codexAskHint').textContent = Sup.avail(S) ? 'Claude сейчас доступен.' : 'Сейчас Claude недоступен: в приложении Claude он подключается сам, а в обычном браузере нужен ключ API ниже.';
     const inClaude = Sup.sampleState === 'ready';
     $('superSample').hidden = !inClaude; $('superApi').hidden = inClaude;
     $('superHint').textContent = inClaude
@@ -623,6 +622,81 @@ class App {
         : 'Вставь ключ Anthropic API, и я буду спрашивать Claude о том, чего не знаю сам. Без ключа я всё равно работаю: у меня своя нейросеть.';
     const mode = Sup.mode(S);
     $('superBadge').textContent = mode ? 'включён' : S.superOn && !inClaude && !S.apiKey ? 'нужен ключ' : 'выключен';
+  }
+  // ---------- Кодекс ----------
+  setCodex(on) {
+    this.brain.settings.codexOn = !!on; this.brain.save(); this.renderCodex();
+    if (on) { this.toast('🧑‍💻 Режим Кодекс: опиши игру'); this.input.focus(); } else this.toast('Кодекс выключен');
+    this.chips(null);
+  }
+  renderCodex() {
+    const S = this.brain.settings, on = !!S.codexOn;
+    this.el('codexBar').hidden = !on;
+    this.el('btnCodex').setAttribute('aria-pressed', on ? 'true' : 'false');
+    for (const b of document.querySelectorAll('#codexBar [data-level]')) b.setAttribute('aria-checked', b.dataset.level === (S.codexLevel || 'high') ? 'true' : 'false');
+    this.input.placeholder = on ? 'Опиши игру, и я её запрограммирую…' : 'Напиши Амиго…';
+    this.el('codexHint').textContent = { medium: 'простые игры', high: 'эффекты, бонусы, уровни, боссы', ultra: 'долго думаю, тестирую роботом, учусь' }[S.codexLevel || 'high'];
+    this.renderCodexMem();
+  }
+  thinkList(lines, live) {
+    const ol = document.createElement('ol'); ol.className = 'think-list';
+    lines.forEach((l, i) => { const li = document.createElement('li'); li.textContent = l; if (live && i === lines.length - 1) li.className = 'now'; if (/^\s/.test(l)) li.classList.add('sub'); ol.appendChild(li); });
+    if (live) { const h = document.createElement('div'); h.className = 'think-head'; h.textContent = '🧠 Кодекс Ультра думает…'; const box = document.createElement('div'); box.append(h, ol); return box; }
+    return ol;
+  }
+  thinkLog(lines, secs) {
+    const d = document.createElement('details'); d.className = 'think-log';
+    const s = document.createElement('summary'); s.textContent = `🧠 Как я думал · ${lines.length} ${U.plural(lines.length, 'шаг', 'шага', 'шагов')}` + (secs ? ` · ${secs} с` : '');
+    d.append(s, this.thinkList(lines, false));
+    return d;
+  }
+  codeSources() { return { engine: codexEngineModule.toString(), view: codexViewModule.toString(), main: codexStandaloneMain.toString() }; }
+  blueprint(spec) {
+    const b = { title: spec.title, genre: spec.genre, level: spec.level, control: spec.control, hero: spec.hero, world: spec.theme.name, lives: spec.lives, pace: spec.pace,
+      things: spec.things, spawns: spec.spawns, touch: spec.touch, abilities: spec.abilities, events: spec.events, powers: spec.powers, boss: spec.boss.on ? spec.boss : undefined,
+      goal: spec.goal.level ? spec.goal : undefined, timeLimit: spec.timeLimit || undefined, learned: spec.learned.length ? spec.learned : undefined };
+    return JSON.stringify(b, null, 1).replace(/\n\s+(?=[\]}"\d-])/g, m => m.length > 14 ? m : ' ').slice(0, 9000);
+  }
+  showCode(spec) {
+    if (!spec) return;
+    const html = CodexView.exportHtml(spec, this.codeSources()), n = html.split('\n').length;
+    const text = `Код игры «${spec.title}». Это чертёж для моего движка: из него получается игра. Всего в файле игры ${U.num(n)} строк: движок Кодекса, художник и этот чертёж.\n\`\`\`json\n${this.blueprint(spec)}\n\`\`\``;
+    this.addMsg('bot', text, { src: 'codex', codexLevel: spec.level, codeSpec: spec });
+    this.chips(['Быстрее', 'Добавь босса', 'Вместо героя собака']);
+  }
+  copyCode(spec) {
+    const html = CodexView.exportHtml(spec, this.codeSources());
+    const fallback = () => { const ta = document.createElement('textarea'); ta.value = html; ta.className = 'code-copy'; ta.readOnly = true; this.logEl.appendChild(ta); ta.select(); this.toast('Выдели и скопируй код из поля ниже'); this.scroll(); };
+    try { navigator.clipboard.writeText(html).then(() => this.toast('Код скопирован! Вставь его в файл .html и открой в браузере 📋'), fallback); } catch (e) { fallback(); }
+  }
+  downloadCode(spec) {
+    try {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([CodexView.exportHtml(spec, this.codeSources())], { type: 'text/html' }));
+      a.download = (spec.title || 'игра').replace(/[^\wа-яё-]+/gi, '_') + '.html'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    } catch (e) { this.copyCode(spec); }
+  }
+  renderCodexMem() {
+    const ul = this.el('codexMem'); if (!ul) return;
+    ul.innerHTML = '';
+    const mem = this.brain.codexMem, words = Object.entries(mem.words), seen = new Set();
+    for (const r of mem.recipes) {
+      const li = document.createElement('li'), d = document.createElement('div');
+      const q = document.createElement('div'); q.className = 'ta'; q.textContent = '🧩 ' + r.name;
+      const a = document.createElement('div'); a.className = 'tq'; a.textContent = r.explain || '';
+      d.append(q, a);
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn small'; btn.textContent = 'Забыть';
+      btn.addEventListener('click', () => { this.brain.forgetCodex('recipe', r.name); this.renderCodexMem(); });
+      li.append(d, btn); ul.appendChild(li);
+    }
+    for (const [k, w] of words) {
+      if (seen.has(w.name)) continue; seen.add(w.name);
+      const li = document.createElement('li'), d = document.createElement('div'); d.className = 'ta'; d.textContent = w.emoji + ' ' + w.name;
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn small'; btn.textContent = 'Забыть';
+      btn.addEventListener('click', () => { this.brain.forgetCodex('word', w.name); this.renderCodexMem(); });
+      li.append(d, btn); ul.appendChild(li);
+    }
+    if (!ul.children.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Пока ничего. В режиме Кодекс Ультра я спрашиваю у Claude, как сделать то, чего не умею, и записываю сюда.'; ul.appendChild(li); }
   }
   toast(text) {
     const t = this.el('toast');

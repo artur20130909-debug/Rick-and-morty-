@@ -5,15 +5,15 @@
 // ARTIFACT_OUT=путь — дополнительно сохранить страницу без <html>/<head> (для публикации в Claude).
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const dir = __dirname, src = path.join(dir, 'src');
-const CFG = { D: 4096, H: 64, epochs: 20, batch: 16, lr: 0.01, smooth: 0.1, dropout: 0.2, seed: 7 };
-const BRAIN_FILES = ['00_util.js', '01_text.js', '02_nn.js', '03_intents.js', '03b_content.js', '04_data.js', '05_skills.js', '05c_gamelist.js', '06_online.js', '07_brain.js'];
+const CFG = { D: 4096, H: 64, epochs: 20, batch: 16, lr: 0.01, smooth: 0.1, dropout: 0.2, seed: 7, codexD: 2048, codexH: 32 };
+const BRAIN_FILES = ['00_util.js', '01_text.js', '02_nn.js', '03_intents.js', '03b_content.js', '04_data.js', '05_skills.js', '05c_gamelist.js', '05d_codex_engine.js', '05e_codex.js', '06_online.js', '07_brain.js'];
 
 // загрузить код Амиго в node (как отдельные <script> в браузере)
 let loaded = null;
 function load() {
   if (loaded) return loaded;
   for (const f of BRAIN_FILES) vm.runInThisContext(fs.readFileSync(path.join(src, f), 'utf8'), { filename: f });
-  loaded = vm.runInThisContext('({ U, Text, MLP, INTENTS, FILL, Data, Skills, Online, Brain, KB, JOKES, FACTS, RIDDLES, QUIZ, DICT, BRAIN_TH, GameList, GAME_LIST, extractHtml })');
+  loaded = vm.runInThisContext('({ U, Text, MLP, INTENTS, FILL, Data, Skills, Online, Brain, KB, JOKES, FACTS, RIDDLES, QUIZ, DICT, BRAIN_TH, GameList, GAME_LIST, Codex, CodexEngine, CODEX_GENRES, CODEX_WORDS, CODEX_LEVELS })');
   return loaded;
 }
 
@@ -42,9 +42,22 @@ async function train(log = () => {}) {
   const json = net.toJSON();
   const q = A.MLP.fromJSON(json); // проверяем уже сжатую сеть — именно она попадёт в страницу
   const val = accuracy(A, q, ds.tags, CFG.D);
+  // нейросеть Кодекса: понимает, какой жанр игры описал человек
+  const cs = A.Codex.trainSet(), cex = A.Data.featurize(cs.examples, CFG.codexD);
+  const cnet = new A.MLP(CFG.codexD, CFG.codexH, cs.tags.length, 3);
+  const chist = await cnet.train(cex, { epochs: 18, batch: 16, lr: 0.01, smooth: 0.1, dropout: 0.2, seed: 9 });
+  const cjson = cnet.toJSON(), cq = A.MLP.fromJSON(cjson);
+  const CV = require('./test/codex_phrases.js');
+  let cok = 0, cn = 0; const cmiss = [];
+  for (const [g, list] of Object.entries(CV)) for (const s of list) {
+    const p = cq.predict(A.Text.features(s, CFG.codexD)); let a = 0; for (let i = 1; i < p.length; i++) if (p[i] > p[a]) a = i;
+    cn++; if (cs.tags[a] === g) cok++; else cmiss.push(`  «${s}» → ${cs.tags[a]}, нужно ${g}`);
+  }
+  log(`Нейросеть Кодекса: ${cs.tags.length} жанров, ${cex.length} примеров, точность на новых описаниях ${(cok / cn * 100).toFixed(1)}%` + (cmiss.length ? '\n' + cmiss.join('\n') : ''));
   const model = { v: 1, D: CFG.D, H: CFG.H, epochs: CFG.epochs, tags: ds.tags, examples: ex.length, params: net.params,
-    history: history.map(h => [+h.loss.toFixed(4), +h.acc.toFixed(4)]), val: { acc: +val.acc.toFixed(4), n: val.n }, net: json };
-  return { model, val, ms: Date.now() - t0 };
+    history: history.map(h => [+h.loss.toFixed(4), +h.acc.toFixed(4)]), val: { acc: +val.acc.toFixed(4), n: val.n }, net: json,
+    codex: { D: CFG.codexD, tags: cs.tags, params: cnet.params, examples: cex.length, val: { acc: +(cok / cn).toFixed(4), n: cn }, loss: +chist[chist.length - 1].loss.toFixed(4), net: cjson } };
+  return { model, val, codexVal: model.codex.val, ms: Date.now() - t0 };
 }
 
 async function main() {

@@ -27,7 +27,7 @@ const GameKit = (() => {
     el.addEventListener('pointercancel', () => { sx = null; });
   }
   const KEY = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
-    Space: 'action', Enter: 'action', KeyX: 'rotate', KeyZ: 'rotate' };
+    Space: 'action', Enter: 'action', KeyX: 'rotate', KeyZ: 'rotate', KeyE: 'second', ShiftLeft: 'second', ShiftRight: 'second' };
   function rr(ctx, x, y, w, h, r) {
     r = Math.min(r, w / 2, h / 2);
     ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
@@ -609,11 +609,14 @@ class GameCard {
 
   // ---------- встроенная игра ----------
   buildBuiltin() {
-    const key = this.spec.key, info = GAME_LIST[key];
+    const key = this.spec.key, codex = key === 'codex', spec = this.spec.opts || {};
+    const info = codex ? { title: spec.title || 'Игра', icon: spec.icon || '🎮', help: spec.help || '' } : GAME_LIST[key];
     this.title = info.title;
+    this.bestKey = codex ? 'codex:' + spec.id : key;
     const bar = this.top(info.icon, info.title);
     this.pauseBtn = this.btn(bar, '⏸', 'Пауза', () => (this.running ? this.pause() : this.play()));
     this.btn(bar, '↻', 'Начать заново', () => this.restart());
+    if (codex) this.btn(bar, '</>', 'Показать код игры', () => this.app.showCode(spec));
     if (document.fullscreenEnabled) this.btn(bar, '⛶', 'На весь экран', () => this.fullscreen());
     this.stage = GameKit.el('div', 'game-stage', this.el);
     this.stage.tabIndex = 0;
@@ -629,6 +632,7 @@ class GameCard {
       pal: GameKit.palette,
       over: (text, res) => card.over(text, res),
       toast: t => card.app.toast(t),
+      audio: () => card.app.audio,
     };
     this.game = GAMES[key](api);
     this.label = this.game.scoreLabel || 'Очки';
@@ -663,7 +667,7 @@ class GameCard {
     }
   }
   showScore() {
-    const best = (U.store.get(BEST_KEY, {}) || {})[this.spec.key];
+    const best = (U.store.get(BEST_KEY, {}) || {})[this.bestKey];
     this.scoreEl.textContent = `${this.label}: ${this.points}`;
     this.bestEl.textContent = best != null ? `🏆 ${best}` : '';
     this.bestEl.title = 'Рекорд';
@@ -676,6 +680,7 @@ class GameCard {
     if (this.game.input(a, down, e)) e.preventDefault();
   }
   play() {
+    if (this.app.unlockAudio) this.app.unlockAudio();
     if (this.app.activeGame && this.app.activeGame !== this) this.app.activeGame.pause();
     this.app.activeGame = this;
     if (this.state === 'over') { this.game.reset(); }
@@ -703,10 +708,10 @@ class GameCard {
   over(text, res) {
     this.running = false; cancelAnimationFrame(this.raf);
     this.state = 'over';
-    const all = U.store.get(BEST_KEY, {}) || {}, prev = all[this.spec.key], low = !!this.game.lowBetter;
+    const all = U.store.get(BEST_KEY, {}) || {}, prev = all[this.bestKey], low = !!this.game.lowBetter;
     const counts = res !== 'lose' && this.points > 0;
     const record = counts && (prev == null || (low ? this.points < prev : this.points > prev));
-    if (record) { all[this.spec.key] = this.points; U.store.set(BEST_KEY, all); }
+    if (record) { all[this.bestKey] = this.points; U.store.set(BEST_KEY, all); }
     this.showScore();
     const lines = [text || 'Игра окончена!'];
     if (res !== 'lose' && !(low && res !== 'win')) lines.push(`${this.label}: ${this.points}`);
@@ -725,64 +730,16 @@ class GameCard {
     catch (e) { this.app.toast('Полный экран здесь недоступен'); }
   }
   destroy() { this.running = false; cancelAnimationFrame(this.raf); if (this.game && this.game.destroy) this.game.destroy(); }
-
-  // ---------- игра от супер-мозга (в изолированной рамке) ----------
-  buildCustom() {
-    this.title = this.spec.title || 'Новая игра';
-    const bar = this.top('🎮', this.title);
-    this.scoreEl.textContent = 'от супер-мозга';
-    this.btn(bar, '↻', 'Перезапустить игру', () => this.launch());
-    this.fixBtn = this.btn(bar, '🛠', 'Починить игру', () => this.app.fixGame(this));
-    if (document.fullscreenEnabled) this.btn(bar, '⛶', 'На весь экран', () => this.fullscreen());
-    this.stage = GameKit.el('div', 'game-stage custom', this.el);
-    this.statusEl = GameKit.el('div', 'game-info', this.el);
-    this.overlayBox();
-    if (!this.spec.html) { this.overlay('Код этой игры не сохранился. Попроси меня сделать её снова.', 'Понятно', () => { this.ov.hidden = true; }); return; }
-    this.overlay('Игру написал супер-мозг. Она запускается в отдельном окошке.', '▶ Запустить', () => this.launch());
-    this.id = 'g' + Math.random().toString(36).slice(2);
-    this.onMsg = e => {
-      if (!this.frame || e.source !== this.frame.contentWindow || !e.data || e.data.amigoGame !== this.id) return;
-      if (e.data.type === 'ready') { this.ready = true; this.status(''); }
-      if (e.data.type === 'error') {
-        this.error = String(e.data.msg || 'ошибка').slice(0, 400);
-        this.status('⚠️ В игре ошибка: ' + this.error);
-        this.fixBtn.classList.add('attention');
-        if (!this.autoFixed && Date.now() - this.started < 5000 && this.app.canFix()) { this.autoFixed = true; this.app.fixGame(this, true); }
-      }
-    };
-    window.addEventListener('message', this.onMsg);
-  }
-  status(t) { this.statusEl.textContent = t; }
-  wrap(html) {
-    const id = JSON.stringify(this.id);
-    const shim = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\' \'unsafe-eval\'; style-src \'unsafe-inline\'; img-src data: blob:; font-src data:; media-src data: blob:">' +
-      '<script>(function(){var id=' + id + ';function post(m){m.amigoGame=id;try{parent.postMessage(m,"*")}catch(e){}}' +
-      'window.addEventListener("error",function(e){post({type:"error",msg:(e.message||"ошибка")+(e.lineno?" (строка "+e.lineno+")":"")})});' +
-      'window.addEventListener("unhandledrejection",function(e){post({type:"error",msg:String(e.reason)})});' +
-      'try{var m={};Object.defineProperty(window,"localStorage",{configurable:true,value:{getItem:function(k){return k in m?m[k]:null},setItem:function(k,v){m[k]=String(v)},removeItem:function(k){delete m[k]},clear:function(){m={}}}})}catch(e){}' +
-      'window.alert=function(){};window.confirm=function(){return true};window.prompt=function(){return null};window.open=function(){return null};' +
-      'window.addEventListener("load",function(){post({type:"ready"})});})();<\/script>';
-    if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, m => m + shim);
-    if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, m => m + '<head>' + shim + '</head>');
-    return shim + html;
-  }
-  launch() {
-    if (!this.spec.html) return;
-    this.ov.hidden = true;
-    if (this.frame) this.frame.remove();
-    this.ready = false; this.error = ''; this.started = Date.now();
-    this.fixBtn.classList.remove('attention');
-    this.status('Запускаю…');
-    const f = document.createElement('iframe');
-    f.className = 'game-frame'; f.title = this.title;
-    f.setAttribute('sandbox', 'allow-scripts');
-    f.srcdoc = this.wrap(this.spec.html);
-    this.stage.appendChild(f);
-    this.frame = f;
-    setTimeout(() => { try { f.focus(); } catch (e) { /* нет фокуса */ } }, 300);
-    clearTimeout(this.readyT);
-    this.readyT = setTimeout(() => { if (!this.ready && !this.error) this.status('Похоже, здесь игры от супер-мозга не запускаются. Открой Амиго как файл index.html, там они работают. А встроенные игры работают везде!'); }, 6000);
-  }
-  setHtml(html) { this.spec.html = html; this.launch(); }
   focus() { try { if (!this.ov.hidden) this.ovBtn.focus({ preventScroll: true }); else this.stage.focus({ preventScroll: true }); } catch (e) { /* нет фокуса */ } }
+
+  // ---------- старая игра от супер-мозга (теперь игры пишет сам Амиго) ----------
+  buildCustom() {
+    this.title = this.spec.title || 'Игра';
+    this.top('🎮', this.title);
+    this.scoreEl.textContent = '';
+    this.stage = GameKit.el('div', 'game-stage', this.el);
+    this.overlayBox();
+    this.overlay('Эту игру когда-то писал супер-мозг. Теперь игры программирую я сам, в режиме Кодекс! Опиши её снова, и я сделаю.', 'Понятно', () => { this.ov.hidden = true; });
+    this.stage.style.minHeight = '180px';
+  }
 }
