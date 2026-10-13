@@ -1,0 +1,124 @@
+<div class="app" id="app">
+  <main class="chat" aria-label="Чат с Амиго">
+    <header class="bar">
+      <div class="who">
+        <div class="avatar" id="avatar" data-mood="idle" aria-hidden="true">
+          <svg viewBox="0 0 100 100">
+            <path class="av-line" d="M50 19V10"/>
+            <circle class="av-node" cx="50" cy="8" r="6"/>
+            <rect class="av-head" x="9" y="19" width="82" height="74" rx="36"/>
+            <ellipse class="av-cheek" cx="24" cy="70" rx="7" ry="4.5"/>
+            <ellipse class="av-cheek" cx="76" cy="70" rx="7" ry="4.5"/>
+            <g class="av-eye"><ellipse class="av-white" cx="36" cy="52" rx="9.5" ry="11.5"/><circle class="av-pupil" cx="37" cy="54" r="5"/></g>
+            <g class="av-eye"><ellipse class="av-white" cx="64" cy="52" rx="9.5" ry="11.5"/><circle class="av-pupil" cx="65" cy="54" r="5"/></g>
+            <path class="av-line av-mouth m-smile" d="M39 73q11 9 22 0"/>
+            <path class="av-line av-mouth m-grin" d="M36 71q14 15 28 0z" style="fill:var(--ink)"/>
+            <path class="av-line av-mouth m-flat" d="M42 76h16"/>
+            <path class="av-line av-mouth m-soft" d="M42 74q8 5 16 0"/>
+            <path class="av-line av-mouth m-sad" d="M40 79q10-8 20 0"/>
+            <ellipse class="av-mouth m-o" cx="50" cy="75" rx="5.5" ry="6.5" style="fill:var(--ink)"/>
+            <ellipse class="av-mouth m-talk" cx="50" cy="75" rx="8" ry="5.5" style="fill:var(--ink)"/>
+          </svg>
+        </div>
+        <div class="who-text">
+          <h1 class="name">Амиго</h1>
+          <p class="status" id="status">нейросеть · просыпаюсь…</p>
+        </div>
+      </div>
+      <div class="bar-actions">
+        <span class="timers" id="timers"></span>
+        <button class="icon-btn" id="btnVoice" type="button" aria-pressed="false" aria-label="Читать ответы вслух" title="Читать ответы вслух">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path class="wave" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+        </button>
+        <button class="icon-btn" id="btnBrain" type="button" aria-expanded="false" aria-controls="brain" aria-label="Мозг Амиго" title="Мозг Амиго: как работает нейросеть">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="12" cy="12" r="2.2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 7l3.2 3.6M7 17l3.2-3.6M13.8 10.6 17 7M13.8 13.4 17 17M7 6h10M7 18h10"/></svg>
+        </button>
+        <button class="icon-btn" id="btnSettings" type="button" aria-label="Настройки" title="Настройки">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="log" id="log" role="log" aria-live="polite" aria-label="Переписка"></div>
+    <div class="dock">
+      <div class="chips" id="chips" aria-label="Подсказки"></div>
+      <form class="composer" id="composer" autocomplete="off">
+        <textarea id="input" rows="1" placeholder="Напиши Амиго…" aria-label="Сообщение для Амиго" enterkeyhint="send"></textarea>
+        <button class="icon-btn mic" id="btnMic" type="button" aria-label="Сказать голосом" title="Сказать голосом" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </button>
+        <button class="send" id="btnSend" type="submit" aria-label="Отправить">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+        </button>
+      </form>
+    </div>
+  </main>
+
+  <aside class="brain" id="brain" aria-label="Мозг Амиго" hidden>
+    <header class="brain-head">
+      <h2>Мозг Амиго</h2>
+      <button class="icon-btn" id="btnBrainClose" type="button" aria-label="Закрыть панель"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </header>
+    <section class="brain-sec">
+      <h3 class="eyebrow">Как я понял последнее сообщение</h3>
+      <p class="said" id="said">Напиши что-нибудь, и здесь будет видно, как сработали нейроны.</p>
+      <canvas id="netCanvas" class="net-canvas" role="img" aria-label="Схема нейросети: входы, скрытые нейроны и темы"></canvas>
+      <ol class="bars" id="bars"></ol>
+    </section>
+    <section class="brain-sec">
+      <h3 class="eyebrow">Устройство сети</h3>
+      <dl class="stats" id="stats"></dl>
+    </section>
+    <section class="brain-sec">
+      <h3 class="eyebrow">Обучение</h3>
+      <canvas id="lossCanvas" class="loss-canvas" role="img" aria-label="График обучения: ошибка и точность по эпохам"></canvas>
+      <p class="legend"><span><span class="lg lg-loss"></span>ошибка</span><span><span class="lg lg-acc"></span>точность</span><span id="lossNote"></span></p>
+      <div class="progress" id="trainProgress" hidden><div class="progress-bar" id="trainBar"></div><span id="trainText"></span></div>
+      <div class="row"><button class="btn" id="btnRetrain" type="button">Переобучить с нуля</button></div>
+    </section>
+    <section class="brain-sec">
+      <h3 class="eyebrow">Чему ты меня научил</h3>
+      <ul class="learned" id="taught"></ul>
+    </section>
+  </aside>
+
+  <div class="backdrop" id="backdrop" hidden></div>
+  <section class="settings" id="settings" role="dialog" aria-modal="true" aria-labelledby="setTitle" hidden>
+    <header class="set-head">
+      <h2 id="setTitle">Настройки</h2>
+      <button class="icon-btn" id="btnSetClose" type="button" aria-label="Закрыть настройки"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </header>
+    <div class="set-group">
+      <h3>Голос</h3>
+      <label class="switch"><input type="checkbox" id="setVoice"><span>Читать ответы вслух</span></label>
+      <label class="field"><span>Скорость речи: <b id="rateVal">1</b></span><input type="range" id="setRate" min="0.6" max="1.6" step="0.1" value="1"></label>
+    </div>
+    <div class="set-group">
+      <h3>Интернет</h3>
+      <label class="switch"><input type="checkbox" id="setOnline"><span>Искать ответы в Википедии и узнавать погоду</span></label>
+      <p class="hint">Без интернета я тоже работаю: болтаю, считаю, играю и учусь.</p>
+    </div>
+    <div class="set-group">
+      <h3>Супер-мозг Claude <span class="badge" id="superBadge">выключен</span></h3>
+      <p class="hint" id="superHint"></p>
+      <label class="switch"><input type="checkbox" id="setSuper"><span>Спрашивать Claude, когда я сам не знаю ответа</span></label>
+      <div id="superSample" class="stack" hidden>
+        <label class="field"><span>Режим</span><select id="setTier"><option value="quick">Быстро</option><option value="smart">Умнее, но дольше</option></select></label>
+      </div>
+      <div id="superApi" class="stack">
+        <label class="field"><span>Ключ Anthropic API</span><input type="password" id="setKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"></label>
+        <label class="field"><span>Модель</span><select id="setModel">
+          <option value="claude-opus-5-5">Claude Opus 5.5 — самая умная</option>
+          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 — быстрее и дешевле</option>
+          <option value="claude-haiku-5-5">Claude Haiku 5.5 — самая быстрая</option>
+        </select></label>
+        <p class="hint">Ключ хранится только в этом браузере и отправляется только в Anthropic. Получить ключ: console.anthropic.com</p>
+      </div>
+    </div>
+    <div class="set-group">
+      <h3>Память</h3>
+      <div class="row"><button class="btn" id="btnClear" type="button">Очистить чат</button><button class="btn danger" id="btnForgetAll" type="button">Забыть всё обо мне</button></div>
+      <p class="hint">Всё, что я запомнил, хранится только на этом устройстве.</p>
+    </div>
+  </section>
+  <div class="toast" id="toast" role="status" hidden></div>
+</div>
