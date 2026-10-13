@@ -63,28 +63,31 @@ const Online = (() => {
     },
     rules(profile) {
       const facts = (profile.facts || []).slice(-10).map(f => '- ' + f).join('\n');
-      return 'Ты — Амиго, дружелюбный собеседник-нейросеть. «Амиго» по-испански значит «друг». Ты живёшь в браузере пользователя; ' +
-        'тебя вызывают как «супер-мозг», когда собственная маленькая нейросеть Амиго не знает ответа.\n' +
-        'Правила: отвечай на языке пользователя (обычно по-русски), тепло, просто и по делу. Обычно 1–5 предложений; длиннее — только если просят ' +
-        '(стих, рассказ, объяснение задачи). Без markdown-заголовков и таблиц, можно **жирный** и короткие списки. Можно один уместный эмодзи. ' +
-        'Пользователь может быть школьником: никакого опасного или взрослого контента. Не выдумывай факты: если не уверен, так и скажи. ' +
-        'С домашними заданиями помогай объяснением и подсказками, чтобы человек понял решение.\n' +
+      return 'Ты — Амиго, весёлая и добрая нейросеть-друг. «Амиго» по-испански значит «друг». Ты живёшь в браузере пользователя.\n' +
+        'Говори всегда от лица Амиго: называй себя Амиго, не представляйся другим именем и не начинай ответы с рассказа о том, какая ты модель. ' +
+        'Если тебя прямо спросят, как ты устроен, отвечай честно: у Амиго своя маленькая нейросеть, а на сложные вопросы ему помогает отвечать «супер-мозг» — модель Claude от Anthropic.\n' +
+        'Как отвечать: на языке пользователя (обычно по-русски), тепло и по делу. Длина — сколько нужно для вопроса: на болтовню коротко, ' +
+        'а если просят рассказ, стих, подробное объяснение, план или код — пиши полностью. Можно **жирный**, списки и блоки кода ```. Эмодзи — к месту. ' +
+        'Пользователь может быть ребёнком, поэтому будь добрым и безопасным. Не выдумывай факты: если не уверен, так и скажи. ' +
+        'С домашними заданиями объясняй решение по шагам, чтобы человек его понял. Если просят игру, скажи, что можно написать «сделай игру ...», и Амиго запустит её прямо в чате.\n' +
         (profile.name ? `Пользователя зовут ${profile.name}.\n` : '') +
         (facts ? 'Что известно о пользователе:\n' + facts + '\n' : '') +
         'Сегодня: ' + new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '.';
     },
     // history — [{role:'user'|'assistant', content}] последних реплик; text — новый вопрос
-    async ask(settings, profile, history, text, onText, signal) {
+    // opts: raw — без правил Амиго (для игр), tier — уровень модели, effort и maxTokens — для ключа API
+    async ask(settings, profile, history, text, onText, signal, opts = {}) {
       const mode = this.mode(settings);
       if (!mode) throw { code: 'no_super' };
       const turns = history.filter(t => t.content && t.content.trim()).slice(-12);
       while (turns.length && turns[0].role !== 'user') turns.shift();
       turns.push({ role: 'user', content: text });
       if (mode === 'sample') {
-        const input = [{ role: 'user', content: this.rules(profile) + '\n\nДалее — разговор с пользователем.' }, ...turns];
+        const input = opts.raw ? [{ role: 'user', content: text }] : [{ role: 'user', content: this.rules(profile) + '\n\nДалее — разговор с пользователем.' }, ...turns];
+        const tier = opts.tier || (settings.superTier === 'smart' ? 'default' : 'quick');
         try {
-          const r = await this.sample(input, { cache: false, modelTier: settings.superTier === 'smart' ? 'default' : 'quick', onText: u => onText && onText(u.text), signal });
-          return { text: r.text, via: 'Claude' };
+          const r = await this.sample(input, { cache: false, modelTier: tier, onText: u => onText && onText(u.text), signal });
+          return { text: r.text, via: 'Claude', truncated: r.truncated };
         } catch (e) {
           if (e && (e.code === 'not_granted' || e.code === 'sampling_disabled' || e.code === 'not_declared' || e.code === 'capability_disabled' || e.code === 'capability_removed')) {
             this.sampleState = 'off'; if (this.onChange) this.onChange();
@@ -92,12 +95,13 @@ const Online = (() => {
           throw e;
         }
       }
-      return this.api(settings, profile, turns, onText, signal);
+      return this.api(settings, profile, opts.raw ? [{ role: 'user', content: text }] : turns, onText, signal, opts);
     },
     // прямой запрос к Anthropic Messages API с потоковой передачей ответа
-    async api(settings, profile, turns, onText, signal) {
+    async api(settings, profile, turns, onText, signal, opts = {}) {
       const model = settings.model || 'claude-opus-5-5';
-      const body = { model, max_tokens: 8000, stream: true, system: this.rules(profile), messages: turns, output_config: { effort: 'low' } };
+      const body = { model, max_tokens: opts.maxTokens || 16000, stream: true, messages: turns, output_config: { effort: opts.effort || 'low' } };
+      if (!opts.raw) body.system = this.rules(profile);
       const headers = { 'content-type': 'application/json', 'x-api-key': settings.apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
       // для Opus и Sonnet: если запрос отклонён фильтрами, сервер сам попробует подходящую модель
       if (!/haiku/.test(model)) { body.fallbacks = 'default'; headers['anthropic-beta'] = 'server-side-fallback-2026-07-01'; }
@@ -110,7 +114,7 @@ const Online = (() => {
       }
       const reader = res.body.getReader(), dec = new TextDecoder();
       let buf = '', text = '', stop = '';
-      for (;;) {
+      try { for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         buf += dec.decode(value, { stream: true });
@@ -124,6 +128,10 @@ const Online = (() => {
           else if (ev.type === 'message_delta' && ev.delta && ev.delta.stop_reason) stop = ev.delta.stop_reason;
           else if (ev.type === 'error') throw { code: ev.error && ev.error.type === 'overloaded_error' ? 'overloaded' : 'http', message: ev.error && ev.error.message, text };
         }
+      } } catch (e) {
+        if (e && e.name === 'AbortError') throw { code: 'cancelled', text };
+        if (e && e.code) throw e;
+        throw { code: 'network', text };
       }
       if (stop === 'refusal') throw { code: 'refused', text: '' };
       if (!text.trim()) throw { code: 'empty' };

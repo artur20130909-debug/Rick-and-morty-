@@ -6,14 +6,14 @@
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const dir = __dirname, src = path.join(dir, 'src');
 const CFG = { D: 4096, H: 64, epochs: 20, batch: 16, lr: 0.01, smooth: 0.1, dropout: 0.2, seed: 7 };
-const BRAIN_FILES = ['00_util.js', '01_text.js', '02_nn.js', '03_intents.js', '03b_content.js', '04_data.js', '05_skills.js', '06_online.js', '07_brain.js'];
+const BRAIN_FILES = ['00_util.js', '01_text.js', '02_nn.js', '03_intents.js', '03b_content.js', '04_data.js', '05_skills.js', '05c_gamelist.js', '06_online.js', '07_brain.js'];
 
 // загрузить код Амиго в node (как отдельные <script> в браузере)
 let loaded = null;
 function load() {
   if (loaded) return loaded;
   for (const f of BRAIN_FILES) vm.runInThisContext(fs.readFileSync(path.join(src, f), 'utf8'), { filename: f });
-  loaded = vm.runInThisContext('({ U, Text, MLP, INTENTS, FILL, Data, Skills, Online, Brain, KB, JOKES, FACTS, RIDDLES, QUIZ, DICT, BRAIN_TH })');
+  loaded = vm.runInThisContext('({ U, Text, MLP, INTENTS, FILL, Data, Skills, Online, Brain, KB, JOKES, FACTS, RIDDLES, QUIZ, DICT, BRAIN_TH, GameList, GAME_LIST, extractHtml })');
   return loaded;
 }
 

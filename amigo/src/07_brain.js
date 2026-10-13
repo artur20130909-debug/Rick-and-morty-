@@ -6,6 +6,9 @@ const TEACH_RE = /^(?:запомни[:,]?\s*)?(?:когда|если)\s+я\s+(?:
 const TEACH_RE2 = /^на\s+[«"'](.+?)[»"']\s+(?:отвечай|ответь|говори)\s+[«"']?(.+?)[»"']?\s*$/i;
 const NAME_RE = /(?:^|[\s,.!])(?:меня\s+зовут|мо[её]\s+имя(?:\s*[-—:]|\s+это)?|зови\s+меня|называй\s+меня|можешь\s+звать\s+меня)\s+([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё-]{1,24})(?:\s+([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё-]{1,24}))?/i;
 const NOT_NAMES = new Set(['не', 'никак', 'секрет', 'тайна', 'зовут', 'так', 'просто', 'ты', 'я', 'да', 'нет', 'это', 'кто', 'как', 'а', 'и', 'вообще', 'никто', 'там', 'все']);
+const WHO_AI_RE = /(клауд|клод|claude|антропик|anthropic)/;
+const OTHER_AI_RE = /(чат\s?гпт|chat\s?gpt|gpt|гпт|алис[аеу]|siri|сири|gemini|джемини|гигачат|яндекс\s?gpt)/;
+const YOU_RE = /(^|\s)(ты|тебя|тебе|тобой|вы|амиго)(?![а-яa-z])/;
 const AGE_RE = /(?:^|\s)мне\s+(\d{1,2})\s*(?:лет|год|года)(?![а-яa-z0-9])/;
 
 class Brain {
@@ -171,9 +174,16 @@ class Brain {
       if (r) return r;
     }
 
+    // «ты Claude?» — отвечает сам Амиго, честно и от своего имени
+    if (WHO_AI_RE.test(t) && (YOU_RE.test(t) || t.split(' ').length <= 2)) return this.handle('are_you_claude', text, t, cls, io);
+    if (OTHER_AI_RE.test(t) && YOU_RE.test(t)) return this.handle('compare_ai', text, t, cls, io);
+
     // пример по математике
     const m = Skills.calc(text, false);
     if (m) { this.lastAct = null; return this.say(Skills.calcText(m), { src: 'skill', intent: 'calc', conf: cls.tag === 'calc' ? cls.conf : undefined }); }
+
+    // игры в чате
+    if (GameList.find(text) || (cls.tag === 'make_game' && cls.conf >= BRAIN_TH)) return this.makeGame(text, t, cls, io);
 
     // «меня зовут ...»
     const nm = NAME_RE.exec(text);
@@ -338,6 +348,19 @@ class Brain {
         if (k === Q.c) { c.score++; return this.nextQuiz(c, U.pick(['✅ Правильно!', '✅ Верно! Так держать!', '✅ Точно!'], this.rnd)); }
         return this.nextQuiz(c, `❌ Не совсем. Правильный ответ: **${Q.o[Q.c]}**.`);
       }
+      case 'game_wait': {
+        this.ctx = null;
+        if (quit || tag === 'no') return this.say('Хорошо, поиграем потом! 🎮', { src: 'rule' });
+        if (switchTopic && tag !== 'make_game' && tag !== 'play' && !GameList.find(text, true)) return null;
+        return this.makeGame(text, t, cls, io, true);
+      }
+      case 'game_made': {
+        this.ctx = null;
+        const wish = /(добав|измени|поменя|убер|исправ|почини|сделай\s+(ее|его|так|чтобы|побольше|поменьше|быстрее|медленнее|сложнее|проще|легче)|пусть|хочу\s+чтобы|быстрее|медленнее|больше|меньше|сложнее|легче|цвет|фон)/.test(t);
+        const fresh = /(нов|друг)\S*\s+игр|игр\S*\s+(про|о|об|где)\s/.test(t + ' ');
+        if (wish && !fresh && !GameList.find(text) && this.superMode() && this.lastGame) return this.editGame(text, io, cls);
+        return null;
+      }
       case 'confirm_forget': {
         this.ctx = null;
         if (tag === 'yes' || /^(да|давай|ага|конечно|уверен)/.test(t)) {
@@ -443,8 +466,9 @@ class Brain {
     switch (it.act || tag) {
       case 'crisis': this.ctx = null; return this.say(CRISIS_TEXT, Object.assign(meta, { mood: 'care' }));
       case 'gibberish': return this.say(U.pick(['Кажется, по клавиатуре прошёлся кот 🐱 Попробуешь ещё раз?', 'Это какой-то шифр? Я пока не умею такие разгадывать 😅', 'Ыыы... Я не понял ни буквы 😄 Напиши по-другому?'], this.rnd), Object.assign(meta, { src: 'rule', mood: 'think' }));
-      case 'play': this.lastAct = null; return this.say('Давай поиграем! Вот что я умею:\n• **Угадай число** — я загадываю, ты угадываешь\n• **Угадай моё число** — наоборот\n• **Камень, ножницы, бумага**\n• **Загадки** и **викторина**\n• Подбросить **монетку** или **кубик**\nВо что сыграем?',
-        Object.assign(meta, { chips: ['Угадай число', 'Камень, ножницы, бумага', 'Загадка', 'Викторина'] }));
+      case 'play': this.lastAct = null; return this.say(`Давай поиграем! 🎮\n• **Прямо в чате:** ${GameList.list()}\n• **Словами:** угадай число, угадай моё число, камень-ножницы-бумага, загадки, викторина, монетка и кубики` +
+        (this.superMode() ? '\n• **Свою игру:** опиши её, например «сделай игру про кота-космонавта», и я её напишу' : '') + '\nВо что сыграем?',
+        Object.assign(meta, { chips: ['Змейка', 'Тетрис', 'Игра 2048', 'Крестики-нолики', 'Угадай число', 'Загадка'] }));
       case 'name_bot':
         if (!P.name) { this.ctx = { type: 'ask_name' }; return this.say('Меня зовут Амиго! По-испански это «друг». А тебя как зовут?', meta); }
         return this.say(`Меня зовут Амиго, по-испански это «друг». А ты — ${P.name}, я помню 😊`, meta);
@@ -453,8 +477,13 @@ class Brain {
         return this.say(`Внутри меня настоящая нейросеть, написанная с нуля:\n• **${U.num(net.D)}** входов — это признаки фразы: слова, пары слов и кусочки слов по 3 буквы\n• **${net.H}** скрытых нейронов\n• **${net.C}** выходов — по одному на каждую тему, которую я знаю\nВсего **${U.num(net.params)}** параметров. Я разбиваю твою фразу на признаки, пропускаю через сеть и получаю, о чём ты говоришь, с уверенностью в процентах. Потом мои навыки строят ответ. А когда ты меня учишь, я дообучаюсь прямо здесь, в браузере. Нажми «Мозг», чтобы посмотреть, как я думаю!`,
           Object.assign(meta, { chips: ['Показать мозг'], mood: 'learn' }));
       }
-      case 'help': return this.say('Вот что я умею:\n• **болтать** и запоминать твоё имя и факты о тебе\n• **считать**: «сколько будет 17 × 23», «корень из 144», «15% от 300»\n• **играть**: угадай число, камень-ножницы-бумага, загадки, викторина\n• **шутить**, рассказывать **факты**, **сказки** и **стихи**\n• говорить **время и дату**, ставить **таймер**\n• узнавать **погоду** и отвечать на вопросы «**что такое...**»\n• **переводить** слова на английский и испанский\n• **учиться**: если я что-то не понял, научи меня!',
-        Object.assign(meta, { chips: ['Расскажи шутку', 'Сколько будет 17 × 23?', 'Сыграем в угадай число', 'Что такое нейросеть?'] }));
+      case 'help': return this.say('Вот что я умею:\n• **болтать** и запоминать твоё имя и факты о тебе\n• **считать**: «сколько будет 17 × 23», «корень из 144», «15% от 300»\n• **запускать игры прямо в чате**: змейка, тетрис, 2048, сапёр, крестики-нолики и другие\n• **играть словами**: угадай число, камень-ножницы-бумага, загадки, викторина\n• **шутить**, рассказывать **факты**, **сказки** и **стихи**\n• говорить **время и дату**, ставить **таймер**\n• узнавать **погоду** и отвечать на вопросы «**что такое...**»\n• **переводить** слова на английский и испанский\n• **учиться**: если я что-то не понял, научи меня!',
+        Object.assign(meta, { chips: ['Змейка', 'Расскажи шутку', 'Сколько будет 17 × 23?', 'Что такое нейросеть?'] }));
+      case 'are_you_claude':
+        return this.say('Нет, я Амиго! 🙂 У меня своя маленькая нейросеть: она живёт прямо в этом браузере, и обычные разговоры, игры, счёт и память — это я сам. ' +
+          'А когда вопрос сложный, я могу позвать на помощь «супер-мозг» — это Claude от компании Anthropic. Такие ответы подписаны «супер-мозг Claude». Но разговариваю с тобой всегда я, Амиго 💛',
+          Object.assign(meta, { src: meta.conf != null && cls && cls.tag === 'are_you_claude' ? 'net' : 'rule', mood: 'happy' }));
+      case 'make_game': return this.makeGame(text, t, cls, io);
       case 'age_bot': return this.say(`Я совсем молодой: появился в 2026 году. Но уже знаю ${this.tags.length} ${U.plural(this.tags.length, 'тему', 'темы', 'тем')} и учусь каждый день!`, meta);
       case 'yes':
         return this.say(U.pick(['Отлично! 😊 Чем займёмся?', 'Супер! Что будем делать?'], this.rnd), Object.assign(meta, { chips: ['Расскажи шутку', 'Сыграем', 'Интересный факт'] }));
@@ -667,6 +696,74 @@ class Brain {
     if (d.time && d.time[0]) s += `\nСегодня от ${sign(d.temperature_2m_min[0])} до ${sign(d.temperature_2m_max[0])} °C.`;
     s += '\n' + Skills.dressTip(cur.apparent_temperature, cur.weather_code);
     return this.say(s, meta);
+  }
+
+  // ---------- игры в чате ----------
+  async makeGame(text, t, cls, io, fromCtx) {
+    const meta = { src: cls && cls.tag === 'make_game' ? 'net' : 'skill', intent: 'make_game', conf: cls && cls.tag === 'make_game' ? cls.conf : undefined, top: cls && cls.top };
+    const described = fromCtx || /(игр\S*|игрушк\S*)\s+(про|о|об|где|в\s+которой|с|как|на)\s/.test(t + ' ') || t.split(' ').length >= 5;
+    // точное название — встроенная игра; описание своей игры — супер-мозг; похожее слово — ближайшая встроенная
+    let key = GameList.find(text, true, true);
+    if (!key && described && this.superMode()) return this.customGame(text, io, meta);
+    if (!key) key = GameList.find(text, true);
+    if (key) {
+      const g = GAME_LIST[key];
+      this.lastAct = null;
+      const intro = U.pick([`Запускаю «${g.title}» ${g.icon}`, `Держи «${g.title}» ${g.icon} Удачи{,name}!`, `Поехали! «${g.title}» ${g.icon}`], this.rnd);
+      return this.say(intro + '\n' + g.help, Object.assign(meta, { mood: 'happy', game: { kind: 'builtin', key, opts: GameList.opts(text) } }));
+    }
+    const chips = ['Змейка', 'Тетрис', 'Игра 2048', 'Сапёр', 'Крестики-нолики', 'Арканоид'];
+    if (!described) {
+      this.ctx = { type: 'game_wait' };
+      return this.say(`Какую игру? Прямо в чате могу запустить: ${GameList.list()}.` +
+        (this.superMode() ? '\nИли опиши свою, например «игра про кота, который ловит рыбу», и я её напишу!' : ''), Object.assign(meta, { chips }));
+    }
+    return this.say(`Новые игры по описанию пишет «супер-мозг»: включи его в настройках, и я сделаю любую игру. А прямо сейчас могу запустить: ${GameList.list()}.`,
+      Object.assign(meta, { chips: chips.slice(0, 4).concat('Настройки') }));
+  }
+  async customGame(request, io, meta = {}) {
+    if (io.onThinking) io.onThinking('game');
+    try {
+      const r = await this.online.Super.ask(this.settings, this.profile, [], gamePrompt(request), t => io.onProgress && io.onProgress(t.length), io.signal,
+        { raw: true, tier: 'default', effort: 'medium', maxTokens: 32000 });
+      const html = extractHtml(r.text);
+      if (!html) return this.say('Супер-мозг прислал что-то непохожее на игру 😅 Попробуй попросить ещё раз, чуть подробнее.', Object.assign(meta, { src: 'claude' }));
+      const tm = /<title>\s*([^<]{1,60}?)\s*<\/title>/i.exec(html);
+      const title = tm ? tm[1] : 'Новая игра';
+      this.lastGame = { html, title, request };
+      this.ctx = { type: 'game_made' };
+      return this.say(`Готово! Вот игра «${title}» 🎮 Если что-то не работает, нажми «Починить». А если хочешь что-то поменять, просто напиши, например «сделай быстрее» или «добавь врагов».`,
+        Object.assign(meta, { src: 'claude', mood: 'happy', game: { kind: 'custom', html, title, request } }));
+    } catch (e) {
+      if (e && e.code === 'cancelled') return this.say('Хорошо, не пишу игру.', { src: 'rule' });
+      return this.say(Online.superError(e) + ' А пока можно сыграть в готовые игры!', Object.assign(meta, { src: 'rule', chips: ['Змейка', 'Тетрис', 'Игра 2048'] }));
+    }
+  }
+  async editGame(wish, io, cls) {
+    const g = this.lastGame;
+    if (io.onThinking) io.onThinking('game');
+    try {
+      const r = await this.online.Super.ask(this.settings, this.profile, [], changePrompt(g.html, wish), t => io.onProgress && io.onProgress(t.length), io.signal,
+        { raw: true, tier: 'default', effort: 'medium', maxTokens: 32000 });
+      const html = extractHtml(r.text);
+      if (!html) return this.say('Не получилось поменять игру 😅 Попробуй сказать по-другому.', { src: 'claude' });
+      this.lastGame = { html, title: g.title, request: g.request + '; ' + wish };
+      this.ctx = { type: 'game_made' };
+      return this.say(`Поменял! Вот новая версия «${g.title}» 🎮`, { src: 'claude', intent: 'make_game', mood: 'happy', game: { kind: 'custom', html, title: g.title, request: this.lastGame.request } });
+    } catch (e) {
+      if (e && e.code === 'cancelled') return this.say('Хорошо, оставим как есть.', { src: 'rule' });
+      return this.say(Online.superError(e), { src: 'rule' });
+    }
+  }
+  // кнопка «Починить» под игрой: отправить ошибку супер-мозгу и получить исправленный код
+  async fixGame(html, error, io = {}) {
+    if (!this.superMode()) throw { code: 'no_super' };
+    const r = await this.online.Super.ask(this.settings, this.profile, [], fixPrompt(html, error || 'игра не запускается или работает неправильно'),
+      t => io.onProgress && io.onProgress(t.length), io.signal, { raw: true, tier: 'default', effort: 'medium', maxTokens: 32000 });
+    const fixed = extractHtml(r.text);
+    if (!fixed) throw { code: 'empty' };
+    if (this.lastGame && this.lastGame.html === html) this.lastGame.html = fixed;
+    return fixed;
   }
 
   // кнопка «Не то»: научить другому ответу на фразу

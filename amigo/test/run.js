@@ -167,6 +167,55 @@ function fakeOnline(over = {}) {
     assert.strictEqual(saved.profile.name, 'Кира');
   });
 
+  console.log('Игры и личность');
+  const fakeSuper = (reply) => fakeOnline({ Super: { mode: () => 'api', ask: async (st, p, h, text, onText, sig, opts) => { onText && onText('...'); return { text: reply(text, opts), via: 'Claude' }; } } });
+  await test('«ты Claude?» отвечает сам Амиго, даже с супер-мозгом', async () => {
+    const b = mk({ online: fakeSuper(() => 'Я Claude, ИИ от Anthropic') });
+    for (const q of ['ты клауд?', 'Ты Claude?', 'ты что, claude', 'тебя сделали в Anthropic?']) {
+      const a = await b.reply(q); assert.strictEqual(a.intent, 'are_you_claude', q); has(a.text, 'я Амиго'); assert.notStrictEqual(a.src, 'claude', q);
+    }
+  });
+  await test('правила супер-мозга: говорит как Амиго и без лимита длины', () => {
+    const r = A.Online.Super.rules({ name: 'Артур', facts: [] });
+    has(r, 'от лица Амиго'); assert.ok(!/1–5 предложений/.test(r)); has(r, 'Артур');
+  });
+  await test('запускает встроенные игры по названию', async () => {
+    const b = mk();
+    const cases = { 'давай сыграем в змейку': 'snake', 'запусти тетрис': 'tetris', 'игра 2048': 'g2048', 'крестики-нолики': 'ttt', 'хочу поиграть в сапёра': 'mines',
+      'найди пару': 'memory', 'арканоид': 'breakout', 'сыграем в понг': 'pong', 'флэппи бёрд': 'flappy', 'звездопад': 'catcher' };
+    for (const [q, k] of Object.entries(cases)) { const a = await b.reply(q); assert.ok(a.game, q + ' → ' + a.text); assert.strictEqual(a.game.key, k, q); }
+  });
+  await test('настройки игры из просьбы', async () => {
+    const a = await mk().reply('сделай змейку быстрее, красную и без стен');
+    assert.deepStrictEqual(a.game.opts, { speed: 1.45, color: '#E53935', wrap: true });
+  });
+  await test('«сделай игру» спрашивает какую, потом запускает', async () => {
+    const b = mk(); const a = await b.reply('сделай игру'); assert.ok(!a.game); assert.strictEqual(b.ctx.type, 'game_wait');
+    const a2 = await b.reply('тетрис'); assert.strictEqual(a2.game.key, 'tetris');
+  });
+  await test('своя игра без супер-мозга: честно говорит, как включить', async () => {
+    const a = await mk().reply('сделай игру про динозавра на скейте'); assert.ok(!a.game); has(a.text, 'супер-мозг');
+    const a2 = await mk().reply('сделай игру где надо ловить звёзды'); assert.strictEqual(a2.game && a2.game.key, 'catcher', 'похожая встроенная игра');
+  });
+  await test('своя игра от супер-мозга и её изменение', async () => {
+    let lastOpts = null;
+    const html = '<!doctype html><html><head><title>Кот-рыбак</title></head><body><canvas></canvas><script>let x=1</script></body></html>';
+    const b = mk({ online: fakeSuper((text, opts) => { lastOpts = opts; return 'Вот игра:\n```html\n' + (/Игрок просит её изменить/.test(text) ? html.replace('x=1', 'x=2') : html) + '\n```'; }) });
+    const a = await b.reply('сделай игру про кота который ловит рыбу');
+    assert.strictEqual(a.game.kind, 'custom'); assert.strictEqual(a.game.title, 'Кот-рыбак'); assert.ok(lastOpts.raw); assert.strictEqual(lastOpts.tier, 'default');
+    const a2 = await b.reply('сделай её быстрее'); assert.strictEqual(a2.game.kind, 'custom'); has(a2.game.html, 'x=2');
+    const fixed = await b.fixGame(a2.game.html, 'ReferenceError: y is not defined'); has(fixed, '<canvas>');
+    const a3 = await b.reply('а теперь сделай игру про динозавра'); assert.strictEqual(a3.game.kind, 'custom'); has(a3.game.html, 'x=1');
+  });
+  await test('не путает игры с обычными фразами', async () => {
+    const b = mk();
+    for (const q of ['сколько дней до лета', 'что такое змея', 'посчитай звёзды', 'сколько будет 2048 / 2', 'у меня есть кот']) { const a = await b.reply(q); assert.ok(!a.game, q + ' → игра ' + (a.game && a.game.key)); }
+  });
+  await test('вытаскивает код игры из ответа', () => {
+    assert.strictEqual(A.extractHtml('текст\n```html\n<!doctype html><body><script>1</script></body>\n```'), '<!doctype html><body><script>1</script></body>');
+    assert.strictEqual(A.extractHtml('просто текст без кода'), null);
+  });
+
   console.log(`\nИтого: ${passed} прошло, ${failed} упало`);
   process.exit(failed ? 1 : 0);
 })();

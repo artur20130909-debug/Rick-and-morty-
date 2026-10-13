@@ -17,8 +17,10 @@ class App {
   start() {
     const $ = this.el;
     this.logEl = $('log'); this.input = $('input'); this.avatar = $('avatar');
-    $('composer').addEventListener('submit', e => { e.preventDefault(); this.send(this.input.value); });
-    this.input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); this.send(this.input.value); } });
+    $('composer').addEventListener('submit', e => { e.preventDefault(); if (this.busy) { if (this.ctl) this.ctl.abort(); return; } this.send(this.input.value); });
+    this.cards = [];
+    document.addEventListener('visibilitychange', () => { if (document.hidden && this.activeGame) this.activeGame.pause(); });
+    this.input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!this.busy) this.send(this.input.value); } });
     this.input.addEventListener('input', () => this.autosize());
     $('btnBrain').addEventListener('click', () => this.toggleBrain());
     $('btnBrainClose').addEventListener('click', () => this.toggleBrain(false));
@@ -75,14 +77,14 @@ class App {
   }
   renderText(el, text) {
     const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    let h = esc(String(text));
-    h = h.replace(/^#{1,4}\s+(.+)$/gm, '<strong>$1</strong>')
+    const inline = p => esc(p).replace(/^#{1,4}\s+(.+)$/gm, '<strong>$1</strong>')
       .replace(/^\s*[-*]\s+/gm, '• ')
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,!?)]|$)/g, '$1<em>$2</em>')
       .replace(/`([^`\n]+)`/g, '<code>$1</code>')
       .replace(/\n/g, '<br>');
-    el.innerHTML = h;
+    // ``` блоки кода ``` показываем как есть
+    el.innerHTML = String(text).split('```').map((p, i) => i % 2 ? '<pre><code>' + esc(p.replace(/^[\w+-]*\n/, '').replace(/\n$/, '')) + '</code></pre>' : inline(p)).join('');
   }
   addMsg(who, text, meta = {}, opt = {}) {
     const wrap = document.createElement('div');
@@ -91,7 +93,21 @@ class App {
     b.className = 'bubble';
     this.renderText(b, text);
     wrap.appendChild(b);
-    if (who === 'bot') { const m = this.metaEl(meta); if (m) wrap.appendChild(m); }
+    if (meta.game) {
+      wrap.classList.add('game');
+      const card = new GameCard(this, meta.game);
+      wrap.appendChild(card.el); this.cards.push(card); wrap.card = card;
+    }
+    if (who === 'bot') {
+      const m = this.metaEl(meta);
+      // код игры в ответе супер-мозга можно сразу запустить
+      if (meta.src === 'claude' && !meta.game && /```html/i.test(text) && extractHtml(text)) {
+        const run = document.createElement('button'); run.type = 'button'; run.className = 'link-btn'; run.textContent = '▶ Запустить игру';
+        run.addEventListener('click', () => this.runHtml(extractHtml(text)));
+        (m || wrap).appendChild(run);
+      }
+      if (m) wrap.appendChild(m);
+    }
     this.logEl.appendChild(wrap);
     if (!opt.restore && !opt.live) { this.log.push({ who, text, meta, ts: Date.now() }); this.saveChat(); }
     else if (opt.restore) this.log.push({ who, text, meta, ts: Date.now() });
@@ -139,8 +155,38 @@ class App {
     requestAnimationFrame(() => { l.scrollTop = l.scrollHeight; });
   }
   autosize() { const t = this.input; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 140) + 'px'; }
-  saveChat() { U.store.set(CHAT_KEY, this.log.slice(-80)); }
-  clearChat() { this.log = []; this.logEl.innerHTML = ''; this.saveChat(); this.brain.history = []; }
+  saveChat() {
+    // код игр от супер-мозга большой: храним только три последние игры
+    const items = this.log.slice(-80), keep = new Set(items.filter(m => m.meta && m.meta.game && m.meta.game.kind === 'custom').slice(-3));
+    const out = items.map(m => m.meta && m.meta.game && m.meta.game.kind === 'custom' && !keep.has(m) ? Object.assign({}, m, { meta: Object.assign({}, m.meta, { game: Object.assign({}, m.meta.game, { html: null }) }) }) : m);
+    if (!U.store.set(CHAT_KEY, out)) U.store.set(CHAT_KEY, out.map(m => m.meta && m.meta.game && m.meta.game.html ? Object.assign({}, m, { meta: Object.assign({}, m.meta, { game: Object.assign({}, m.meta.game, { html: null }) }) }) : m));
+  }
+  clearChat() { this.cards.forEach(c => c.destroy()); this.cards = []; this.activeGame = null; this.log = []; this.logEl.innerHTML = ''; this.saveChat(); this.brain.history = []; }
+  runHtml(html) {
+    const t = /<title>\s*([^<]{1,60}?)\s*<\/title>/i.exec(html);
+    const w = this.addMsg('bot', 'Запускаю игру 🎮', { src: 'claude', game: { kind: 'custom', html, title: t ? t[1] : 'Игра' } });
+    if (w.card) w.card.launch();
+  }
+  canFix() { return !!Online.Super.mode(this.brain.settings); }
+  async fixGame(card, auto) {
+    if (!this.canFix()) { card.status('Чинить игры умеет супер-мозг: включи его в настройках.'); return; }
+    if (card.fixing) return;
+    card.fixing = true;
+    card.status(auto ? '⚠️ В игре ошибка. Уже чиню…' : 'Чиню игру…');
+    this.setStatus('супер-мозг чинит игру…', true); this.mood('think');
+    try {
+      const html = await this.brain.fixGame(card.spec.html, card.error, { onProgress: n => card.status(`Чиню игру… ${U.num(n)} символов кода`) });
+      card.setHtml(html); this.saveChat();
+      this.toast('Игра исправлена 🛠');
+    } catch (e) { card.status(e && e.code === 'empty' ? 'Не получилось исправить. Попробуй ещё раз.' : Online.superError(e)); }
+    card.fixing = false; this.setStatus(); this.mood('idle');
+  }
+  gameRecord(title, points, label) {
+    const text = `🏆 Новый рекорд в игре «${title}»! ${label}: ${points}. Так держать{,name}!`.replace('{,name}', this.brain.profile.name ? ', ' + this.brain.profile.name : '');
+    this.addMsg('bot', text, { src: 'skill' });
+    this.brain.history.push({ role: 'assistant', content: text });
+    this.mood('happy', 2500);
+  }
 
   chips(list) {
     const box = this.el('chips');
@@ -164,12 +210,15 @@ class App {
     this.unlockAudio();
     this.input.value = ''; this.autosize();
     this.addMsg('me', text);
-    this.busy = true; this.el('btnSend').disabled = true;
+    this.busy = true; this.setSendStop(true);
     this.setStatus('думаю…', true); this.mood('think');
     const typing = this.showTyping();
     let live = null;
+    this.ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const io = {
-      onThinking: k => this.setStatus(k === 'super' ? 'спрашиваю супер-мозг…' : k === 'wiki' ? 'ищу в Википедии…' : 'смотрю в интернете…', true),
+      signal: this.ctl ? this.ctl.signal : undefined,
+      onThinking: k => this.setStatus(k === 'super' ? 'спрашиваю супер-мозг…' : k === 'game' ? 'пишу игру…' : k === 'wiki' ? 'ищу в Википедии…' : 'смотрю в интернете…', true),
+      onProgress: n => { const b = typing.querySelector('.bubble'); if (b) { b.classList.add('progress-text'); b.textContent = `🛠️ Пишу игру… ${U.num(n)} символов кода`; } this.setStatus('пишу игру…', true); },
       onStream: t => {
         if (!t) return;
         if (!live) { typing.remove(); live = this.addMsg('bot', t, {}, { live: true }); this.mood('think'); }
@@ -183,16 +232,22 @@ class App {
     catch (e) { a = { text: 'Ой, что-то сломалось 😵 Попробуй ещё раз.', src: 'rule' }; }
     if (!live) { const wait = 250 + Math.min(450, a.text.length * 3) - (Date.now() - t0); if (wait > 0) await new Promise(r => setTimeout(r, wait)); }
     typing.remove();
-    const meta = { src: a.src, conf: a.conf, title: this.titleOf(a), link: a.link, phrase: text, unsure: a.unsure };
+    const meta = { src: a.src, conf: a.conf, title: this.titleOf(a), link: a.link, phrase: text, unsure: a.unsure, game: a.game };
     if (live) live.remove();
-    this.addMsg('bot', a.text, meta);
-    this.busy = false; this.el('btnSend').disabled = false;
+    const w = this.addMsg('bot', a.text, meta);
+    if (w.card) { w.card.focus(); this.scroll(); }
+    this.busy = false; this.ctl = null; this.setSendStop(false);
     this.setStatus();
     this.mood(a.mood || 'idle', 2600);
     this.chips(a.chips);
     this.apply(a.action);
     this.speak(a.text);
     this.showThought(text, a);
+  }
+  setSendStop(on) {
+    const b = this.el('btnSend');
+    b.classList.toggle('stop', on);
+    b.setAttribute('aria-label', on ? 'Остановить' : 'Отправить'); b.title = on ? 'Остановить' : '';
   }
   titleOf(a) {
     if (!a.intent) return '';

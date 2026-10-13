@@ -201,3 +201,57 @@ button { cursor: pointer; }
 @keyframes dance { from { transform: rotate(-12deg) translateY(0); } to { transform: rotate(12deg) translateY(-4px); } }
 @keyframes pulse { 50% { box-shadow: 0 0 0 6px transparent; } 0% { box-shadow: 0 0 0 0 var(--coral); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ---------- код в ответах ---------- */
+.bubble pre { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); overflow: auto; max-height: 300px; font: .78rem/1.45 var(--f-mono); white-space: pre; }
+.bubble pre code { background: none; padding: 0; font: inherit; }
+.progress-text { font: .85rem var(--f-mono); color: var(--muted); }
+.send.stop svg { display: none; }
+.send.stop::after { content: ''; width: 12px; height: 12px; border-radius: 3px; background: currentColor; }
+
+/* ---------- игры в чате ---------- */
+.msg.game { width: 100%; max-width: min(100%, 540px); }
+.game-card { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; outline: none; }
+.game-top { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--line); min-width: 0; }
+.game-title { margin-right: auto; min-width: 0; font: 700 .9rem/1.2 var(--f-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.game-score, .game-best { font: 600 .74rem var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.game-best { color: var(--muted); }
+.game-btn { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 10px; background: transparent; font-size: 1rem; flex-shrink: 0; }
+.game-btn:hover { background: var(--surface-2); }
+.game-btn.attention { background: var(--accent-soft); animation: blink 1.4s 3; }
+.game-stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px; background: var(--surface-2); touch-action: none; user-select: none; -webkit-user-select: none; outline: none; }
+.game-stage:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.game-stage.custom { padding: 0; touch-action: auto; }
+.game-canvas { display: block; width: 100%; height: auto; border-radius: 10px; box-shadow: 0 0 0 1px var(--line); }
+.game-frame { display: block; width: 100%; height: 460px; border: 0; background: var(--surface); }
+.game-overlay { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 20px;
+  text-align: center; white-space: pre-line; font-weight: 500; background: var(--surface); background: color-mix(in srgb, var(--surface) 74%, transparent); }
+.game-overlay p { margin: 0; max-width: 32ch; }
+.game-info { min-height: 1.5em; padding: 6px 14px; font: .74rem/1.4 var(--f-mono); color: var(--muted); overflow-wrap: anywhere; }
+.game-info:empty { display: none; }
+.game-tools { display: flex; justify-content: center; }
+.game-pad { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; padding: 2px 12px 12px; }
+.game-pad button { min-width: 54px; height: 50px; padding: 0 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); font-size: 1.25rem; touch-action: none; user-select: none; -webkit-user-select: none; }
+.game-pad button:active { background: var(--accent-soft); }
+.game-pad.dpad { display: grid; grid-template-columns: repeat(3, 58px); grid-template-areas: ". up ." "left down right"; justify-content: center; }
+.game-pad.dpad .pad-up { grid-area: up; } .game-pad.dpad .pad-left { grid-area: left; } .game-pad.dpad .pad-down { grid-area: down; } .game-pad.dpad .pad-right { grid-area: right; }
+@media (hover: hover) and (pointer: fine) { .game-pad { display: none !important; } }
+.game-card:fullscreen { display: flex; flex-direction: column; border-radius: 0; }
+.game-card:fullscreen .game-stage { flex: 1; justify-content: center; }
+.game-card:fullscreen .game-canvas { width: auto; height: min(80vh, 100%); max-width: 100% !important; }
+.game-card:fullscreen .game-frame { height: 100%; flex: 1; }
+
+.g2048 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: 100%; max-width: 340px; aspect-ratio: 1; padding: 8px; border-radius: 14px; background: var(--line); }
+.g2048 .t { display: grid; place-items: center; min-width: 0; border-radius: 8px; background: var(--surface); font: 700 1.7rem/1 var(--f-display); color: var(--ink); transition: background .12s; }
+.ttt { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; max-width: 300px; aspect-ratio: 1; }
+.ttt button { min-width: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); font: 700 2.4rem/1 var(--f-display); padding: 0; }
+.ttt .x { color: var(--user); } .ttt .o { color: var(--accent); } .ttt .win { background: var(--accent-soft); }
+.mines { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 3px; width: 100%; max-width: 360px; }
+.mines button { aspect-ratio: 1; min-width: 0; padding: 0; border: 0; border-radius: 6px; background: var(--surface); box-shadow: inset 0 -3px 0 var(--line); font: 700 .95rem/1 var(--f-mono); }
+.mines .op { background: var(--bg); box-shadow: none; }
+.mines .boom { background: var(--coral); }
+.mines [data-n="1"] { color: var(--teal); } .mines [data-n="2"] { color: var(--user); } .mines [data-n="3"] { color: var(--coral); } .mines [data-n="4"], .mines [data-n="5"], .mines [data-n="6"] { color: var(--ink); }
+.memory { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: 100%; max-width: 340px; }
+.memory button { aspect-ratio: 1; min-width: 0; padding: 0; border: 0; border-radius: 12px; background: var(--user); font-size: 1.9rem; line-height: 1; transition: background .15s; }
+.memory .up { background: var(--surface); box-shadow: inset 0 0 0 2px var(--accent); }
+.memory .done { background: var(--accent-soft); }
