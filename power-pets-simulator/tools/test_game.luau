@@ -19,6 +19,10 @@ local function svc(name)
 end
 
 print("== сборка дерева (как Rojo)")
+-- Свои звуки: ID числом и строкой из цифр (как после tools/upload_sounds.py или ручной вставки).
+local idsPath = "src/shared/Config/SoundIds.lua"
+SOURCES[idsPath] = string.gsub(SOURCES[idsPath], 'Coin = ""', "Coin = 123456")
+SOURCES[idsPath] = string.gsub(SOURCES[idsPath], 'Music_Space = ""', 'Music_Space = "777"')
 M.buildTree()
 local SSS, RS, Workspace = svc("ServerScriptService"), svc("ReplicatedStorage"), svc("Workspace")
 local StarterPlayer = svc("StarterPlayer")
@@ -266,6 +270,10 @@ local soundsFolder = svc("SoundService"):FindFirstChild("PowerPetsSounds")
 local clickSound = soundsFolder and soundsFolder:FindFirstChild("Click")
 check(clickSound and string.find(clickSound.SoundId, "rbxassetid://") ~= nil and not string.find(clickSound.SoundId, "1$"), "клиент взял рабочий звук: " .. tostring(clickSound and clickSound.SoundId))
 check(soundsFolder and soundsFolder:FindFirstChild("Music_Forest") ~= nil and soundsFolder.Music_Forest.IsPlaying, "музыка леса играет")
+check(library and library.Coin.Value == "rbxassetid://123456" and library.Coin:GetAttribute("Candidates") == "", "свой ID монеты из SoundIds, без поиска")
+check(library and library.Music_Space.Value == "rbxassetid://777", "свой ID музыки космоса из SoundIds")
+local coinSound = soundsFolder and soundsFolder:FindFirstChild("Coin")
+check(coinSound and coinSound.SoundId == "rbxassetid://123456", "клиент играет свой звук монеты: " .. tostring(coinSound and coinSound.SoundId))
 
 print("== клики")
 for _ = 1, 30 do
