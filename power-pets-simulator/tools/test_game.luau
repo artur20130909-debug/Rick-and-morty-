@@ -207,6 +207,38 @@ end
 print("  иконок:", iconCount, table.concat(IconModels.Names, ", "))
 check(iconCount == #IconModels.Names and iconCount >= 20, "все 3D-иконки собираются")
 
+-- обводка крутящейся иконки всегда позади деталей (иначе корона чернеет на полуобороте)
+local spinView
+M.inCtx(ctx, function()
+	local _
+	_, spinView = Icons.Create(root, "Crown", { Size = UDim2.fromOffset(120, 120), Animate = "Spin", Speed = 2 })
+end)
+local outlinesBehind = spinView and spinView.Outlines and #spinView.Outlines > 0
+for _ = 1, 8 do
+	M.run(0.4)
+	local look = spinView.Camera.CFrame.LookVector
+	for _, pair in ipairs(spinView.Outlines or {}) do
+		if (pair[1].Position - pair[2].Position):Dot(look) <= 0 then
+			outlinesBehind = false
+		end
+	end
+end
+check(outlinesBehind, "обводка крутящейся 3D-иконки остаётся за деталями при любом повороте")
+M.inCtx(ctx, function()
+	spinView:Destroy()
+end)
+
+-- анимированные иконки меню (PivotTo каждый кадр) не «разваливаются» со временем
+local pawModel = root.SideMenu.Pets.Face:FindFirstChild("View3D") and root.SideMenu.Pets.Face.View3D:FindFirstChildOfClass("Model")
+M.run(6)
+local pawOk = pawModel ~= nil
+if pawModel then
+	local pivot = pawModel:GetPivot()
+	local right, up = pivot.RightVector, pivot.UpVector
+	pawOk = math.abs(right.Magnitude - 1) < 1e-6 and math.abs(up.Magnitude - 1) < 1e-6 and math.abs(right:Dot(up)) < 1e-6
+end
+check(pawOk, "иконка меню после 6 с анимации осталась ровной (поворот ортонормирован)")
+
 print("== рельеф и мир")
 check(#M.terrainFills > 100, "рельеф Terrain построен (" .. #M.terrainFills .. " заливок)")
 local column = M.terrainColumn(-72, -58)
@@ -464,7 +496,7 @@ check(player:GetAttribute("Coins") == 1850, "списано 150 монет")
 -- покупка через кнопку в окне (рюкзак 3 за 1000)
 local shopPanel = root.PanelLayer.Shop
 local buyButton = panelPart("Shop", "Content", "BackpacksPage", "Backpack3", "Buy")
-check(buyButton ~= nil and buyButton:FindFirstChild("Text", true).Text == "1K", "кнопка покупки рюкзака 3 с ценой 1K")
+check(buyButton ~= nil and buyButton.Face.Label.Text == "1K", "кнопка покупки рюкзака 3 с ценой 1K")
 if buyButton then
 	press(buyButton)
 	M.run(0.5)
@@ -485,7 +517,7 @@ press(root.SideMenu.Worlds)
 M.run(0.5)
 local worldsPanel = root.PanelLayer.Worlds
 local openButton = panelPart("Worlds", "Content", "Desert", "Go")
-check(openButton:FindFirstChild("Text", true).Text == "Открыть!", "кнопка «Открыть!» для пустыни")
+check(openButton.Face.Label.Text == "Открыть!", "кнопка «Открыть!» для пустыни")
 if openButton then
 	press(openButton)
 	M.run(1)

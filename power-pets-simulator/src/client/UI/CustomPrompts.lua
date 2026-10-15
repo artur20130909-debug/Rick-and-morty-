@@ -62,22 +62,26 @@ local function show(prompt, inputType, playerGui)
 		Active = true,
 		LightInfluence = 0,
 		ResetOnSpawn = false,
-		Size = UDim2.fromOffset(250, 100),
 		Parent = playerGui,
 	})
+	-- Карточка 250×100 «дизайн-пикселей» масштабируется под экран (UIScale от центра),
+	-- а сам BillboardGui берём с запасом, чтобы карточка и её «прыжок» при нажатии не обрезались.
+	local targetScale = math.clamp(Kit.Scale * 1.05, 0.65, 1.2)
+	gui.Size = UDim2.fromOffset(math.ceil(250 * targetScale * 1.2) + 8, math.ceil(100 * targetScale * 1.2) + 8)
 	local card = Kit.new("TextButton", {
 		Name = "Card",
 		Text = "",
 		AutoButtonColor = false,
 		BackgroundColor3 = Color3.new(1, 1, 1),
-		Size = UDim2.fromScale(1, 1),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(250, 100),
 		Parent = gui,
 	})
 	Kit.Corner(card, UDim.new(0, 22))
 	Kit.Stroke(card, 4)
 	Kit.Gradient(card, Kit.Lighten(color, 0.3), Kit.Darken(color, 0.2))
 	local scale = Kit.new("UIScale", { Scale = 0, Parent = card })
-	local targetScale = math.clamp(Kit.Scale * 1.05, 0.65, 1.2)
 	Kit.Tween(scale, 0.25, { Scale = targetScale }, Enum.EasingStyle.Back)
 
 	-- Кружок с клавишей.

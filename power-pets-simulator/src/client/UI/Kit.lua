@@ -245,6 +245,7 @@ function Kit.Button(props)
 	end
 
 	local label = Kit.Text({
+		Name = "Label",
 		Text = props.Text or "",
 		Size = UDim2.new(1, labelWidth, 1, -8),
 		Position = UDim2.new(0, labelX, 0, 4),
@@ -253,6 +254,7 @@ function Kit.Button(props)
 		ZIndex = zIndex + 3,
 		Parent = face,
 	})
+	label:SetAttribute("IconX", labelX)
 
 	local function press(down)
 		face.Position = UDim2.fromOffset(0, down and math.floor(depth * 0.7) or 0)
@@ -293,6 +295,20 @@ function Kit.SetButtonColor(gradient, color, color2)
 	if base then
 		base.BackgroundColor3 = Kit.Darken(color2 or color, 0.35)
 	end
+end
+
+-- Показать / спрятать иконку кнопки; без иконки надпись занимает всю ширину.
+function Kit.SetButtonIcon(button, visible)
+	local face = button:FindFirstChild("Face")
+	local holder = face and face:FindFirstChild("IconHolder")
+	local label = face and face:FindFirstChild("Label")
+	if not holder or not label then
+		return
+	end
+	holder.Visible = visible
+	local x = visible and (label:GetAttribute("IconX") or 7) or 7
+	label.Position = UDim2.new(0, x, 0, 4)
+	label.Size = UDim2.new(1, -x - (visible and 8 or 7), 1, -8)
 end
 
 -- Полоса прогресса. Возвращает рамку и функцию set(доля 0..1, цвет?).

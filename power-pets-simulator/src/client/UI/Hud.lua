@@ -208,7 +208,7 @@ function Hud.Create(root)
 	local menu = {
 		{ Name = "Pets", Icon = "Paw", Text = "Питомцы", Color = Kit.Colors.Green },
 		{ Name = "Shop", Icon = "ShopBag", Text = "Магазин", Color = Kit.Colors.Yellow },
-		{ Name = "Rebirth", Icon = "Rebirth", Text = "Перерождение", Color = Kit.Colors.Purple, IconColor = Color3.fromRGB(255, 255, 255) },
+		{ Name = "Rebirth", Icon = "Rebirth", Text = "Перерожд.", Color = Kit.Colors.Purple, IconColor = Color3.fromRGB(255, 255, 255) },
 		{ Name = "Worlds", Icon = "Globe", Text = "Миры", Color = Kit.Colors.Blue },
 	}
 	for index, item in ipairs(menu) do

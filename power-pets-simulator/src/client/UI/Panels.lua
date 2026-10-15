@@ -49,7 +49,7 @@ function Panels.Create(name, title, size, color, iconName)
 	local holder = Kit.new("Frame", {
 		Name = name,
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.54),
+		Position = UDim2.new(0.5, 0, 0.5, 2),
 		Size = UDim2.fromOffset(size.X, size.Y),
 		BackgroundTransparency = 1,
 		Visible = false,

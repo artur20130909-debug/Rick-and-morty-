@@ -87,7 +87,7 @@ function WorldsPanel.Create()
 		local stats = Kit.new("Frame", {
 			BackgroundColor3 = Kit.Colors.Ink,
 			BackgroundTransparency = 0.2,
-			Size = UDim2.fromOffset(250, 28),
+			Size = UDim2.fromOffset(262, 28),
 			Position = UDim2.fromOffset(124, 86),
 			ZIndex = 7,
 			Parent = row,
@@ -95,7 +95,7 @@ function WorldsPanel.Create()
 		Kit.Corner(stats, UDim.new(0.5, 0))
 		Icons.Coin2D(stats, { Size = UDim2.fromOffset(22, 22), Position = UDim2.fromOffset(6, 3), ZIndex = 8 })
 		Kit.Text({
-			Text = string.format("продажа ×%s  •  монеты по %s", Format.Number(world.SellMultiplier), Format.Number(world.CoinValue)),
+			Text = string.format("продажа ×%s  •  монета %s", Format.Number(world.SellMultiplier), Format.Number(world.CoinValue)),
 			Size = UDim2.new(1, -40, 1, -6),
 			Position = UDim2.fromOffset(34, 3),
 			XAlign = Enum.TextXAlignment.Left,
@@ -137,6 +137,7 @@ function WorldsPanel.Create()
 		local iconHolder = button.Face:FindFirstChild("IconHolder")
 		local lockIcon = Icons.Create(iconHolder, "Lock", { Size = UDim2.fromScale(1, 1), ZIndex = 9 })
 		rows[worldId] = {
+			Button = button,
 			Label = label,
 			Gradient = gradient,
 			Stroke = stroke,
@@ -161,6 +162,7 @@ function WorldsPanel.Create()
 			row.Stroke.Color = worldId == currentWorld and Kit.Colors.Yellow or Kit.Colors.Ink
 			row.Stroke.Thickness = worldId == currentWorld and 6 or 4
 			row.View.Animate = worldId == currentWorld and "Swing" or nil
+			Kit.SetButtonIcon(row.Button, worldId ~= currentWorld)
 			if worldId == currentWorld then
 				row.Label.Text = "Ты здесь"
 				Kit.SetButtonColor(row.Gradient, Kit.Colors.Grey)

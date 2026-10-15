@@ -60,21 +60,36 @@ local function build(eggPart, playerGui)
 	Kit.Gradient(title, Kit.Lighten(egg.Color, 0.2), Kit.Darken(egg.Color, 0.2))
 	Kit.Text({
 		Text = egg.Name,
-		Size = UDim2.new(0.62, 0, 0.84, 0),
-		Position = UDim2.fromScale(0.03, 0.08),
+		Size = UDim2.new(0.57, 0, 0.8, 0),
+		Position = UDim2.fromScale(0.03, 0.1),
 		XAlign = Enum.TextXAlignment.Left,
 		StrokeThickness = 3,
 		Parent = title,
 	})
-	Icons.Coin2D(title, { Size = UDim2.fromScale(0.13, 0.7), Position = UDim2.fromScale(0.66, 0.15), ZIndex = 2 })
+	-- Цена — отдельной тёмной плашкой справа: монета и число не налезают друг на друга.
+	local priceChip = Kit.new("Frame", {
+		Name = "Price",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.fromScale(0.985, 0.5),
+		Size = UDim2.fromScale(0.37, 0.78),
+		BackgroundColor3 = Kit.Colors.Ink,
+		BackgroundTransparency = 0.25,
+		Parent = title,
+	})
+	Kit.Corner(priceChip, UDim.new(0.5, 0))
+	Icons.Coin2D(priceChip, {
+		AnchorPoint = Vector2.new(0, 0.5),
+		Size = UDim2.fromScale(0.3, 0.86),
+		Position = UDim2.fromScale(0.03, 0.5),
+		ZIndex = 2,
+	})
 	Kit.Text({
 		Text = Format.Number(egg.Price),
 		Color = Kit.Colors.Yellow,
-		Size = UDim2.new(0.24, 0, 0.8, 0),
-		Position = UDim2.fromScale(0.75, 0.1),
-		XAlign = Enum.TextXAlignment.Left,
+		Size = UDim2.fromScale(0.6, 0.8),
+		Position = UDim2.fromScale(0.34, 0.1),
 		StrokeThickness = 3,
-		Parent = title,
+		Parent = priceChip,
 	})
 
 	-- Питомцы.
@@ -107,10 +122,11 @@ local function build(eggPart, playerGui)
 		Kit.new("UIStroke", { Color = Kit.Colors.Ink, Thickness = 3, Parent = cell })
 		Kit.Gradient(cell, Kit.Lighten(rarity.Color, 0.45), Kit.Darken(rarity.Color, 0.15))
 		Icons.Pet(cell, petId, false, {
-			Size = UDim2.fromScale(1, 0.6),
-			Position = UDim2.fromScale(0, 0.02),
+			Size = UDim2.fromScale(0.92, 0.58),
+			Position = UDim2.fromScale(0.04, 0.03),
 			ZIndex = 2,
 			Outline = 0.1,
+			Zoom = 0.86,
 		})
 		Kit.Text({
 			Text = Format.Percent(chances[petId]),

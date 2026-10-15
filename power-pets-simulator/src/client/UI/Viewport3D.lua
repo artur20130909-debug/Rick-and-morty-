@@ -7,7 +7,8 @@
 	view:SetTransform(cframe) — повернуть модель вручную (например, тряска яйца)
 
 	Контур (Outline) — мультяшная тёмная обводка: позади каждой детали ставится её
-	чуть увеличенная тёмная копия.
+	чуть увеличенная тёмная копия. Копии всегда сдвинуты от камеры (вдоль её взгляда),
+	поэтому обводка остаётся сзади, даже когда модель крутится на 360°.
 ]]
 
 local RunService = game:GetService("RunService")
@@ -46,6 +47,7 @@ RunService.RenderStepped:Connect(function()
 				animation = CFrame.new(0, math.sin(t * 2.2 + view.Seed) * 0.06 * view.Radius, 0) * CFrame.Angles(0, math.sin(t * 1.3 + view.Seed) * 0.6, 0)
 			end
 			view.Model:PivotTo(base * animation)
+			view:_placeOutlines()
 		end
 	end
 end)
@@ -90,7 +92,9 @@ function Viewport3D.new(parent, props)
 	return view
 end
 
+-- Возвращает пары { копия, оригинал }.
 local function addOutline(model, width)
+	local pairsList = {}
 	local parts = {}
 	for _, item in ipairs(model:GetDescendants()) do
 		if item:IsA("BasePart") and item.Transparency < 0.5 and not item:GetAttribute("NoOutline") then
@@ -110,8 +114,21 @@ local function addOutline(model, width)
 		copy.Reflectance = 0
 		copy.Transparency = 0
 		copy.Size = part.Size + Vector3.one * width
-		copy.CFrame = part.CFrame + Vector3.new(0, 0, width * 0.9)
+		copy.CFrame = part.CFrame
 		copy.Parent = model
+		table.insert(pairsList, { copy, part })
+	end
+	return pairsList
+end
+
+-- Сдвигает копии-обводки за свои детали — от камеры.
+function Viewport3D:_placeOutlines()
+	if not self.Outlines then
+		return
+	end
+	local push = self.Camera.CFrame.LookVector * (self.OutlineWidth * 0.9)
+	for _, pair in ipairs(self.Outlines) do
+		pair[1].CFrame = pair[2].CFrame + push
 	end
 end
 
@@ -125,8 +142,10 @@ function Viewport3D:SetModel(model, options)
 	if not model then
 		return
 	end
+	self.Outlines = nil
 	if options.Outline and options.Outline > 0 then
-		addOutline(model, options.Outline)
+		self.Outlines = addOutline(model, options.Outline)
+		self.OutlineWidth = options.Outline
 	end
 	local boxCFrame, size = model:GetBoundingBox()
 	local center = boxCFrame.Position
@@ -138,6 +157,7 @@ function Viewport3D:SetModel(model, options)
 	self.Base = CFrame.Angles(0, options.Yaw or 0, 0)
 	self.Radius = radius
 	model:PivotTo(self.Base)
+	self:_placeOutlines()
 	model.Parent = self.Frame
 	self.Model = model
 end
@@ -145,6 +165,7 @@ end
 function Viewport3D:SetTransform(cframe)
 	if self.Model then
 		self.Model:PivotTo(self.Base * cframe)
+		self:_placeOutlines()
 	end
 end
 

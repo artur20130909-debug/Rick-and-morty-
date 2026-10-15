@@ -327,6 +327,31 @@ local function cfpoint(a, v)
 	local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = table.unpack(a)
 	return v3(r00 * v.X + r01 * v.Y + r02 * v.Z + x, r10 * v.X + r11 * v.Y + r12 * v.Z + y, r20 * v.X + r21 * v.Y + r22 * v.Z + z)
 end
+-- Как BasePart.CFrame в Roblox: поворот приводится к ортонормированному виду
+-- (иначе ошибки округления при PivotTo каждый кадр растут лавинообразно).
+local function orthonormalize(c)
+	local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = table.unpack(c)
+	local function norm(ax, ay, az)
+		local len = math.sqrt(ax * ax + ay * ay + az * az)
+		if len < 1e-12 then
+			return nil
+		end
+		return ax / len, ay / len, az / len
+	end
+	-- столбцы: Right (r00, r10, r20), Up (r01, r11, r21)
+	local rx, ry, rz = norm(r00, r10, r20)
+	if not rx then
+		return c
+	end
+	local dot = rx * r01 + ry * r11 + rz * r21
+	local ux, uy, uz = norm(r01 - dot * rx, r11 - dot * ry, r21 - dot * rz)
+	if not ux then
+		return c
+	end
+	local bx, by, bz = ry * uz - rz * uy, rz * ux - rx * uz, rx * uy - ry * ux
+	return cf(x, y, z, rx, ux, bx, ry, uy, by, rz, uz, bz)
+end
+M.orthonormalize = orthonormalize
 local function rotX(a)
 	local c, s = math.cos(a), math.sin(a)
 	return cf(0, 0, 0, 1, 0, 0, 0, c, -s, 0, s, c)
@@ -1480,7 +1505,7 @@ setters.Position = function(self, d, value)
 	end
 end
 setters.CFrame = function(self, d, value)
-	d.Props.CFrame = value
+	d.Props.CFrame = isA(d.ClassName, "BasePart") and orthonormalize(value) or value
 	if d.PropSignals.Position then
 		fireSignal(d.PropSignals.Position, nil)
 	end
@@ -1542,7 +1567,7 @@ function methods.PivotTo(self, d, target)
 	local delta = cfmul(target, cfinv(current))
 	for _, part in ipairs(partsOf(self)) do
 		local pd = D[part]
-		pd.Props.CFrame = cfmul(delta, pd.Props.CFrame or IDENTITY)
+		pd.Props.CFrame = orthonormalize(cfmul(delta, pd.Props.CFrame or IDENTITY))
 	end
 	if not d.Props.PrimaryPart then
 		d.Props.WorldPivot = target
@@ -1569,7 +1594,7 @@ methods.BulkMoveTo = function(self, d, parts, cframes, mode)
 		if mtype(cframes[i]) ~= "CFrame" then
 			fail("BulkMoveTo: элемент " .. i .. " не CFrame")
 		end
-		D[part].Props.CFrame = cframes[i]
+		D[part].Props.CFrame = orthonormalize(cframes[i])
 	end
 	M.bulkMoves = (M.bulkMoves or 0) + 1
 end

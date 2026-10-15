@@ -90,15 +90,28 @@ function Themes.Forest(ctx)
 		Build.terrainBall(center + Vector3.new(0, radius * 0.62, 0), radius * 0.45, M.Snow)
 	end
 
-	-- Водопад со скалы за озером.
+	-- Водопад: скальная гряда из «валунов» Terrain с травяными шапками,
+	-- вода падает в ущелье между двумя выступами (плоская стенка только в глубине ущелья).
 	local cliff = o + Vector3.new(-95, 0, -168)
-	Build.terrainBlock(CFrame.new(cliff + Vector3.new(0, 20, 0)), Vector3.new(70, 48, 24), M.Rock)
-	Build.terrainBlock(CFrame.new(cliff + Vector3.new(0, 45, 0)), Vector3.new(74, 4, 28), M.Grass)
+	Build.terrainBlock(CFrame.new(cliff + Vector3.new(0, 20, -4)), Vector3.new(26, 48, 26), M.Rock)
+	for _, boulder in ipairs({
+		{ Vector3.new(-24, 16, 0), 22 }, { Vector3.new(24, 14, 2), 21 },
+		{ Vector3.new(-44, 6, -6), 18 }, { Vector3.new(44, 4, -4), 17 },
+		{ Vector3.new(-10, 22, -22), 22 }, { Vector3.new(14, 20, -24), 21 },
+	}) do
+		Build.terrainBall(cliff + boulder[1], boulder[2], M.Rock)
+	end
+	for _, cap in ipairs({
+		{ Vector3.new(-24, 34, -2), 11 }, { Vector3.new(24, 32, 0), 10 },
+		{ Vector3.new(-10, 40, -20), 12 }, { Vector3.new(14, 38, -22), 11 }, { Vector3.new(0, 42, -8), 10 },
+	}) do
+		Build.terrainBall(cliff + cap[1], cap[2], M.Grass)
+	end
 	Build.terrainCylinder(CFrame.new(cliff + Vector3.new(0, -3, 22)), 6, 16, M.Water)
 	local fall = Build.part(decor, {
 		Name = "Waterfall",
-		Size = Vector3.new(10, 44, 1.5),
-		CFrame = CFrame.new(cliff + Vector3.new(0, 22, 12.5)),
+		Size = Vector3.new(9, 44, 1.5),
+		CFrame = CFrame.new(cliff + Vector3.new(0, 22, 11.5)),
 		Color = rgb(150, 220, 255),
 		Material = M.Glass,
 		Transparency = 0.25,
@@ -177,11 +190,14 @@ function Themes.Forest(ctx)
 		end
 	end
 
-	-- Густой лес по краям.
+	-- Густой лес по краям (кроме места перед водопадом — его должно быть видно).
 	for _ = 1, 48 do
 		local x, z = Build.borderPoint(rng, HALF + 6, HALF + 70)
 		local position = placeAt(ctx, x, z)
-		if rng:NextNumber() < 0.65 then
+		local blocksWaterfall = math.abs(x + 95) < 38 and z > -178 and z < -118
+		if blocksWaterfall then
+			continue
+		elseif rng:NextNumber() < 0.65 then
 			Props.pine(decor, position, rng, palette, rng:NextNumber(1.1, 1.7))
 		else
 			Props.oak(decor, position, rng, palette, rng:NextNumber(1.1, 1.5))

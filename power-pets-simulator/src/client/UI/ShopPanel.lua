@@ -371,6 +371,7 @@ function ShopPanel.Create()
 				card.Shimmer:Destroy()
 				card.Shimmer = nil
 			end
+			Kit.SetButtonIcon(card.Button, level > current)
 			if level < current then
 				card.Label.Text = "КУПЛЕНО"
 				Kit.SetButtonColor(card.ButtonGradient, Kit.Colors.Grey)
