@@ -1,0 +1,3 @@
+# Версии инструментов для Rokit (https://github.com/rojo-rbx/rokit): выполни `rokit install` в этой папке.
+[tools]
+rojo = "rojo-rbx/rojo@7.4.4"

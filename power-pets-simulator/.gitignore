@@ -1,0 +1,6 @@
+# Скачанные инструменты и временные файлы проверки
+tools/.cache/
+# Файлы, которые создают Rojo и Studio во время работы
+sourcemap.json
+*.rbxl.lock
+*.rbxlx.lock
