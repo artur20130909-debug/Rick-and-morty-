@@ -36,7 +36,7 @@ function ClickService.Click(player)
 		local now = os.clock()
 		if (fullWarnedAt[player] or 0) + 5 < now then
 			fullWarnedAt[player] = now
-			PlayerState.Notify(player, "🎒 Рюкзак полон! Продай силу на 💰 точке продажи", "warning")
+			PlayerState.Notify(player, "Рюкзак полон! Продай силу в зелёном круге продажи", "warning")
 		end
 		return
 	end

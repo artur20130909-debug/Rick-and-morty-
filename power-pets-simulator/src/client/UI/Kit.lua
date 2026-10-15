@@ -15,23 +15,25 @@ Kit.DesignSize = Vector2.new(1000, 560)
 Kit.Scale = 1
 
 Kit.Colors = {
-	Ink = Color3.fromRGB(35, 30, 60),
+	Ink = Color3.fromRGB(32, 26, 58),
 	White = Color3.fromRGB(255, 255, 255),
-	Panel = Color3.fromRGB(255, 249, 236),
-	PanelDark = Color3.fromRGB(242, 230, 208),
-	Green = Color3.fromRGB(96, 220, 96),
+	Panel = Color3.fromRGB(255, 250, 240),
+	PanelDark = Color3.fromRGB(240, 229, 210),
+	PanelDeep = Color3.fromRGB(226, 210, 186),
+	Green = Color3.fromRGB(100, 225, 95),
 	GreenDark = Color3.fromRGB(40, 165, 60),
-	Blue = Color3.fromRGB(70, 175, 255),
-	BlueDark = Color3.fromRGB(30, 110, 225),
-	Yellow = Color3.fromRGB(255, 218, 60),
-	YellowDark = Color3.fromRGB(255, 158, 20),
+	Blue = Color3.fromRGB(75, 180, 255),
+	BlueDark = Color3.fromRGB(35, 110, 225),
+	Yellow = Color3.fromRGB(255, 220, 65),
+	YellowDark = Color3.fromRGB(255, 160, 25),
 	Orange = Color3.fromRGB(255, 160, 50),
 	OrangeDark = Color3.fromRGB(235, 100, 20),
-	Purple = Color3.fromRGB(176, 108, 255),
-	PurpleDark = Color3.fromRGB(110, 50, 215),
-	Red = Color3.fromRGB(255, 86, 86),
+	Purple = Color3.fromRGB(180, 112, 255),
+	PurpleDark = Color3.fromRGB(110, 55, 215),
+	Red = Color3.fromRGB(255, 88, 88),
 	RedDark = Color3.fromRGB(200, 40, 55),
-	Pink = Color3.fromRGB(255, 110, 180),
+	Pink = Color3.fromRGB(255, 115, 185),
+	Teal = Color3.fromRGB(60, 215, 200),
 	Grey = Color3.fromRGB(184, 188, 204),
 	GreyDark = Color3.fromRGB(120, 124, 145),
 	Gold = Color3.fromRGB(255, 205, 50),
@@ -78,10 +80,10 @@ function Kit.Lighten(color, amount)
 	return color:Lerp(Color3.new(1, 1, 1), amount or 0.2)
 end
 
-function Kit.Tween(instance, duration, props, style, direction)
+function Kit.Tween(instance, duration, props, style, direction, repeatCount, reverses)
 	local tween = TweenService:Create(
 		instance,
-		TweenInfo.new(duration, style or Enum.EasingStyle.Quad, direction or Enum.EasingDirection.Out),
+		TweenInfo.new(duration, style or Enum.EasingStyle.Quad, direction or Enum.EasingDirection.Out, repeatCount or 0, reverses or false),
 		props
 	)
 	tween:Play()
@@ -132,6 +134,7 @@ function Kit.Text(props)
 		TextYAlignment = props.YAlign or Enum.TextYAlignment.Center,
 		ZIndex = props.ZIndex or 1,
 		LayoutOrder = props.LayoutOrder or 0,
+		Visible = props.Visible ~= false,
 		Parent = props.Parent,
 	})
 	if props.Stroke ~= false then
@@ -149,17 +152,27 @@ function Kit.Text(props)
 	return label
 end
 
---[[ Мультяшная кнопка с градиентом, обводкой и «нажатием».
-	props: Size, Position, AnchorPoint, Color, Color2, Text, MaxTextSize, Corner, StrokeThickness,
-	       ZIndex, Name, LayoutOrder, Parent, OnClick, Sound ("Button" по умолчанию, false — без звука)
-	Возвращает button, label, gradient.
+local iconFactory = nil -- задаётся из Icons, чтобы не было кругового require
+function Kit.SetIconFactory(factory)
+	iconFactory = factory
+end
+
+--[[ Мультяшная объёмная кнопка: «лицо» с градиентом и бликом стоит на тёмном «основании»,
+	при нажатии опускается вниз.
+	props: Size, Position, AnchorPoint, Color, Color2, Text, MaxTextSize, Corner, StrokeThickness, Depth,
+	       Icon (имя 3D-иконки или "Coin"), IconColor, IconScale, ZIndex, Name, LayoutOrder, Parent, OnClick,
+	       Sound ("Button" по умолчанию, false — без звука)
+	Возвращает button (принимает нажатия), label, gradient.
 ]]
 function Kit.Button(props)
 	local zIndex = props.ZIndex or 1
+	local depth = props.Depth or 5
+	local corner = props.Corner or UDim.new(0, 14)
+	local color = props.Color or Kit.Colors.Green
 	local button = Kit.new("TextButton", {
 		Name = props.Name or "Button",
 		AutoButtonColor = false,
-		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 1,
 		Text = "",
 		Size = props.Size,
 		Position = props.Position or UDim2.new(),
@@ -168,44 +181,95 @@ function Kit.Button(props)
 		LayoutOrder = props.LayoutOrder or 0,
 		Parent = props.Parent,
 	})
-	Kit.Corner(button, props.Corner or UDim.new(0, 14))
-	Kit.Stroke(button, props.StrokeThickness or 3)
-	local color = props.Color or Kit.Colors.Green
-	local gradient = Kit.Gradient(button, color, props.Color2 or Kit.Darken(color, 0.22))
 	local scale = Kit.new("UIScale", { Parent = button })
 
-	-- Блик сверху.
-	local shine = Kit.new("Frame", {
-		Name = "Shine",
-		BackgroundColor3 = Color3.new(1, 1, 1),
-		BackgroundTransparency = 0.75,
-		Size = UDim2.new(1, -10, 0.4, -4),
-		Position = UDim2.new(0, 5, 0, 4),
+	local base = Kit.new("Frame", {
+		Name = "Shadow",
+		BackgroundColor3 = Kit.Darken(props.Color2 or color, 0.35),
+		Size = UDim2.new(1, 0, 1, -depth),
+		Position = UDim2.fromOffset(0, depth),
 		ZIndex = zIndex,
 		Parent = button,
 	})
-	Kit.Corner(shine, props.Corner or UDim.new(0, 12))
+	Kit.Corner(base, corner)
+	Kit.Stroke(base, props.StrokeThickness or 3)
 
-	local label = Kit.Text({
-		Text = props.Text or "",
-		Size = UDim2.new(1, -14, 1, -8),
-		Position = UDim2.fromScale(0.5, 0.5),
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		MaxTextSize = props.MaxTextSize or 30,
+	local face = Kit.new("Frame", {
+		Name = "Face",
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.new(1, 0, 1, -depth),
 		ZIndex = zIndex + 1,
 		Parent = button,
 	})
+	Kit.Corner(face, corner)
+	Kit.Stroke(face, props.StrokeThickness or 3)
+	local gradient = Kit.Gradient(face, Kit.Lighten(color, 0.12), props.Color2 or Kit.Darken(color, 0.18))
 
+	local shine = Kit.new("Frame", {
+		Name = "Shine",
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 0.72,
+		Size = UDim2.new(1, -12, 0.42, -4),
+		Position = UDim2.new(0, 6, 0, 4),
+		ZIndex = zIndex + 1,
+		Parent = face,
+	})
+	Kit.Corner(shine, corner)
+
+	local labelX, labelWidth = 7, -14
+	if props.Icon then
+		local iconSize = props.IconScale or 0.78
+		local holder = Kit.new("Frame", {
+			Name = "IconHolder",
+			BackgroundTransparency = 1,
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 6, 0.5, 0),
+			Size = UDim2.new(iconSize, 0, iconSize, 0),
+			SizeConstraint = Enum.SizeConstraint.RelativeYY,
+			ZIndex = zIndex + 2,
+			Parent = face,
+		})
+		if props.Icon == "Coin" then
+			if iconFactory then
+				iconFactory.Coin2D(holder, { Size = UDim2.fromScale(1, 1), ZIndex = zIndex + 2 })
+			end
+		elseif iconFactory then
+			iconFactory.Create(holder, props.Icon, { Size = UDim2.fromScale(1, 1), ZIndex = zIndex + 2, Color = props.IconColor })
+		end
+		local height = 1
+		if props.Size and props.Size.Y.Offset > 0 then
+			height = props.Size.Y.Offset - depth
+		end
+		labelX = math.floor(height * iconSize) + 10
+		labelWidth = -labelX - 8
+	end
+
+	local label = Kit.Text({
+		Text = props.Text or "",
+		Size = UDim2.new(1, labelWidth, 1, -8),
+		Position = UDim2.new(0, labelX, 0, 4),
+		MaxTextSize = props.MaxTextSize or 30,
+		StrokeThickness = props.TextStroke or 2.5,
+		ZIndex = zIndex + 3,
+		Parent = face,
+	})
+
+	local function press(down)
+		face.Position = UDim2.fromOffset(0, down and math.floor(depth * 0.7) or 0)
+	end
 	button.MouseEnter:Connect(function()
-		Kit.Tween(scale, 0.1, { Scale = 1.05 })
+		Kit.Tween(scale, 0.1, { Scale = 1.04 })
 	end)
 	button.MouseLeave:Connect(function()
+		press(false)
 		Kit.Tween(scale, 0.1, { Scale = 1 })
 	end)
 	button.MouseButton1Down:Connect(function()
-		Kit.Tween(scale, 0.06, { Scale = 0.9 })
+		press(true)
+		Kit.Tween(scale, 0.06, { Scale = 0.96 })
 	end)
 	button.MouseButton1Up:Connect(function()
+		press(false)
 		Kit.Tween(scale, 0.18, { Scale = 1 }, Enum.EasingStyle.Back)
 	end)
 	button.Activated:Connect(function()
@@ -220,8 +284,15 @@ function Kit.Button(props)
 	return button, label, gradient
 end
 
+-- Перекрасить кнопку (лицо и основание).
 function Kit.SetButtonColor(gradient, color, color2)
-	gradient.Color = ColorSequence.new(color, color2 or Kit.Darken(color, 0.22))
+	gradient.Color = ColorSequence.new(Kit.Lighten(color, 0.12), color2 or Kit.Darken(color, 0.18))
+	local face = gradient.Parent
+	local button = face and face.Parent
+	local base = button and button:FindFirstChild("Shadow")
+	if base then
+		base.BackgroundColor3 = Kit.Darken(color2 or color, 0.35)
+	end
 end
 
 -- Полоса прогресса. Возвращает рамку и функцию set(доля 0..1, цвет?).
@@ -229,7 +300,7 @@ function Kit.ProgressBar(props)
 	local bar = Kit.new("Frame", {
 		Name = props.Name or "Bar",
 		BackgroundColor3 = Kit.Colors.Ink,
-		BackgroundTransparency = 0.25,
+		BackgroundTransparency = 0.2,
 		Size = props.Size,
 		Position = props.Position or UDim2.new(),
 		AnchorPoint = props.AnchorPoint or Vector2.zero,
@@ -237,6 +308,7 @@ function Kit.ProgressBar(props)
 		Parent = props.Parent,
 	})
 	Kit.Corner(bar, UDim.new(0.5, 0))
+	Kit.Stroke(bar, 2)
 	local fill = Kit.new("Frame", {
 		Name = "Fill",
 		BackgroundColor3 = Color3.new(1, 1, 1),
@@ -246,15 +318,82 @@ function Kit.ProgressBar(props)
 	})
 	Kit.Corner(fill, UDim.new(0.5, 0))
 	local gradient = Kit.Gradient(fill, props.Color or Kit.Colors.Green)
+	local gloss = Kit.new("Frame", {
+		Name = "Gloss",
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 0.6,
+		Size = UDim2.new(1, -6, 0.35, 0),
+		Position = UDim2.new(0, 3, 0.12, 0),
+		ZIndex = (props.ZIndex or 1) + 2,
+		Parent = fill,
+	})
+	Kit.Corner(gloss, UDim.new(0.5, 0))
 	local function set(fraction, color)
 		fraction = math.clamp(fraction, 0, 1)
 		Kit.Tween(fill, 0.15, { Size = UDim2.fromScale(fraction, 1) })
 		fill.Visible = fraction > 0.001
 		if color then
-			gradient.Color = ColorSequence.new(color, Kit.Darken(color, 0.2))
+			gradient.Color = ColorSequence.new(Kit.Lighten(color, 0.15), Kit.Darken(color, 0.15))
 		end
 	end
 	return bar, set
+end
+
+-- Узор в горошек (для фона окон). Рамка обрезает кружки по краям.
+function Kit.Dots(parent, color, transparency, spacing, zIndex)
+	local holder = Kit.new("Frame", {
+		Name = "Dots",
+		BackgroundTransparency = 1,
+		ClipsDescendants = true,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = zIndex or 1,
+		Parent = parent,
+	})
+	spacing = spacing or 64
+	for row = 0, 10 do
+		for column = 0, 15 do
+			local dot = Kit.new("Frame", {
+				BackgroundColor3 = color,
+				BackgroundTransparency = transparency or 0.85,
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromOffset(column * spacing + (row % 2) * spacing / 2, row * spacing * 0.85),
+				Size = UDim2.fromOffset(12, 12),
+				ZIndex = zIndex or 1,
+				Parent = holder,
+			})
+			Kit.Corner(dot, UDim.new(0.5, 0))
+		end
+	end
+	return holder
+end
+
+-- Бегущий блик по объекту (для дорогих карточек и золотых питомцев).
+function Kit.Shimmer(guiObject, period, zIndex)
+	local overlay = Kit.new("Frame", {
+		Name = "Shimmer",
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = zIndex or (guiObject.ZIndex + 1),
+		Parent = guiObject,
+	})
+	local corner = guiObject:FindFirstChildOfClass("UICorner")
+	if corner then
+		Kit.Corner(overlay, corner.CornerRadius)
+	end
+	local gradient = Kit.new("UIGradient", {
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.4, 1),
+			NumberSequenceKeypoint.new(0.5, 0.55),
+			NumberSequenceKeypoint.new(0.6, 1),
+			NumberSequenceKeypoint.new(1, 1),
+		}),
+		Rotation = 25,
+		Offset = Vector2.new(-1, 0),
+		Parent = overlay,
+	})
+	Kit.Tween(gradient, period or 2.5, { Offset = Vector2.new(1, 0) }, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1)
+	return overlay
 end
 
 -- Короткое «подпрыгивание» объекта (через его UIScale).

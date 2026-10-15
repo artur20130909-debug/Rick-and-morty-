@@ -132,7 +132,7 @@ function PetService.EquipBest(player)
 	if #sorted == 0 then
 		return false, "У тебя пока нет питомцев — открой яйцо!"
 	end
-	return true, "⭐ Надеты лучшие питомцы"
+	return true, "Надеты лучшие питомцы"
 end
 
 -- 5 одинаковых обычных питомцев -> 1 золотой (множитель ×2).
@@ -143,7 +143,7 @@ function PetService.Merge(player, uid)
 		return false, "Питомец не найден"
 	end
 	if pet.Golden then
-		return false, "Этот питомец уже золотой ✨"
+		return false, "Этот питомец уже золотой"
 	end
 
 	local candidates = {}
@@ -189,7 +189,7 @@ function PetService.Merge(player, uid)
 	end
 	PlayerState.SyncPets(player)
 	PlayerState.Effect(player, "Merge", { PetId = pet.Id, Uid = golden.Uid })
-	return true, "✨ Получен " .. petName(golden) .. "!"
+	return true, "Получен " .. petName(golden) .. "!"
 end
 
 local ACTIONS = {

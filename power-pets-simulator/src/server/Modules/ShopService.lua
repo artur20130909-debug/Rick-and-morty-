@@ -45,13 +45,13 @@ function ShopService.BuyBackpack(player, level)
 		return false, "Это самый большой рюкзак"
 	end
 	if data.Coins < backpack.Price then
-		return false, string.format("Не хватает монет: нужно 🪙 %s", Format.Number(backpack.Price))
+		return false, string.format("Не хватает монет: нужно %s", Format.Number(backpack.Price))
 	end
 	data.Coins -= backpack.Price
 	data.BackpackLevel = level
 	PlayerState.SyncStats(player)
 	PlayerState.Effect(player, "Purchase", { Kind = "Backpack", Level = level })
-	return true, string.format("%s Куплен «%s»: вмещает %s силы", backpack.Icon, backpack.Name, Format.Number(backpack.Capacity))
+	return true, string.format("Куплен «%s»: вмещает %s силы", backpack.Name, Format.Number(backpack.Capacity))
 end
 
 local function grantPetSlots(player)
@@ -65,14 +65,14 @@ function ShopService.BuyPetSlots(player)
 		return false, "Данные ещё загружаются…"
 	end
 	if PlayerState.HasPetSlots(player, data) then
-		return false, "Уже куплено ✔"
+		return false, "Уже куплено"
 	end
 
 	local gamepassId = GameConfig.PetSlotsGamepassId
 	if gamepassId == 0 then
 		data.PetSlotsPass = true
 		grantPetSlots(player)
-		return true, "🎁 Тестовый геймпасс: теперь можно надеть " .. GameConfig.GamepassEquipSlots .. " питомцев!"
+		return true, "Тестовый геймпасс: теперь можно надеть " .. GameConfig.GamepassEquipSlots .. " питомцев!"
 	end
 
 	MarketplaceService:PromptGamePassPurchase(player, gamepassId)
@@ -114,7 +114,7 @@ function ShopService.Init()
 		if purchased and gamepassId == GameConfig.PetSlotsGamepassId and gamepassId ~= 0 then
 			PlayerState.SetOwnsGamepass(player, true)
 			grantPetSlots(player)
-			PlayerState.Notify(player, "🎉 Спасибо за покупку! Теперь можно надеть " .. GameConfig.GamepassEquipSlots .. " питомцев", "success")
+			PlayerState.Notify(player, "Спасибо за покупку! Теперь можно надеть " .. GameConfig.GamepassEquipSlots .. " питомцев", "success")
 		end
 	end)
 

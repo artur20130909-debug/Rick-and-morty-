@@ -2,7 +2,7 @@
 -- Проходит путь игрока: вход, клики, продажа, монеты, яйца, питомцы, магазин, миры,
 -- перерождение, выход, сохранение, повторный вход, сбой DataStore, выключение сервера.
 local G = M.G
-local Vector3, CFrame = G.Vector3, G.CFrame
+local Vector3, CFrame, UDim2 = G.Vector3, G.CFrame, G.UDim2
 local failures = 0
 
 local function check(condition, message)
@@ -51,7 +51,7 @@ local remotes = RS.Remotes
 print("== игрок заходит")
 local player, ctx = M.addPlayer("Tester", 1001)
 M.run(0.3)
-local spawnLocation = worlds.Forest.Map.SpawnLocation
+local spawnLocation = worlds.Forest.Spawn.SpawnLocation
 M.spawnCharacter(player, spawnLocation.Position)
 M.runScript(StarterPlayer.StarterPlayerScripts.Client.Main, ctx)
 M.run(3)
@@ -65,6 +65,13 @@ check(root ~= nil, "интерфейс построен")
 local clickButton = root:FindFirstChild("ClickButton")
 check(clickButton ~= nil, "кнопка КЛИК есть")
 check(root.PanelLayer:FindFirstChild("Pets") ~= nil and root.PanelLayer:FindFirstChild("Shop") ~= nil, "окна созданы")
+local function panelPart(name, ...)
+	local node = root.PanelLayer[name].Body
+	for _, child in ipairs({ ... }) do
+		node = node[child]
+	end
+	return node
+end
 
 -- HUD
 local function findText(container, pattern)
@@ -79,7 +86,7 @@ check(findText(root.TopBar, "0 / 50") ~= nil, "счётчик рюкзака «0
 check(findText(root, "+1 силы за клик") ~= nil, "подпись силы за клик")
 check(findText(root, "ЛЕС") ~= nil, "плашка мира «ЛЕС» (заглавные кириллицей)")
 local forestPortalStatus = worlds.Forest.Portal_Desert:FindFirstChild("Status", true)
-check(forestPortalStatus.Text == "🔒 0 / 10K ⭐ силы", "табличка портала для игрока: " .. forestPortalStatus.Text)
+check(forestPortalStatus.Text == "Закрыто: 0 / 10K силы", "табличка портала для игрока: " .. forestPortalStatus.Text)
 -- монеты крутятся на клиенте
 local someCoin = worlds.Forest.Coins:GetChildren()[2]
 local coinCFrame = someCoin.CFrame
@@ -169,6 +176,97 @@ local function invoke(remote, ...)
 	return table.unpack(results or {}, 1, results and results.n or 0)
 end
 
+print("== свои 3D-иконки")
+local IconModels = M.requireIn(ctx, StarterPlayer.StarterPlayerScripts.Client.UI.IconModels)
+local Icons = M.requireIn(ctx, StarterPlayer.StarterPlayerScripts.Client.UI.Icons)
+local iconCount = 0
+for _, name in ipairs(IconModels.Names) do
+	local frame
+	M.inCtx(ctx, function()
+		frame = Icons.Create(root, name, { Size = UDim2.fromOffset(60, 60) })
+	end)
+	if frame and frame:IsA("ViewportFrame") and frame.CurrentCamera then
+		local parts = 0
+		for _, item in ipairs(frame:GetDescendants()) do
+			if item:IsA("BasePart") then
+				parts += 1
+			end
+		end
+		if parts >= 3 then
+			iconCount += 1
+		else
+			print("  мало деталей в иконке", name, parts)
+		end
+		frame:Destroy()
+	end
+end
+print("  иконок:", iconCount, table.concat(IconModels.Names, ", "))
+check(iconCount == #IconModels.Names and iconCount >= 20, "все 3D-иконки собираются")
+
+print("== рельеф и мир")
+check(#M.terrainFills > 100, "рельеф Terrain построен (" .. #M.terrainFills .. " заливок)")
+local column = M.terrainColumn(-72, -58)
+local hasWater = false
+for _, item in ipairs(column) do
+	if item[3] == "Water" then
+		hasWater = true
+	end
+end
+check(hasWater, "в лесу есть озеро с водой")
+local coinsOnGround = true
+for _, worldId in ipairs({ "Forest", "Desert", "Space" }) do
+	for _, coinPart in ipairs(worlds[worldId].Coins:GetChildren()) do
+		local origin = worlds[worldId]:FindFirstChild("Spawn")
+		local _ = origin
+		if coinPart.Position.Y < -20 + (worldId == "Space" and 60 or 0) then
+			coinsOnGround = false
+		end
+	end
+end
+check(coinsOnGround, "монеты лежат на земле, а не под ней")
+check(worlds.Forest:FindFirstChild("ShopStall") ~= nil and worlds.Forest:FindFirstChild("Fountain") ~= nil and worlds.Forest:FindFirstChild("WelcomeArch") ~= nil, "лавка, фонтан и арка построены")
+check(#svc("CollectionService"):GetTagged("Spin") >= 7, "крутящиеся детали (мельница, кольца порталов, монеты у продажи)")
+
+print("== табло яиц и свои подсказки")
+local playerGui = player.PlayerGui
+check(playerGui:FindFirstChild("EggDisplay_ForestEgg") ~= nil, "табло лесного яйца с 3D-питомцами")
+local display = playerGui:FindFirstChild("EggDisplay_ForestEgg")
+local displayViews = 0
+for _, item in ipairs(display and display:GetDescendants() or {}) do
+	if item:IsA("ViewportFrame") then
+		displayViews += 1
+	end
+end
+check(displayViews == 5, "на табло 5 питомцев в 3D")
+local stallPrompt = worlds.Forest.ShopStall.Counter.PromptPoint.OpenShop
+M.inCtx(ctx, function()
+	M.fire(M.event(svc("ProximityPromptService"), "PromptShown"), stallPrompt, G.Enum.ProximityPromptInputType.Touch)
+end)
+M.run(0.4)
+local stallGui = playerGui:FindFirstChild("Prompt_OpenShop")
+check(stallGui ~= nil, "своя кнопка у лавки магазина")
+if stallGui then
+	press(stallGui.Card)
+	M.run(0.5)
+end
+check(root.PanelLayer.Shop.Visible, "лавка открывает окно магазина")
+press(panelPart("Shop", "Header", "Close"))
+M.run(0.4)
+M.inCtx(ctx, function()
+	M.fire(M.event(svc("ProximityPromptService"), "PromptHidden"), stallPrompt)
+end)
+M.run(0.4)
+check(playerGui:FindFirstChild("Prompt_OpenShop") == nil, "кнопка исчезает, когда отходишь")
+
+print("== звуки из библиотеки Roblox")
+M.run(8)
+local library = RS:FindFirstChild("SoundLibrary")
+check(library ~= nil and library:GetAttribute("Ready") == true, "сервер подобрал звуки (" .. tostring(M.audioSearches) .. " поисков)")
+local soundsFolder = svc("SoundService"):FindFirstChild("PowerPetsSounds")
+local clickSound = soundsFolder and soundsFolder:FindFirstChild("Click")
+check(clickSound and string.find(clickSound.SoundId, "rbxassetid://") ~= nil and not string.find(clickSound.SoundId, "1$"), "клиент взял рабочий звук: " .. tostring(clickSound and clickSound.SoundId))
+check(soundsFolder and soundsFolder:FindFirstChild("Music_Forest") ~= nil and soundsFolder.Music_Forest.IsPlaying, "музыка леса играет")
+
 print("== клики")
 for _ = 1, 30 do
 	press(clickButton)
@@ -225,7 +323,7 @@ print("== яйца")
 local data = DataService.Get(player)
 data.Coins = 100000
 PlayerState.SyncStats(player)
-local eggPart = worlds.Forest.ForestEgg.Egg
+local eggPart = worlds.Forest.ForestEgg.EggModel.Egg
 hrp.CFrame = CFrame.new(eggPart.Position + Vector3.new(0, 0, 7))
 M.inCtx(M.SERVER, function()
 	M.fire(M.event(eggPart.Prompt1.Open1, "Triggered"), player)
@@ -272,7 +370,7 @@ press(root.SideMenu.Pets)
 M.run(0.6)
 local petsPanel = root.PanelLayer.Pets
 check(petsPanel.Visible, "окно питомцев открыто")
-local grid = petsPanel.Content.Grid
+local grid = panelPart("Pets", "Content", "Grid")
 local cardCount = 0
 for _, child in ipairs(grid:GetChildren()) do
 	if child:IsA("TextButton") then
@@ -280,7 +378,7 @@ for _, child in ipairs(grid:GetChildren()) do
 	end
 end
 check(cardCount == 4, "4 карточки питомцев")
-press(petsPanel.Header.EquipBest)
+press(panelPart("Pets", "Header", "EquipBest"))
 M.run(0.5)
 local equipped = 0
 for _, pet in ipairs(data.Pets) do
@@ -291,7 +389,7 @@ end
 check(equipped == 3, "надеты 3 лучших")
 
 -- снять / надеть через кнопку
-local details = petsPanel.Content.Details
+local details = panelPart("Pets", "Content", "Details")
 press(details.Equip)
 M.run(0.5)
 equipped = 0
@@ -341,7 +439,7 @@ ok, message = invoke(remotes.PetAction, "Hack", 1)
 check(ok == false, "неизвестное действие отклонено: " .. tostring(message))
 ok, message = invoke(remotes.PetAction, "Delete", "abc")
 check(ok == false, "неверный uid отклонён")
-press(petsPanel.Header.Close)
+press(panelPart("Pets", "Header", "Close"))
 M.run(0.5)
 check(not petsPanel.Visible, "окно закрылось")
 
@@ -357,16 +455,8 @@ check(ok == true and player:GetAttribute("Capacity") == 250, "куплен рю�
 check(player:GetAttribute("Coins") == 1850, "списано 150 монет")
 -- покупка через кнопку в окне (рюкзак 3 за 1000)
 local shopPanel = root.PanelLayer.Shop
-local buyButton
-for _, item in ipairs(shopPanel:GetDescendants()) do
-	if item:IsA("TextButton") then
-		local label = item:FindFirstChild("Text")
-		if label and label.Text == "🪙 1K" then
-			buyButton = item
-		end
-	end
-end
-check(buyButton ~= nil, "кнопка покупки рюкзака 3 найдена")
+local buyButton = panelPart("Shop", "Content", "BackpacksPage", "Backpack3", "Buy")
+check(buyButton ~= nil and buyButton:FindFirstChild("Text", true).Text == "1K", "кнопка покупки рюкзака 3 с ценой 1K")
 if buyButton then
 	press(buyButton)
 	M.run(0.5)
@@ -374,7 +464,7 @@ end
 check(player:GetAttribute("BackpackLevel") == 3, "рюкзак 3 куплен через кнопку")
 ok, message = invoke(remotes.BuyPetSlots)
 check(ok == true and player:GetAttribute("MaxEquipped") == 5, "геймпасс-заглушка: 5 слотов")
-press(shopPanel.Header.Close)
+press(panelPart("Shop", "Header", "Close"))
 M.run(0.5)
 
 print("== миры")
@@ -386,16 +476,8 @@ M.run(0.5)
 press(root.SideMenu.Worlds)
 M.run(0.5)
 local worldsPanel = root.PanelLayer.Worlds
-local openButton
-for _, item in ipairs(worldsPanel:GetDescendants()) do
-	if item:IsA("TextButton") then
-		local label = item:FindFirstChild("Text")
-		if label and label.Text == "✨ Открыть!" then
-			openButton = item
-		end
-	end
-end
-check(openButton ~= nil, "кнопка «Открыть!» для пустыни")
+local openButton = panelPart("Worlds", "Content", "Desert", "Go")
+check(openButton:FindFirstChild("Text", true).Text == "Открыть!", "кнопка «Открыть!» для пустыни")
 if openButton then
 	press(openButton)
 	M.run(1)
@@ -406,7 +488,7 @@ check((hrp.Position - worlds.Desert.SellZone.SellPad.Position).Magnitude < 200, 
 M.run(1.5)
 check(findText(root, "ПУСТЫНЯ") ~= nil, "плашка/баннер «ПУСТЫНЯ»")
 check(math.abs(svc("Lighting").ClockTime - 12.5) < 0.01, "освещение пустыни включено на клиенте")
-check(forestPortalStatus.Text == "✅ Открыто — заходи!", "табличка портала обновилась: " .. forestPortalStatus.Text)
+check(forestPortalStatus.Text == "Открыто — заходи!", "табличка портала обновилась: " .. forestPortalStatus.Text)
 -- продажа в пустыне ×2
 data.Strength = 100
 PlayerState.SyncStats(player)
@@ -444,7 +526,7 @@ PlayerState.SyncStats(player)
 press(root.SideMenu.Rebirth)
 M.run(0.5)
 local rebirthPanel = root.PanelLayer.Rebirth
-local rebirthButton = rebirthPanel.Content.RebirthButton
+local rebirthButton = panelPart("Rebirth", "Content", "RebirthButton")
 press(rebirthButton)
 M.run(0.3)
 check(player:GetAttribute("Rebirths") == 0, "первое нажатие только спрашивает")

@@ -1,6 +1,6 @@
 --[[
 	Power Pets Simulator — главный клиентский скрипт.
-	Собирает интерфейс кодом (никаких .rbxm), подключает клики, питомцев и эффекты.
+	Собирает интерфейс кодом (никаких .rbxm), подключает клики, питомцев, звук и эффекты.
 	Клиент ничего не начисляет сам — только отправляет запросы серверу и показывает результат.
 ]]
 
@@ -16,6 +16,7 @@ ReplicatedStorage:WaitForChild("Shared")
 local Sounds = require(Client:WaitForChild("Sounds"))
 local State = require(Client:WaitForChild("State"))
 local Kit = require(UI:WaitForChild("Kit"))
+local Icons = require(UI:WaitForChild("Icons")) -- подключает 3D-иконки к кнопкам Kit
 local Panels = require(UI:WaitForChild("Panels"))
 local Hud = require(UI:WaitForChild("Hud"))
 local Notifications = require(UI:WaitForChild("Notifications"))
@@ -25,6 +26,8 @@ local ShopPanel = require(UI:WaitForChild("ShopPanel"))
 local RebirthPanel = require(UI:WaitForChild("RebirthPanel"))
 local WorldsPanel = require(UI:WaitForChild("WorldsPanel"))
 local HatchAnimation = require(UI:WaitForChild("HatchAnimation"))
+local CustomPrompts = require(UI:WaitForChild("CustomPrompts"))
+local EggDisplays = require(UI:WaitForChild("EggDisplays"))
 local ClickController = require(Client:WaitForChild("ClickController"))
 local PetFollow = require(Client:WaitForChild("PetFollow"))
 local WorldEffects = require(Client:WaitForChild("WorldEffects"))
@@ -51,7 +54,9 @@ pcall(function()
 	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 end)
 
+assert(Icons, "Icons не загрузились")
 State.Init()
+Sounds.Init()
 
 local mainGui = getScreenGui("PowerPetsGui", 5, false)
 local hatchGui = getScreenGui("HatchGui", 20, true)
@@ -68,6 +73,8 @@ RebirthPanel.Create()
 WorldsPanel.Create()
 
 HatchAnimation.Init(hatchGui)
+CustomPrompts.Init()
+EggDisplays.Init()
 ClickController.Init(hud)
 PetFollow.Init()
 WorldEffects.Init(root)
@@ -78,7 +85,7 @@ local saveWarningShown = false
 State.Watch("SaveDisabled", function()
 	if State.Get("SaveDisabled", false) == true and not saveWarningShown then
 		saveWarningShown = true
-		Notifications.Show("⚠️ Сохранение выключено: включи Studio Access to API Services", "warning")
+		Notifications.Show("Сохранение выключено: включи Studio Access to API Services", "warning")
 	end
 end)
 
@@ -86,9 +93,7 @@ end)
 State.Watch("DataLoaded", function()
 	if State.IsLoaded() and State.Get("TotalStrength", 0) == 0 and State.Get("Rebirths", 0) == 0 then
 		task.delay(2.5, function()
-			Notifications.Show("Жми 💪 КЛИК, продавай силу в 💰 круге и открывай 🥚 яйца!", "info")
+			Notifications.Show("Жми КЛИК, продавай силу в зелёном круге и открывай яйца!", "info")
 		end)
 	end
 end)
-
-Sounds.Play("Button", 0.8)

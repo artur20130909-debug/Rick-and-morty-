@@ -21,7 +21,9 @@ local PetService = require(Modules.PetService)
 local EggService = require(Modules.EggService)
 local ShopService = require(Modules.ShopService)
 local RebirthService = require(Modules.RebirthService)
+local SoundLibrary = require(Modules.SoundLibrary)
 
+SoundLibrary.Init()
 local worldRefs = WorldBuilder.Build()
 
 DataService.Init()

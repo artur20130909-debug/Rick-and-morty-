@@ -3,10 +3,13 @@
 	- счётчики сверху: сила в рюкзаке (с полоской), монеты, накопленная сила, перерождения;
 	- плашка текущего мира;
 	- кнопки сбоку: Питомцы, Магазин, Перерождение, Миры;
-	- большая кнопка «КЛИК!» внизу по центру (удобно большим пальцем на телефоне).
+	- большая кнопка «КЛИК!» внизу по центру (удобно большим пальцем на телефоне);
+	- кнопка музыки.
+	Все иконки — свои 3D-модели (UI/IconModels), без эмодзи.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Worlds = require(Shared.Config.Worlds)
@@ -16,61 +19,82 @@ local Format = require(Shared.Modules.Format)
 
 local UI = script.Parent
 local Kit = require(UI.Kit)
+local Icons = require(UI.Icons)
 local Panels = require(UI.Panels)
 local State = require(UI.Parent.State)
+local Sounds = require(UI.Parent.Sounds)
 
 local Hud = {}
 
-local function makePill(parent, order, width, icon, caption, color)
+local WORLD_ICONS = { Forest = "Tree", Desert = "Cactus", Space = "Rocket" }
+
+local function makePill(parent, order, width, iconName, caption, color, iconColor)
 	local frame = Kit.new("Frame", {
 		Name = caption,
-		Size = UDim2.fromOffset(width, 58),
-		BackgroundColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.fromOffset(width, 56),
+		BackgroundTransparency = 1,
 		LayoutOrder = order,
 		Parent = parent,
 	})
-	Kit.Corner(frame, UDim.new(0.5, 0))
-	Kit.Stroke(frame, 3)
-	Kit.Gradient(frame, color, Kit.Darken(color, 0.25))
-
-	local iconBg = Kit.new("Frame", {
-		Size = UDim2.fromOffset(48, 48),
-		Position = UDim2.new(0, 5, 0.5, 0),
-		AnchorPoint = Vector2.new(0, 0.5),
+	local body = Kit.new("Frame", {
+		Name = "Body",
+		Size = UDim2.new(1, -18, 1, -8),
+		Position = UDim2.fromOffset(18, 4),
 		BackgroundColor3 = Color3.new(1, 1, 1),
-		BackgroundTransparency = 0.35,
 		Parent = frame,
 	})
-	Kit.Corner(iconBg, UDim.new(0.5, 0))
-	Kit.Text({
-		Text = icon,
-		Stroke = false,
-		Size = UDim2.fromScale(0.78, 0.78),
+	Kit.Corner(body, UDim.new(0.5, 0))
+	Kit.Stroke(body, 3.5)
+	Kit.Gradient(body, Kit.Lighten(color, 0.1), Kit.Darken(color, 0.25))
+	local gloss = Kit.new("Frame", {
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 0.72,
+		Size = UDim2.new(1, -40, 0.38, 0),
+		Position = UDim2.new(0, 30, 0, 3),
+		Parent = body,
+	})
+	Kit.Corner(gloss, UDim.new(0.5, 0))
+
+	-- Круглая подложка с 3D-иконкой, выступает влево за край плашки.
+	local badge = Kit.new("Frame", {
+		Name = "Badge",
+		Size = UDim2.fromOffset(56, 56),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		ZIndex = 3,
+		Parent = frame,
+	})
+	Kit.Corner(badge, UDim.new(0.5, 0))
+	Kit.Stroke(badge, 3.5)
+	Kit.Gradient(badge, Color3.fromRGB(255, 255, 255), Kit.Lighten(color, 0.45))
+	Icons.Create(badge, iconName, {
+		Size = UDim2.fromScale(1.15, 1.15),
 		Position = UDim2.fromScale(0.5, 0.5),
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Parent = iconBg,
+		ZIndex = 4,
+		Color = iconColor,
 	})
+
 	Kit.Text({
 		Name = "Caption",
 		Text = caption,
-		Size = UDim2.new(1, -72, 0, 16),
-		Position = UDim2.fromOffset(58, 4),
+		Size = UDim2.new(1, -56, 0, 15),
+		Position = UDim2.fromOffset(44, 4),
 		XAlign = Enum.TextXAlignment.Left,
-		MaxTextSize = 14,
+		MaxTextSize = 13,
 		StrokeThickness = 1.5,
-		Parent = frame,
+		Parent = body,
 	})
 	local value = Kit.Text({
 		Name = "Value",
 		Text = "0",
-		Size = UDim2.new(1, -72, 0, 32),
-		Position = UDim2.fromOffset(58, 20),
+		Size = UDim2.new(1, -56, 0, 28),
+		Position = UDim2.fromOffset(44, 18),
 		XAlign = Enum.TextXAlignment.Left,
-		MaxTextSize = 28,
+		MaxTextSize = 27,
 		StrokeThickness = 2.5,
-		Parent = frame,
+		Parent = body,
 	})
-	return frame, value
+	return frame, value, body
 end
 
 -- Прозрачная кнопка поверх элемента (например, нажать на счётчик и открыть окно).
@@ -83,7 +107,10 @@ local function makeClickable(guiObject, callback)
 		ZIndex = 10,
 		Parent = guiObject,
 	})
-	button.Activated:Connect(callback)
+	button.Activated:Connect(function()
+		Sounds.Play("Button")
+		callback()
+	end)
 	return button
 end
 
@@ -96,38 +123,38 @@ function Hud.Create(root)
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.new(0.5, 0, 0, 8),
-		Size = UDim2.fromOffset(860, 62),
+		Size = UDim2.fromOffset(880, 60),
 		Parent = root,
 	})
 	Kit.new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
-		Padding = UDim.new(0, 10),
+		Padding = UDim.new(0, 12),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = top,
 	})
 
-	local strengthPill, strengthValue = makePill(top, 1, 290, "💪", "СИЛА В РЮКЗАКЕ", Kit.Colors.Orange)
+	local strengthPill, strengthValue, strengthBody = makePill(top, 1, 300, "Dumbbell", "СИЛА В РЮКЗАКЕ", Kit.Colors.Orange)
 	local bar, setBar = Kit.ProgressBar({
-		Size = UDim2.new(1, -72, 0, 26),
-		Position = UDim2.fromOffset(58, 24),
+		Size = UDim2.new(1, -56, 0, 24),
+		Position = UDim2.fromOffset(44, 21),
 		Color = Kit.Colors.Green,
 		ZIndex = 2,
-		Parent = strengthPill,
+		Parent = strengthBody,
 	})
 	strengthValue.Parent = bar
 	strengthValue.Size = UDim2.new(1, -8, 1, 0)
 	strengthValue.Position = UDim2.fromOffset(4, 0)
 	strengthValue.TextXAlignment = Enum.TextXAlignment.Center
-	strengthValue.ZIndex = 4
+	strengthValue.ZIndex = 5
 	makeClickable(strengthPill, function()
 		Panels.Open("Shop")
 	end)
 
-	local _, coinsValue = makePill(top, 2, 190, "🪙", "МОНЕТЫ", Kit.Colors.Yellow)
-	local _, totalValue = makePill(top, 3, 190, "⭐", "ВСЕГО СИЛЫ", Kit.Colors.Purple)
-	local rebirthPill, rebirthValue = makePill(top, 4, 150, "🔁", "ПЕРЕРОЖД.", Kit.Colors.Blue)
+	local _, coinsValue = makePill(top, 2, 190, "Coin", "МОНЕТЫ", Kit.Colors.Yellow)
+	local _, totalValue = makePill(top, 3, 190, "Star", "ВСЕГО СИЛЫ", Kit.Colors.Purple)
+	local rebirthPill, rebirthValue = makePill(top, 4, 150, "Rebirth", "ПЕРЕРОЖД.", Kit.Colors.Blue, Color3.fromRGB(150, 110, 255))
 	makeClickable(rebirthPill, function()
 		Panels.Open("Rebirth")
 	end)
@@ -136,18 +163,27 @@ function Hud.Create(root)
 	local worldChip = Kit.new("Frame", {
 		Name = "WorldChip",
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 74),
-		Size = UDim2.fromOffset(330, 32),
+		Position = UDim2.new(0.5, 0, 0, 72),
+		Size = UDim2.fromOffset(340, 36),
 		BackgroundColor3 = Kit.Colors.Ink,
-		BackgroundTransparency = 0.35,
+		BackgroundTransparency = 0.25,
 		Parent = root,
 	})
 	Kit.Corner(worldChip, UDim.new(0.5, 0))
+	Kit.Stroke(worldChip, 2.5, Color3.fromRGB(255, 255, 255)).Transparency = 0.6
+	local worldIconHolder = Kit.new("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.fromOffset(46, 46),
+		Position = UDim2.new(0, -6, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		ZIndex = 3,
+		Parent = worldChip,
+	})
 	local worldLabel = Kit.Text({
 		Text = "",
-		Size = UDim2.new(1, -16, 1, -6),
-		Position = UDim2.fromOffset(8, 3),
-		MaxTextSize = 22,
+		Size = UDim2.new(1, -56, 1, -8),
+		Position = UDim2.fromOffset(44, 4),
+		MaxTextSize = 21,
 		Parent = worldChip,
 	})
 	makeClickable(worldChip, function()
@@ -159,8 +195,8 @@ function Hud.Create(root)
 		Name = "SideMenu",
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 12, 0.5, 24),
-		Size = UDim2.fromOffset(96, 4 * 86 + 3 * 10),
+		Position = UDim2.new(0, 14, 0.5, 26),
+		Size = UDim2.fromOffset(100, 4 * 90 + 3 * 10),
 		Parent = root,
 	})
 	Kit.new("UIListLayout", {
@@ -170,124 +206,149 @@ function Hud.Create(root)
 		Parent = side,
 	})
 	local menu = {
-		{ Name = "Pets", Icon = "🐾", Text = "Питомцы", Color = Kit.Colors.Green },
-		{ Name = "Shop", Icon = "🛒", Text = "Магазин", Color = Kit.Colors.Yellow },
-		{ Name = "Rebirth", Icon = "🔁", Text = "Перерождение", Color = Kit.Colors.Purple },
-		{ Name = "Worlds", Icon = "🌍", Text = "Миры", Color = Kit.Colors.Blue },
+		{ Name = "Pets", Icon = "Paw", Text = "Питомцы", Color = Kit.Colors.Green },
+		{ Name = "Shop", Icon = "ShopBag", Text = "Магазин", Color = Kit.Colors.Yellow },
+		{ Name = "Rebirth", Icon = "Rebirth", Text = "Перерождение", Color = Kit.Colors.Purple, IconColor = Color3.fromRGB(255, 255, 255) },
+		{ Name = "Worlds", Icon = "Globe", Text = "Миры", Color = Kit.Colors.Blue },
 	}
 	for index, item in ipairs(menu) do
 		local button = Kit.Button({
 			Name = item.Name,
-			Size = UDim2.fromOffset(96, 86),
+			Size = UDim2.fromOffset(100, 90),
 			Color = item.Color,
-			Corner = UDim.new(0, 22),
+			Corner = UDim.new(0, 24),
+			StrokeThickness = 3.5,
+			Depth = 6,
 			LayoutOrder = index,
 			Parent = side,
 			OnClick = function()
 				Panels.Toggle(item.Name)
 			end,
 		})
-		Kit.Text({
-			Text = item.Icon,
-			Stroke = false,
-			Size = UDim2.new(1, 0, 0.56, 0),
-			Position = UDim2.fromScale(0, 0.06),
-			ZIndex = 3,
-			Parent = button,
+		Icons.Create(button.Face, item.Icon, {
+			Size = UDim2.new(0.86, 0, 0.7, 0),
+			Position = UDim2.fromScale(0.5, 0.02),
+			AnchorPoint = Vector2.new(0.5, 0),
+			ZIndex = 5,
+			Color = item.IconColor,
+			Animate = "Swing",
 		})
 		Kit.Text({
 			Text = item.Text,
 			Size = UDim2.new(1, -8, 0.26, 0),
-			Position = UDim2.new(0, 4, 0.66, 0),
-			MaxTextSize = 17,
-			ZIndex = 3,
-			Parent = button,
+			Position = UDim2.new(0, 4, 0.7, 0),
+			MaxTextSize = 16,
+			ZIndex = 6,
+			Parent = button.Face,
 		})
 		-- Красный кружок «!» — когда есть что сделать.
 		local badge = Kit.new("Frame", {
 			Name = "Badge",
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.new(1, -6, 0, 6),
-			Size = UDim2.fromOffset(28, 28),
+			Size = UDim2.fromOffset(30, 30),
 			BackgroundColor3 = Kit.Colors.Red,
 			Visible = false,
-			ZIndex = 6,
+			ZIndex = 9,
 			Parent = button,
 		})
 		Kit.Corner(badge, UDim.new(0.5, 0))
-		Kit.Stroke(badge, 2)
-		Kit.Text({ Text = "!", Size = UDim2.fromScale(0.8, 0.8), Position = UDim2.fromScale(0.1, 0.1), ZIndex = 7, Parent = badge })
+		Kit.Stroke(badge, 2.5)
+		Kit.Text({ Text = "!", Size = UDim2.fromScale(0.8, 0.8), Position = UDim2.fromScale(0.1, 0.1), ZIndex = 10, Parent = badge })
+		local badgeScale = Kit.new("UIScale", { Parent = badge })
+		TweenService:Create(badgeScale, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = 1.2 }):Play()
 		hud.MenuButtons[item.Name] = button
 		hud.Badges[item.Name] = badge
 	end
+
+	------------------------------------------------------------------ МУЗЫКА
+	local musicButton = Kit.Button({
+		Name = "Music",
+		Size = UDim2.fromOffset(58, 62),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -14, 0, 72),
+		Color = Kit.Colors.Teal,
+		Corner = UDim.new(0.5, 0),
+		Parent = root,
+	})
+	Icons.Create(musicButton.Face, "Note", { Size = UDim2.fromScale(0.8, 0.8), Position = UDim2.fromScale(0.1, 0.08), ZIndex = 5, Color = Color3.fromRGB(255, 255, 255) })
+	local musicOff = Icons.Glyph(musicButton.Face, "Close", { Size = UDim2.fromScale(0.55, 0.55), ZIndex = 7, Color = Kit.Colors.Red })
+	musicOff.Visible = not Sounds.IsMusicEnabled()
+	musicButton.Activated:Connect(function()
+		local enabled = Sounds.ToggleMusic()
+		musicOff.Visible = not enabled
+	end)
 
 	------------------------------------------------------------------ КНОПКА КЛИКА
 	local ring = Kit.new("Frame", {
 		Name = "ClickRing",
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.new(0.5, 0, 1, -87),
+		Position = UDim2.new(0.5, 0, 1, -90),
 		Size = UDim2.fromOffset(150, 150),
 		BackgroundColor3 = Kit.Colors.Yellow,
-		BackgroundTransparency = 0.4,
+		BackgroundTransparency = 0.35,
 		ZIndex = 0,
 		Parent = root,
 	})
 	Kit.Corner(ring, UDim.new(0.5, 0))
-	Kit.new("UIScale", { Parent = ring })
-	local ringTweenInfo = TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, -1)
-	game:GetService("TweenService"):Create(ring, ringTweenInfo, { Size = UDim2.fromOffset(190, 190), BackgroundTransparency = 1 }):Play()
+	TweenService:Create(ring, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, -1), {
+		Size = UDim2.fromOffset(196, 196),
+		BackgroundTransparency = 1,
+	}):Play()
 
 	local clickButton = Kit.Button({
 		Name = "ClickButton",
-		Size = UDim2.fromOffset(150, 150),
+		Size = UDim2.fromOffset(156, 162),
 		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -12),
+		Position = UDim2.new(0.5, 0, 1, -10),
 		Color = Kit.Colors.Yellow,
-		Color2 = Kit.Colors.Orange,
+		Color2 = Kit.Colors.OrangeDark,
 		Corner = UDim.new(0.5, 0),
 		StrokeThickness = 5,
+		Depth = 8,
 		Sound = false,
 		Parent = root,
 	})
-	local clickIcon = Kit.Text({
-		Text = "💪",
-		Stroke = false,
-		Size = UDim2.fromScale(0.56, 0.5),
-		Position = UDim2.fromScale(0.5, 0.4),
+	local clickIconHolder = Kit.new("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(0.78, 0.62),
+		Position = UDim2.fromScale(0.5, 0.38),
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		ZIndex = 3,
-		Parent = clickButton,
+		ZIndex = 5,
+		Parent = clickButton.Face,
 	})
+	Icons.Create(clickIconHolder, "Dumbbell", { Size = UDim2.fromScale(1, 1), ZIndex = 5, Animate = "Bob" })
 	Kit.Text({
 		Text = "КЛИК!",
 		Size = UDim2.fromScale(0.72, 0.22),
 		Position = UDim2.fromScale(0.5, 0.78),
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		MaxTextSize = 32,
-		StrokeThickness = 3,
-		ZIndex = 3,
-		Parent = clickButton,
+		MaxTextSize = 34,
+		StrokeThickness = 3.5,
+		ZIndex = 6,
+		Parent = clickButton.Face,
 	})
 
 	local powerLabel = Kit.Text({
 		Name = "PowerLabel",
 		Text = "",
 		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -170),
-		Size = UDim2.fromOffset(340, 28),
+		Position = UDim2.new(0.5, 0, 1, -178),
+		Size = UDim2.fromOffset(360, 28),
 		MaxTextSize = 24,
+		StrokeThickness = 3,
 		Parent = root,
 	})
 
 	local fullLabel = Kit.Text({
 		Name = "FullWarning",
-		Text = "🎒 Рюкзак полон! Беги на 💰 продажу",
-		Color = Color3.fromRGB(255, 120, 120),
+		Text = "Рюкзак полон! Беги на продажу",
+		Color = Color3.fromRGB(255, 130, 130),
 		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -200),
-		Size = UDim2.fromOffset(520, 36),
-		MaxTextSize = 30,
-		StrokeThickness = 3,
+		Position = UDim2.new(0.5, 0, 1, -208),
+		Size = UDim2.fromOffset(520, 38),
+		MaxTextSize = 32,
+		StrokeThickness = 3.5,
 		Visible = false,
 		Parent = root,
 	})
@@ -335,10 +396,17 @@ function Hud.Create(root)
 		powerLabel.Text = "+" .. Format.Number(State.Get("ClickPower", 1)) .. " силы за клик"
 	end)
 
+	local shownWorldIcon = nil
 	State.Watch("World", function()
-		local world = Worlds[State.Get("World", "Forest")] or Worlds.Forest
-		worldLabel.Text = string.format("%s %s  •  продажа ×%s", world.Icon, Format.Upper(world.Name), Format.Number(world.SellMultiplier))
+		local worldId = State.Get("World", "Forest")
+		local world = Worlds[worldId] or Worlds.Forest
+		worldLabel.Text = string.format("%s  •  продажа ×%s", Format.Upper(world.Name), Format.Number(world.SellMultiplier))
 		worldLabel.TextColor3 = Kit.Lighten(world.Color, 0.35)
+		if shownWorldIcon ~= worldId then
+			shownWorldIcon = worldId
+			worldIconHolder:ClearAllChildren()
+			Icons.Create(worldIconHolder, WORLD_ICONS[worldId] or "Globe", { Size = UDim2.fromScale(1, 1), ZIndex = 3 })
+		end
 	end)
 
 	-- Значки «!» на кнопках.
@@ -365,7 +433,7 @@ function Hud.Create(root)
 	hud.ClickButton = clickButton
 
 	function hud.Punch()
-		Kit.Pop(clickIcon, 1.25)
+		Kit.Pop(clickIconHolder, 1.2)
 	end
 
 	function hud.FlashFull()

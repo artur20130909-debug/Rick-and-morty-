@@ -44,7 +44,7 @@ function EggService.Open(player, eggId, count)
 	lastOpen[player] = now
 
 	if not data.UnlockedWorlds[egg.World] then
-		PlayerState.Notify(player, "🔒 Сначала открой мир «" .. Worlds[egg.World].Name .. "»", "error")
+		PlayerState.Notify(player, "Сначала открой мир «" .. Worlds[egg.World].Name .. "»", "error")
 		return
 	end
 
@@ -60,7 +60,7 @@ function EggService.Open(player, eggId, count)
 	if data.Coins < price then
 		PlayerState.Notify(
 			player,
-			string.format("Не хватает монет: нужно 🪙 %s, у тебя 🪙 %s", Format.Number(price), Format.Number(data.Coins)),
+			string.format("Не хватает монет: нужно %s, у тебя %s", Format.Number(price), Format.Number(data.Coins)),
 			"error"
 		)
 		return
@@ -90,13 +90,18 @@ local function addPrompt(eggPart, eggId, count, offsetX, key, gamepadKey)
 	local egg = Eggs[eggId]
 	local attachment = Instance.new("Attachment")
 	attachment.Name = "Prompt" .. count
-	attachment.Position = Vector3.new(offsetX, -0.5, 0)
+	attachment.Position = Vector3.new(offsetX, -1.2, -1.5)
 	attachment.Parent = eggPart
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "Open" .. count
 	prompt.ActionText = "Открыть ×" .. count
-	prompt.ObjectText = egg.Name .. " • 🪙 " .. Format.Number(egg.Price * count)
+	prompt.ObjectText = egg.Name .. " • " .. Format.Number(egg.Price * count)
+	-- Свой вид кнопки рисует клиент (client/UI/CustomPrompts).
+	prompt.Style = Enum.ProximityPromptStyle.Custom
+	prompt:SetAttribute("Price", egg.Price * count)
+	prompt:SetAttribute("Icon", "Egg")
+	prompt:SetAttribute("Color", count == 1 and Color3.fromRGB(100, 225, 95) or Color3.fromRGB(255, 170, 50))
 	prompt.KeyboardKeyCode = key
 	prompt.GamepadKeyCode = gamepadKey
 	prompt.HoldDuration = 0
@@ -118,8 +123,8 @@ function EggService.Init(worldRefs)
 	for _, info in pairs(worldRefs) do
 		for eggId, eggPart in pairs(info.EggStands) do
 			eggParts[eggId] = eggPart
-			addPrompt(eggPart, eggId, 1, -2.4, Enum.KeyCode.E, Enum.KeyCode.ButtonX)
-			addPrompt(eggPart, eggId, GameConfig.MultiOpenCount, 2.4, Enum.KeyCode.R, Enum.KeyCode.ButtonY)
+			addPrompt(eggPart, eggId, 1, -3.4, Enum.KeyCode.E, Enum.KeyCode.ButtonX)
+			addPrompt(eggPart, eggId, GameConfig.MultiOpenCount, 3.4, Enum.KeyCode.R, Enum.KeyCode.ButtonY)
 		end
 	end
 	Players.PlayerRemoving:Connect(EggService.PlayerRemoving)

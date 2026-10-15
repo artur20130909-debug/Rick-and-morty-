@@ -607,6 +607,21 @@ local NumberRange = {
 	end,
 }
 
+------------------------------------------------------------------------ RAYCAST
+local RPmt = { __mocktype = "RaycastParams" }
+local RaycastParams = {
+	new = function()
+		return setmetatable({ FilterDescendantsInstances = {}, IgnoreWater = false, RespectCanCollide = false }, RPmt)
+	end,
+}
+RPmt.__index = function(_, k)
+	if k == "FilterType" then
+		return nil
+	end
+	fail(tostring(k) .. " is not a valid member of RaycastParams")
+end
+local makeRaycastResult = simpleType("RaycastResult")
+
 ------------------------------------------------------------------------ ENUM
 local enumItemCache = {}
 local EImt = { __mocktype = "EnumItem" }
@@ -1117,7 +1132,8 @@ Imt.__index = function(proxy, key)
 	-- свойство
 	local spec = findMember(cls, "P", key)
 	if spec ~= nil then
-		if string.find(spec, "S") then
+		local readFlags = string.match(spec, "^[^:]+:[^:]+:(.*)$") or ""
+		if string.find(readFlags, "S") then
 			fail(cls .. "." .. key .. " недоступно для чтения скриптами")
 		end
 		if getters[key] then
@@ -1693,20 +1709,26 @@ end
 -- Sound
 methods.Play = function(self, d)
 	if d.ClassName == "Sound" then
+		d.Props.IsPlaying = true
 		M.soundsPlayed = (M.soundsPlayed or 0) + 1
 		local id = d.Props.SoundId or ""
 		M.soundIds = M.soundIds or {}
 		M.soundIds[id] = true
-		task.delay(0.5, function()
-			if D[self] and not D[self].Destroyed then
-				fireSignal(eventOf(self, "Ended"), nil, id)
-			end
-		end)
+		if not d.Props.Looped then
+			task.delay(0.5, function()
+				if D[self] and not D[self].Destroyed then
+					d.Props.IsPlaying = false
+					fireSignal(eventOf(self, "Ended"), nil, id)
+				end
+			end)
+		end
 	elseif d.ClassName == "Tween" then
 		d.Play(self)
 	end
 end
-methods.Stop = function() end
+methods.Stop = function(self, d)
+	d.Props.IsPlaying = false
+end
 
 -- CollectionService
 methods.GetTagged = function(self, d, tag)
@@ -1986,7 +2008,184 @@ classSetup.Workspace = function(self, d)
 	setParent(camera, self)
 	d.Props.CurrentCamera = camera
 	d.Props.Gravity = 196.2
+	local terrain = newInstance("Terrain")
+	D[terrain].Props.Name = "Terrain"
+	setParent(terrain, self)
+	d.Props.Terrain = terrain
 end
+
+------------------------------------------------------------------------ TERRAIN (упрощённо: только столбцы по вертикали)
+M.terrainFills = {}
+local function checkMaterial(material, where)
+	if mtype(material) ~= "EnumItem" or material.EnumType ~= "Material" then
+		fail(where .. ": ожидался Enum.Material")
+	end
+end
+methods.FillBlock = function(self, d, cframe, size, material)
+	if mtype(cframe) ~= "CFrame" or mtype(size) ~= "Vector3" then
+		fail("FillBlock(CFrame, Vector3, Material)")
+	end
+	checkMaterial(material, "FillBlock")
+	table.insert(M.terrainFills, { Kind = "Block", Center = cframe.Position, Size = size, Material = material.Name })
+end
+methods.FillBall = function(self, d, center, radius, material)
+	if mtype(center) ~= "Vector3" or type(radius) ~= "number" then
+		fail("FillBall(Vector3, number, Material)")
+	end
+	checkMaterial(material, "FillBall")
+	table.insert(M.terrainFills, { Kind = "Ball", Center = center, Radius = radius, Material = material.Name })
+end
+methods.FillCylinder = function(self, d, cframe, height, radius, material)
+	if mtype(cframe) ~= "CFrame" or type(height) ~= "number" or type(radius) ~= "number" then
+		fail("FillCylinder(CFrame, number, number, Material)")
+	end
+	checkMaterial(material, "FillCylinder")
+	table.insert(M.terrainFills, { Kind = "Cylinder", Center = cframe.Position, Height = height, Radius = radius, Material = material.Name })
+end
+methods.Clear = function(self, d)
+	if d.ClassName == "Terrain" then
+		M.terrainFills = {}
+	end
+end
+methods.SetMaterialColor = function(self, d, material, color)
+	checkMaterial(material, "SetMaterialColor")
+	if mtype(color) ~= "Color3" then
+		fail("SetMaterialColor: ожидался Color3")
+	end
+end
+-- Вертикальный «столбец» рельефа в точке (x, z): список отрезков { lo, hi, материал }.
+local function terrainColumn(x, z)
+	local intervals = {}
+	local function subtract(lo, hi)
+		local result = {}
+		for _, item in ipairs(intervals) do
+			if item[2] <= lo or item[1] >= hi then
+				table.insert(result, item)
+			else
+				if item[1] < lo then
+					table.insert(result, { item[1], lo, item[3] })
+				end
+				if item[2] > hi then
+					table.insert(result, { hi, item[2], item[3] })
+				end
+			end
+		end
+		intervals = result
+	end
+	for _, fill in ipairs(M.terrainFills) do
+		local lo, hi
+		local c = fill.Center
+		if fill.Kind == "Block" then
+			if math.abs(x - c.X) <= fill.Size.X / 2 and math.abs(z - c.Z) <= fill.Size.Z / 2 then
+				lo, hi = c.Y - fill.Size.Y / 2, c.Y + fill.Size.Y / 2
+			end
+		elseif fill.Kind == "Ball" then
+			local d2 = (x - c.X) ^ 2 + (z - c.Z) ^ 2
+			if d2 < fill.Radius ^ 2 then
+				local h = math.sqrt(fill.Radius ^ 2 - d2)
+				lo, hi = c.Y - h, c.Y + h
+			end
+		elseif fill.Kind == "Cylinder" then
+			if (x - c.X) ^ 2 + (z - c.Z) ^ 2 < fill.Radius ^ 2 then
+				lo, hi = c.Y - fill.Height / 2, c.Y + fill.Height / 2
+			end
+		end
+		if lo then
+			subtract(lo, hi)
+			if fill.Material ~= "Air" then
+				table.insert(intervals, { lo, hi, fill.Material })
+			end
+		end
+	end
+	return intervals
+end
+M.terrainColumn = terrainColumn
+methods.Raycast = function(self, d, origin, direction, params)
+	if mtype(origin) ~= "Vector3" or mtype(direction) ~= "Vector3" then
+		fail("Raycast(Vector3, Vector3, RaycastParams)")
+	end
+	if params ~= nil and mtype(params) ~= "RaycastParams" then
+		fail("Raycast: третий аргумент должен быть RaycastParams")
+	end
+	M.raycasts = (M.raycasts or 0) + 1
+	if math.abs(direction.X) > 1e-6 or math.abs(direction.Z) > 1e-6 or direction.Y >= 0 then
+		return nil -- мок умеет только лучи строго вниз
+	end
+	local bottom = origin.Y + direction.Y
+	local best
+	for _, item in ipairs(terrainColumn(origin.X, origin.Z)) do
+		local top = item[2]
+		if top <= origin.Y and top >= bottom and (not best or top > best[2]) then
+			if not (params and params.IgnoreWater and item[3] == "Water") then
+				best = item
+			end
+		end
+	end
+	if not best then
+		return nil
+	end
+	return makeRaycastResult({
+		Position = v3(origin.X, best[2], origin.Z),
+		Normal = Vector3.yAxis,
+		Material = enumItem("Material", best[3]),
+		Instance = D[self].Props.Terrain,
+		Distance = origin.Y - best[2],
+	})
+end
+
+------------------------------------------------------------------------ ЗВУКИ: поиск и загрузка
+M.audioSearches = 0
+methods.SearchAudioAsync = function(self, d, params)
+	if not isInst(params) or D[params].ClassName ~= "AudioSearchParams" then
+		fail("SearchAudioAsync ожидает AudioSearchParams")
+	end
+	task.wait(0.05)
+	M.audioSearches += 1
+	local pages = newInstance("AudioPages")
+	local items = {}
+	for i = 1, 8 do
+		table.insert(items, {
+			Id = 9000000 + M.audioSearches * 10 + i,
+			Title = tostring(D[params].Props.SearchKeyword) .. " " .. i,
+			Duration = 2,
+			IsEndorsed = i == 3,
+			Creator = { Name = i == 2 and "Roblox" or "Someone", Id = i == 2 and 1 or 777 },
+		})
+	end
+	D[pages].Items = items
+	return pages
+end
+methods.GetCurrentPage = function(self, d)
+	return d.Items or {}
+end
+M.preloads = 0
+methods.PreloadAsync = function(self, d, list, callback)
+	if type(list) ~= "table" then
+		fail("PreloadAsync ожидает список")
+	end
+	task.wait(0.05)
+	for _, item in ipairs(list) do
+		M.preloads += 1
+		local id = isInst(item) and (D[item].Props.SoundId or "") or tostring(item)
+		-- для проверки: «недоступные» звуки — с номером, оканчивающимся на 1
+		local status = string.match(id, "1$") and "Failure" or "Success"
+		if callback then
+			callback(id, enumItem("AssetFetchStatus", status))
+		end
+	end
+end
+methods.InputHoldBegin = function(self, d)
+	local player = currentCtx.player
+	if player then
+		local prompt = self
+		local co = newCo(function()
+			fireSignal(eventOf(prompt, "Triggered"), nil, player)
+			fireSignal(eventOf(service("ProximityPromptService"), "PromptTriggered"), nil, prompt, player)
+		end, SERVER)
+		enqueue(M.now + 0.03, co)
+	end
+end
+methods.InputHoldEnd = function() end
 
 ------------------------------------------------------------------------ ИГРА
 gameRoot = newInstance("DataModel")
@@ -2023,6 +2222,7 @@ local G = {
 	TweenInfo = TweenInfo,
 	Random = Random,
 	Font = Font,
+	RaycastParams = RaycastParams,
 	Enum = Enum,
 	Instance = Instance,
 	task = task,

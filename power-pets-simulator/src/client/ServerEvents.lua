@@ -26,29 +26,29 @@ local EFFECTS = {}
 
 function EFFECTS.Coin(payload)
 	Sounds.Play("Coin", 0.9 + math.random() * 0.3)
-	local text = "+" .. Format.Number(payload.Amount or 0) .. " 🪙"
+	local text = "+" .. Format.Number(payload.Amount or 0)
 	local camera = Workspace.CurrentCamera
 	if camera and typeof(payload.Position) == "Vector3" then
 		local screen, onScreen = camera:WorldToScreenPoint(payload.Position)
 		if onScreen then
-			Popups.Show(Vector2.new(screen.X, screen.Y), text, Kit.Colors.Yellow, 1.1)
+			Popups.Show(Vector2.new(screen.X, screen.Y), text, Kit.Colors.Yellow, 1.1, true)
 			return
 		end
 	end
-	Popups.Center(text, Kit.Colors.Yellow, 1.2)
+	Popups.Center(text, Kit.Colors.Yellow, 1.2, true)
 end
 
 function EFFECTS.Sell(payload)
 	Sounds.Play("Sell")
 	task.delay(0.12, Sounds.Play, "Coin", 1.2)
-	Popups.Center("+" .. Format.Number(payload.Amount or 0) .. " 🪙", Kit.Colors.Yellow, 1.9)
+	Popups.Center("+" .. Format.Number(payload.Amount or 0), Kit.Colors.Yellow, 2, true)
 end
 
 function EFFECTS.Unlock(payload)
 	local world = Worlds[payload.World]
 	Sounds.Play("Unlock")
 	if world then
-		Notifications.Show("🌍 Открыт новый мир: " .. world.Icon .. " " .. world.Name .. "!", "success")
+		Notifications.Show("Открыт новый мир: " .. world.Name .. "!", "success")
 	end
 end
 
@@ -58,19 +58,19 @@ end
 
 function EFFECTS.Rebirth(payload)
 	Sounds.Play("Rebirth")
-	Popups.Center("🔁 ПЕРЕРОЖДЕНИЕ #" .. tostring(payload.Rebirths or ""), Kit.Colors.Purple, 2.2)
+	Popups.Center("ПЕРЕРОЖДЕНИЕ #" .. tostring(payload.Rebirths or ""), Kit.Colors.Purple, 2.2)
 end
 
 function EFFECTS.Merge(payload)
 	Sounds.Play("Merge")
-	Popups.Center("✨ ЗОЛОТОЙ ПИТОМЕЦ!", Kit.Colors.Gold, 1.9)
+	Popups.Center("ЗОЛОТОЙ ПИТОМЕЦ!", Kit.Colors.Gold, 1.9)
 	if payload.Uid then
 		PetsPanel.Select(payload.Uid)
 	end
 end
 
 function EFFECTS.Purchase()
-	Sounds.Play("Unlock", 1.15)
+	Sounds.Play("Purchase")
 end
 
 function ServerEvents.Init()

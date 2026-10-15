@@ -91,7 +91,7 @@ function WorldService.RequestWorld(player, worldId)
 		if data.TotalStrength < world.UnlockStrength then
 			return false,
 				string.format(
-					"🔒 %s: нужно %s ⭐ силы (у тебя %s)",
+					"Мир «%s» закрыт: нужно %s накопленной силы (у тебя %s)",
 					world.Name,
 					Format.Number(world.UnlockStrength),
 					Format.Number(data.TotalStrength)
@@ -102,7 +102,7 @@ function WorldService.RequestWorld(player, worldId)
 	end
 
 	WorldService.Teleport(player, worldId)
-	return true, world.Icon .. " " .. world.Name
+	return true, world.Name
 end
 
 local function onPortalTouched(hit, targetWorld)
@@ -162,7 +162,7 @@ end
 local function spawnCoin(worldId)
 	local info = worldRefs[worldId]
 	local config = Worlds[worldId]
-	local x, z = info.RandomCoinPoint(rng)
+	local x, z, groundY = info.RandomCoinPoint(rng)
 	local big = rng:NextNumber() < GameConfig.BigCoinChance
 	local value = config.CoinValue * (big and GameConfig.BigCoinMultiplier or 1)
 	local diameter = big and 4.4 or 2.8
@@ -171,7 +171,8 @@ local function spawnCoin(worldId)
 	coin.Name = big and "BigCoin" or "Coin"
 	coin.Shape = Enum.PartType.Cylinder
 	coin.Size = Vector3.new(0.5, diameter, diameter)
-	coin.CFrame = CFrame.new(info.Origin + Vector3.new(x, diameter / 2 + 1, z)) * CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0)
+	coin.CFrame = CFrame.new(Vector3.new(info.Origin.X + x, (groundY or info.Origin.Y) + diameter / 2 + 1, info.Origin.Z + z))
+		* CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0)
 	coin.Anchored = true
 	coin.CanCollide = false
 	coin.CanQuery = false
@@ -180,6 +181,16 @@ local function spawnCoin(worldId)
 	coin.Material = Enum.Material.SmoothPlastic
 	coin.Reflectance = 0.25
 	coin:SetAttribute("Value", value)
+
+	local sparkle = Instance.new("ParticleEmitter")
+	sparkle.Color = ColorSequence.new(Color3.new(1, 1, 1), config.Palette.Coin)
+	sparkle.LightEmission = 1
+	sparkle.Rate = big and 5 or 2
+	sparkle.Lifetime = NumberRange.new(0.6, 1)
+	sparkle.Speed = NumberRange.new(0.5, 1)
+	sparkle.SpreadAngle = Vector2.new(180, 180)
+	sparkle.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.5, 0.3), NumberSequenceKeypoint.new(1, 0) })
+	sparkle.Parent = coin
 
 	local light = Instance.new("PointLight")
 	light.Color = config.Palette.Coin

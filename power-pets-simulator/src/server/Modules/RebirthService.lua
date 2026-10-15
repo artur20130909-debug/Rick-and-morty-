@@ -28,7 +28,7 @@ function RebirthService.Rebirth(player)
 	end
 	local cost = Formulas.RebirthCost(data.Rebirths)
 	if data.TotalStrength < cost then
-		return false, string.format("Нужно ещё %s ⭐ силы", Format.Number(cost - data.TotalStrength))
+		return false, string.format("Нужно ещё %s накопленной силы", Format.Number(cost - data.TotalStrength))
 	end
 
 	data.Rebirths += 1
@@ -37,7 +37,7 @@ function RebirthService.Rebirth(player)
 	data.Coins = 0
 	PlayerState.SyncPets(player)
 	PlayerState.Effect(player, "Rebirth", { Rebirths = data.Rebirths })
-	return true, string.format("🔁 Перерождение #%d! Бонус к силе теперь %s", data.Rebirths, Format.Multiplier(Formulas.RebirthMultiplier(data.Rebirths)))
+	return true, string.format("Перерождение #%d! Бонус к силе теперь %s", data.Rebirths, Format.Multiplier(Formulas.RebirthMultiplier(data.Rebirths)))
 end
 
 function RebirthService.Init()
