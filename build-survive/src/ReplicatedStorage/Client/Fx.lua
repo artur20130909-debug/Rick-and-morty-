@@ -996,7 +996,6 @@ function Fx.applyQuality()
 	if clouds then
 		clouds.Enabled = q >= 2
 	end
-	workspace.Terrain.Decoration = q >= 3
 end
 
 function Fx.init()
