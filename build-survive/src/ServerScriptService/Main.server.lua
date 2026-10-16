@@ -18,13 +18,22 @@ local Projectiles = require(Server.Projectiles)
 local Siege = require(Server.Siege)
 local Launch = require(Server.Launch)
 local Lobby = require(Server.Lobby)
+local Underground = require(Server.Underground)
+local PrefabShop = require(Server.PrefabShop)
+local Admin = require(Server.Admin)
 
 -- Мир --------------------------------------------------------------------------------
-task.spawn(TerrainGen.build)
 Plots.init()
+Underground.init()
+task.spawn(function()
+	TerrainGen.build()
+	-- под каждым участком вырезаем рельеф: там котлован с землёй-блоками (модуль Underground)
+	Underground.carveAll()
+end)
 Damage.init()
 Specials.init()
 Lobby.init()
+Admin.init()
 
 -- То, сквозь что пролетают снаряды: вышки, вражеские базы, обломки, купола щитов
 do
@@ -77,7 +86,7 @@ local function onPlayerAdded(player: Player)
 	end
 	if plot then
 		if profile.Auto ~= "" then
-			Building.loadString(plot, profile.Auto)
+			Building.restore(plot, profile.Auto)
 		elseif Data.isNew(player) then
 			Building.starter(plot)
 		end
@@ -120,6 +129,7 @@ local function onPlayerRemoving(player: Player)
 	Data.save(player)
 	if plot then
 		Building.clear(plot)
+		Underground.reset(plot)
 		plot.siege = nil
 		plot.launched = false
 		Plots.release(player)
@@ -180,6 +190,10 @@ bind("Clear", Building.clearRequest)
 bind("SaveSlot", Building.saveSlot)
 bind("LoadSlot", Building.loadSlot)
 bind("LoadExample", Building.loadExample)
+bind("Dig", Building.dig)
+bind("BuyPrefab", PrefabShop.buy)
+bind("PlacePrefab", PrefabShop.place)
+bind("Admin", Admin.handle)
 bind("Buy", Shop.buy)
 bind("StartSiege", Siege.start)
 bind("StopSiege", Siege.stop)

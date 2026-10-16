@@ -182,6 +182,7 @@ local TOOLS = {
 	{ key = "delete", icon = "🗑", name = "Удалить", hotkey = "2" },
 	{ key = "paint", icon = "🎨", name = "Красить", hotkey = "3" },
 	{ key = "pick", icon = "💧", name = "Пипетка", hotkey = "4" },
+	{ key = "dig", icon = "⛏", name = "Копать", hotkey = "5" },
 }
 
 local MENU = {
@@ -190,6 +191,7 @@ local MENU = {
 	{ key = "launch", icon = "🚀", name = "Испытать", color = Color3.fromRGB(64, 120, 220) },
 	{ key = "saves", icon = "💾", name = "Сохранить", color = Color3.fromRGB(120, 90, 210) },
 	{ key = "settings", icon = "⚙", name = "Настройки", color = Color3.fromRGB(70, 78, 100) },
+	{ key = "admin", icon = "🛡", name = "Админ", color = Color3.fromRGB(196, 36, 120), adminOnly = true },
 }
 
 HUD.onMenu = State.newSignal() -- (key)
@@ -251,7 +253,7 @@ local function buildMenu()
 	local holder = new("Frame", {
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -16, 0.5, 0),
-		Size = UDim2.fromOffset(96, 5 * 104),
+		Size = UDim2.fromOffset(96, #MENU * 102),
 		BackgroundTransparency = 1,
 		Parent = gui,
 	}, { Lib.list(Enum.FillDirection.Vertical, 10, Enum.HorizontalAlignment.Right) })
@@ -269,6 +271,14 @@ local function buildMenu()
 			Rotation = 90,
 			Parent = b,
 		})
+		if m.adminOnly then
+			-- кнопку видят только админы (атрибут ставит сервер, модуль Admin)
+			local function refresh()
+				b.Visible = player:GetAttribute("IsAdmin") == true
+			end
+			player:GetAttributeChangedSignal("IsAdmin"):Connect(refresh)
+			refresh()
+		end
 		Lib.label(m.icon, 38, {
 			TextXAlignment = Enum.TextXAlignment.Center,
 			Position = UDim2.fromOffset(0, 8),
@@ -295,7 +305,7 @@ local function buildHotbar()
 	hotbar = new("Frame", {
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -16),
-		Size = UDim2.fromOffset(5 * 84 + 4 * 8 + 24, 100),
+		Size = UDim2.fromOffset((#TOOLS + 1) * 84 + #TOOLS * 8 + 24, 100),
 		BackgroundTransparency = 1,
 		Parent = gui,
 	})

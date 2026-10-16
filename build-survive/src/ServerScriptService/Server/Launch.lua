@@ -1,11 +1,13 @@
 -- Испытание постройки: блоки свариваются, становятся физическими,
 -- колёса крутятся от кресла водителя, двигатели толкают, шары поднимают.
 -- Так можно построить машину, танк, катер, самолёт или робота на колёсах.
+-- Подземные блоки (бункер) в испытании не участвуют: они вкопаны в землю и остаются на месте.
 local RunService = game:GetService("RunService")
 
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Blocks = require(Shared.Blocks)
+local Grid = require(Shared.Grid)
 local Net = require(Shared.Net)
 
 local Plots = require(script.Parent.Plots)
@@ -20,6 +22,7 @@ type Run = {
 	plot: Plot,
 	player: Player,
 	snapshot: string,
+	movable: { [Instance]: boolean }, -- блоки, которые оживают (всё, что выше пола)
 	wheels: { Wheel },
 	thrusters: { { part: BasePart, force: VectorForce, flame: ParticleEmitter? } },
 	conn: RBXScriptConnection?,
@@ -39,6 +42,17 @@ overlap.FilterType = Enum.RaycastFilterType.Include
 
 local function isItem(b: Instance, id: number): boolean
 	return b:GetAttribute("Item") == id
+end
+
+-- Блок хоть немного уходит под пол? Такие блоки стоят в земле и остаются закреплёнными.
+local function isUnderground(b: Instance): boolean
+	local pos = b:GetAttribute("Local")
+	local size = b:GetAttribute("BlockSize")
+	if typeof(pos) ~= "Vector3" or typeof(size) ~= "Vector3" then
+		return false
+	end
+	local e = Grid.extents(size, tonumber(b:GetAttribute("Rot")) or 1)
+	return pos.Y - e.Y / 2 < -0.01
 end
 
 local function weld(a: BasePart, b: BasePart)
@@ -61,7 +75,7 @@ local function drive(run: Run, dt: number)
 	-- кресло водителя, в котором кто-то сидит
 	local seat: VehicleSeat? = nil
 	for _, b in run.plot.blocks:GetChildren() do
-		if b:IsA("VehicleSeat") and b.Occupant then
+		if b:IsA("VehicleSeat") and b.Occupant and run.movable[b] then
 			seat = b
 			break
 		end
@@ -115,14 +129,26 @@ function Launch.start(player: Player): (boolean, string?)
 	if runs[plot.index] then
 		return false, "Испытание уже идёт"
 	end
-	local list = plot.blocks:GetChildren()
-	if #list == 0 then
+	local all = plot.blocks:GetChildren()
+	if #all == 0 then
 		return false, "Сначала построй что-нибудь"
+	end
+	local list: { Instance } = {}
+	local movable: { [Instance]: boolean } = {}
+	for _, b in all do
+		if b:IsA("BasePart") and not isUnderground(b) then
+			table.insert(list, b)
+			movable[b] = true
+		end
+	end
+	if #list == 0 then
+		return false, "Под землёй испытывать нечего — построй что-нибудь на поверхности"
 	end
 	local run: Run = {
 		plot = plot,
 		player = player,
 		snapshot = Building.serialize(plot),
+		movable = movable,
 		wheels = {},
 		thrusters = {},
 		conn = nil,
@@ -144,12 +170,12 @@ function Launch.start(player: Player): (boolean, string?)
 		return x < y and (x .. "|" .. y) or (y .. "|" .. x)
 	end
 
-	-- 1. Свариваем соприкасающиеся блоки (колёса — отдельно)
+	-- 1. Свариваем соприкасающиеся блоки (колёса — отдельно; к подземным не привариваем)
 	for _, b in list do
 		if b:IsA("BasePart") and not isItem(b, ITEM_WHEEL) then
 			local near = workspace:GetPartBoundsInBox(b.CFrame, b.Size + Vector3.new(0.3, 0.3, 0.3), overlap)
 			for _, n in near do
-				if n ~= b and n.Name == "Block" and not isItem(n, ITEM_WHEEL) then
+				if n ~= b and n.Name == "Block" and movable[n] and not isItem(n, ITEM_WHEEL) then
 					local k = key(b, n)
 					if not pairsDone[k] then
 						pairsDone[k] = true
@@ -168,7 +194,7 @@ function Launch.start(player: Player): (boolean, string?)
 				local face = b.CFrame * CFrame.new(side * (b.Size.X / 2 + 0.3), 0, 0)
 				local near = workspace:GetPartBoundsInBox(face, Vector3.new(0.5, b.Size.Y * 0.5, b.Size.Z * 0.5), overlap)
 				for _, n in near do
-					if n ~= b and n.Name == "Block" and not isItem(n, ITEM_WHEEL) then
+					if n ~= b and n.Name == "Block" and movable[n] and not isItem(n, ITEM_WHEEL) then
 						local pivot = b.CFrame * CFrame.new(side * b.Size.X / 2, 0, 0)
 						local a0 = Instance.new("Attachment")
 						a0.CFrame = n.CFrame:ToObjectSpace(pivot)
@@ -197,7 +223,7 @@ function Launch.start(player: Player): (boolean, string?)
 				-- колесо ни к чему не прикреплено сбоку — просто привариваем к соседу
 				local near = workspace:GetPartBoundsInBox(b.CFrame, b.Size + Vector3.new(0.3, 0.3, 0.3), overlap)
 				for _, n in near do
-					if n ~= b and n.Name == "Block" then
+					if n ~= b and n.Name == "Block" and movable[n] then
 						weld(b, n)
 						break
 					end

@@ -10,6 +10,7 @@ local FUNCTIONS = {
 	"SaveSlot", "LoadSlot", "LoadExample", "Buy", "GetData", "SetSettings",
 	"StartSiege", "StopSiege", "FireRange", "Restore",
 	"Launch", "StopLaunch",
+	"Dig", "BuyPrefab", "PlacePrefab", "Admin",
 }
 
 -- Сервер → клиент (и иногда клиент → сервер)
@@ -17,6 +18,7 @@ local EVENTS = {
 	"Data", "Notify", "SiegeState", "SiegeResult",
 	"ProjectileSpawn", "Detonate", "Impact", "Warning",
 	"LaserState", "AAShot", "ShieldState", "BlocksBroken", "Bomber", "LaunchState",
+	"GuardShot",
 }
 
 -- Частые обновления, которые можно терять

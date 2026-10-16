@@ -23,6 +23,7 @@ Sounds.Defs = {
 	Hover = { ids = { SLIDER }, volume = 0.12, speed = 1.6 },
 	Place = { ids = { id(9113263649), THUD }, volume = 0.32, speed = 1.7 }, -- Balloon Pop 3 (SFX), тонко и коротко
 	Remove = { ids = { id(9119049084), THUD }, volume = 0.35, speed = 1.3 }, -- Shale Break 2 (SFX)
+	Dig = { ids = { id(9119049084), THUD }, volume = 0.45, speed = 0.7 },  -- копание земли (Shale Break 2, ниже тоном)
 	Paint = { ids = { id(9126109935), SLIDER }, volume = 0.3, speed = 0.8 },
 	Error = { ids = { id(9113085438), SLIDER }, volume = 0.2, speed = 1.2 },  -- Alarm Buzzer 3 (SFX)
 	Coin = { ids = { id(1169755927), id(81816893340749), SLIDER }, volume = 0.5 }, -- Coin Collect, cash money sound
@@ -35,6 +36,7 @@ Sounds.Defs = {
 	Gunshot = { ids = { id(9113181642), id(9114692325), id(356911785), EXPLOSION }, volume = 0.7, range = 260 }, -- Assault Rifle 21 / Beretta 102
 	Shotgun = { ids = { id(9113052249), id(5656322299), EXPLOSION }, volume = 0.8, range = 260 },             -- Air Bolt Gun 12 (SFX)
 	Minigun = { ids = { id(9116338227), id(9113190595), EXPLOSION }, volume = 0.75, range = 300 },            -- Machine Gun 4 / Assault Rifle 3
+	GuardShot = { ids = { id(9113181642), id(9114692325), EXPLOSION }, volume = 0.45, speed = 1.15, range = 200 }, -- выстрел охранника
 	BulletWhiz = { ids = { id(9113634444), SLIDER }, volume = 0.5, range = 40 },                              -- Bullet Whiz 2 (SFX)
 	BulletHit = { ids = { id(9118628948), THUD }, volume = 0.35, range = 120, speed = 1.4 },                  -- Rock Impacts 13 (SFX)
 	Thump = { ids = { id(9113052249), THUD }, volume = 0.6, speed = 0.6, range = 260 },

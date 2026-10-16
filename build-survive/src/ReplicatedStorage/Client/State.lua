@@ -43,7 +43,10 @@ local State = {
 	saveEnabled = false,
 	settings = table.clone(Config.DefaultSettings) :: { [string]: any },
 
-	tool = nil :: string?,          -- "build" | "delete" | "paint" | "pick" | nil
+	tool = nil :: string?,          -- "build" | "delete" | "paint" | "pick" | "dig" | nil
+	digFill = false,                -- инструмент «Копать»: false — копать, true — засыпать
+	prefabs = {} :: { [string]: boolean }, -- купленные готовые дома и бункеры (ключи Prefabs)
+	isAdmin = false,
 	modal = nil :: string?,         -- открытое окно
 	siege = nil :: any,             -- последнее состояние осады с сервера
 	launched = false,

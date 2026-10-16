@@ -1,6 +1,8 @@
 -- Упаковка постройки в строку (для сохранения в DataStore) и обратно.
--- Формат: "v1|" + блоки через ";", поля блока через ",":
+-- Формат v1: "v1|" + блоки через ";", поля блока через ",":
 --   материал, форма, особый блок, x*2, y*2, z*2, ширина, высота, длина, поворот, цвет (hex)
+-- Формат v2 (есть выкопанная земля): "v2|" + блоки (как в v1, могут быть пустыми) + "|" + маска
+--   выкопанных клеток (hex, см. Shared/Underground).
 local Util = require(script.Parent.Util)
 
 local Serializer = {}
@@ -15,7 +17,7 @@ export type Spec = {
 	color: Color3,
 }
 
-function Serializer.encode(specs: { Spec }): string
+function Serializer.encode(specs: { Spec }, digHex: string?): string
 	local parts = table.create(#specs)
 	for i, s in specs do
 		parts[i] = string.format(
@@ -26,15 +28,39 @@ function Serializer.encode(specs: { Spec }): string
 			s.rot or 1, Util.colorToHex(s.color)
 		)
 	end
-	return "v1|" .. table.concat(parts, ";")
+	local blocks = table.concat(parts, ";")
+	if typeof(digHex) == "string" and digHex ~= "" then
+		return "v2|" .. blocks .. "|" .. digHex
+	end
+	return "v1|" .. blocks
+end
+
+-- Строка разбирается на часть с блоками и маску земли (nil — формат не наш)
+local function split(str: string?): (string?, string?)
+	if typeof(str) ~= "string" then
+		return nil, nil
+	end
+	local version = string.sub(str, 1, 3)
+	local rest = string.sub(str, 4)
+	if version == "v1|" then
+		return rest, nil
+	elseif version == "v2|" then
+		local bar = string.find(rest, "|", 1, true)
+		if bar then
+			return string.sub(rest, 1, bar - 1), string.sub(rest, bar + 1)
+		end
+		return rest, nil
+	end
+	return nil, nil
 end
 
 function Serializer.decode(str: string?): { Spec }
 	local out = {}
-	if typeof(str) ~= "string" or string.sub(str, 1, 3) ~= "v1|" then
+	local blocks = split(str)
+	if not blocks then
 		return out
 	end
-	for chunk in string.gmatch(string.sub(str, 4), "[^;]+") do
+	for chunk in string.gmatch(blocks, "[^;]+") do
 		local f = string.split(chunk, ",")
 		if #f == 11 then
 			local n = {}
@@ -61,11 +87,21 @@ function Serializer.decode(str: string?): { Spec }
 	return out
 end
 
+-- Маска выкопанной земли из строки v2 (nil — земля не тронута)
+function Serializer.dig(str: string?): string?
+	local _, hex = split(str)
+	if hex and hex ~= "" then
+		return hex
+	end
+	return nil
+end
+
 function Serializer.count(str: string?): number
-	if typeof(str) ~= "string" or #str <= 3 then
+	local blocks = split(str)
+	if not blocks or blocks == "" then
 		return 0
 	end
-	local _, n = string.gsub(str, ";", ";")
+	local _, n = string.gsub(blocks, ";", ";")
 	return n + 1
 end
 

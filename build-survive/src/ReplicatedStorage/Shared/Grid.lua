@@ -124,7 +124,8 @@ function Grid.placement(plotCF: CFrame, hitPos: Vector3, hitNormal: Vector3, siz
 	return Vector3.new(x, y, z)
 end
 
--- Блок целиком внутри зоны строительства?
+-- Блок целиком внутри зоны строительства? Снизу зона доходит до дна котлована
+-- (выкопана ли там земля, проверяется отдельно — по маске участка, см. Shared/Underground).
 function Grid.inBounds(center: Vector3, e: Vector3): boolean
 	local s = Config.PlotSize
 	local eps = 0.01
@@ -132,7 +133,7 @@ function Grid.inBounds(center: Vector3, e: Vector3): boolean
 		and center.X + e.X / 2 <= s.X / 2 + eps
 		and center.Z - e.Z / 2 >= -s.Z / 2 - eps
 		and center.Z + e.Z / 2 <= s.Z / 2 + eps
-		and center.Y - e.Y / 2 >= -eps
+		and center.Y - e.Y / 2 >= -Config.Underground.Depth - eps
 		and center.Y + e.Y / 2 <= s.Y + eps
 end
 

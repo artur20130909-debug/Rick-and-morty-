@@ -3,7 +3,7 @@
 
 Создаёт:
   src/Workspace/Map.model.json        лобби, мосты, вражеские базы, деревья
-  src/Workspace/Plots.model.json      6 участков для строительства с вышками
+  src/Workspace/Plots.model.json      6 участков для строительства с вышками и котлованом под полом
   src/ReplicatedStorage/Shared/MapLayout.lua   координаты для скриптов + рельеф (terrain)
   tools/preview/map.json              то же самое для превью-рендера
 
@@ -22,6 +22,7 @@ PLOT_R = 250.0       # расстояние от центра до участк�
 FORT_R = 600.0       # расстояние до вражеских баз
 ISLAND_R = 76.0      # радиус острова участка
 LOBBY_R = 92.0       # радиус острова лобби
+INNER_RING_TOP = 0.2 # мраморный круг в центре лобби выше пола на столько
 PLOT_HALF = 32.0     # половина ширины зоны строительства
 
 PLOT_COLORS = [(226, 64, 64), (56, 128, 236), (64, 196, 96), (246, 200, 50), (160, 84, 230), (250, 132, 40)]
@@ -280,16 +281,18 @@ def flag_pole(name, x, z, color, h=14):
 def build_lobby(plot_angles):
     kids = []
     island(0, 0, LOBBY_R, rocks=18, avoid_angles=plot_angles)
+    # площадь на уровне пола, бортик на 0.1 ниже, мраморный круг — ступенька на 0.2 выше
+    # (совпадающие по высоте верхние грани мерцали бы)
     kids.append(cyl("Plaza", T(0, FLOOR - 0.8, 0), 1.6, 78, (104, 108, 116), "Slate"))
-    kids.append(cyl("PlazaRim", T(0, FLOOR - 0.85, 0), 1.5, 80, (70, 72, 78), "Slate"))
-    kids.append(cyl("InnerRing", T(0, FLOOR - 0.78, 0), 1.6, 46, (226, 222, 212), "Marble"))
+    kids.append(cyl("PlazaRim", T(0, FLOOR - 0.9, 0), 1.6, 80, (70, 72, 78), "Slate"))
+    kids.append(cyl("InnerRing", T(0, FLOOR + INNER_RING_TOP - 0.6, 0), 1.2, 54, (226, 222, 212), "Marble"))
     kids.append(cyl("Pedestal", T(0, FLOOR + 1.5, 0), 3, 14, (180, 180, 176), "Concrete"))
     kids.append(cyl("PedestalRim", T(0, FLOOR + 3.05, 0), 0.4, 14.6, (240, 196, 70), "Foil", reflectance=0.2))
     # Памятник — списанная ракета
     base_y = FLOOR + 3
     kids.append(cyl("MissileBody", T(0, base_y + 13, 0), 26, 4.2, (236, 236, 240), "SmoothPlastic"))
-    kids.append(cyl("MissileBand", T(0, base_y + 18, 0), 1.6, 4.3, (210, 40, 40), "SmoothPlastic"))
-    kids.append(cyl("MissileBand2", T(0, base_y + 4, 0), 1.0, 4.3, (30, 30, 34), "SmoothPlastic"))
+    kids.append(cyl("MissileBand", T(0, base_y + 18, 0), 1.6, 4.4, (210, 40, 40), "SmoothPlastic"))
+    kids.append(cyl("MissileBand2", T(0, base_y + 4, 0), 1.0, 4.4, (30, 30, 34), "SmoothPlastic"))
     for i, (h, d) in enumerate([(2.2, 3.6), (2.0, 2.6), (1.6, 1.5), (1.0, 0.6)]):
         y = base_y + 26 + sum(x[0] for x in [(2.2, 3.6), (2.0, 2.6), (1.6, 1.5), (1.0, 0.6)][:i]) + h / 2
         kids.append(cyl("Nose%d" % i, T(0, y, 0), h, d, (210, 40, 40), "SmoothPlastic"))
@@ -370,8 +373,8 @@ def build_lobby(plot_angles):
         shop.append(part("Sample%d" % i, (1.6, 1.6, 1.6), shop_cf * T(-3.3 + i * 2.2, 4.4, 0) * angles(0, 0.3 * i, 0), c, m))
     kids.append(model("Shop", shop))
 
-    # Спавн лобби
-    kids.append(part("LobbySpawn", (8, 0.4, 8), T(0, FLOOR + 0.2, 22), (255, 196, 64), "SmoothPlastic", cls="SpawnLocation",
+    # Спавн лобби: целиком на мраморном круге
+    kids.append(part("LobbySpawn", (8, 0.4, 8), T(0, FLOOR + INNER_RING_TOP + 0.2, 22), (255, 196, 64), "SmoothPlastic", cls="SpawnLocation",
                      props={"Neutral": True, "Duration": 0, "AllowTeamChangeOnTouch": False}, transparency=0.2))
 
     # Флаги участков, фонари, деревья
@@ -410,19 +413,23 @@ def build_bridge(i, a):
     L = r1 - r0
     mid = scale(d, (r0 + r1) / 2)
     cf = look_at((mid[0], FLOOR - 0.5, mid[2]), (mid[0] + d[0], FLOOR - 0.5, mid[2] + d[2]))
+    # настил: верх на уровне пола, низ лежит на траве
     kids = [part("Deck", (10, 1, L), cf, (140, 100, 64), "WoodPlanks")]
     for side in (-4.7, 4.7):
         kids.append(part("Rail", (0.5, 0.5, L), cf * T(side, 3.6, 0), (120, 84, 52), "Wood"))
         kids.append(part("RailLow", (0.35, 0.35, L), cf * T(side, 2.0, 0), (120, 84, 52), "Wood"))
+        # стойки толще перил и выше их на 0.2, наружу выступают за край настила на 0.1:
+        # ни одна грань не совпадает с гранями настила и перил
         n = int(L // 8)
         for k in range(n + 1):
             z = -L / 2 + k * (L / n)
-            kids.append(part("Post", (0.7, 3.6, 0.7), cf * T(side, 2.1, z), (110, 76, 46), "Wood"))
+            kids.append(part("Post", (0.8, 3.75, 0.8), cf * T(side, 2.175, z), (110, 76, 46), "Wood"))
+        # сваи из воды доходят до середины настила
         for k in range(int(L // 16) + 1):
             z = -L / 2 + 4 + k * 16
             if z > L / 2:
                 break
-            kids.append(cyl("Pile", cf * T(side * 0.9, -6.5, z), 11, 1.6, (90, 64, 42), "Wood"))
+            kids.append(cyl("Pile", cf * T(side * 0.85, -6.25, z), 12.5, 1.6, (90, 64, 42), "Wood"))
     return model("Bridge%d" % (i + 1), kids)
 
 
@@ -488,7 +495,7 @@ def build_tower(name, base, center):
         part("Footing", (9, 1.8, 9), at(0, GROUND + 0.1, 0), (150, 148, 142), "Concrete"),
         cyl("Column", at(0, 11.1, 0), 12.2, 4, (124, 124, 120), "Concrete"),
         cyl("HazardRing", at(0, 14, 0), 2, 4.4, T_HAZARD, "Metal"),
-        cyl("HazardStripe", at(0, 14, 0), 0.7, 4.5, (28, 28, 30), "Metal"),
+        cyl("HazardStripe", at(0, 14, 0), 0.7, 4.6, (28, 28, 30), "Metal"),
         # площадка 8×8 из рифлёного металла: 17.2..18.0
         part("Deck", (8, 0.8, 8), at(0, 17.6, 0), (92, 96, 102), "DiamondPlate"),
     ]
@@ -496,11 +503,11 @@ def build_tower(name, base, center):
     for sx in (-0.75, 0.75):
         kids.append(part("LadderRail", (0.24, 15.5, 0.24), at(sx, 12.65, 4.1), T_STEEL, "Metal"))
     for k in range(1, 6):
-        kids.append(part("Rung", (1.74, 0.2, 0.2), at(0, 5 + 13 * k / 6, 4.1), T_STEEL, "Metal", shape="Cylinder"))
+        kids.append(part("Rung", (1.6, 0.2, 0.2), at(0, 5 + 13 * k / 6, 4.1), T_STEEL, "Metal", shape="Cylinder"))
     # перила по бокам (сзади проход к лестнице, спереди мешки)
     for sx in (-3.75, 3.75):
         for sz in (-3.75, 3.75):
-            kids.append(cyl("RailPost", at(sx, 19.35, sz), 2.7, 0.3, T_STEEL, "Metal"))
+            kids.append(cyl("RailPost", at(sx, 19.45, sz), 2.9, 0.3, T_STEEL, "Metal"))  # выше поручня на 0.24
         kids.append(part("Handrail", (0.22, 0.22, 7.8), at(sx, 20.55, 0), T_HAZARD, "Metal"))
     # мешки с песком подковой по краю площадки
     kids.append(part("Sandbags", (6.6, 1, 1), at(0, 18.5, -3.4), T_SAND, "Fabric", shape="Cylinder"))
@@ -527,7 +534,7 @@ def build_tower(name, base, center):
         kids += [
             part("Jacket", (4.2, 0.8, 0.8), g * T(0, 0, -1.7) * ALONG_Z, (44, 46, 48), "DiamondPlate", shape="Cylinder"),
             part("Barrel", (1.95, 0.36, 0.36), g * T(0, 0, -4.475) * ALONG_Z, (28, 30, 32), "Metal", shape="Cylinder"),
-            part("Brake", (0.5, 0.48, 0.48), g * T(0, 0, -4.9) * ALONG_Z, (70, 72, 76), "Metal", shape="Cylinder"),
+            part("Brake", (0.5, 0.52, 0.52), g * T(0, 0, -4.9) * ALONG_Z, (70, 72, 76), "Metal", shape="Cylinder"),
         ]
     muzzle_pos = gun.point((0, 0, -5.45))
     # прожектор на правом боку головы, светит вниз на участок
@@ -544,23 +551,91 @@ def build_tower(name, base, center):
 
 
 # ---------------------------------------------------------------- УЧАСТКИ
+# Всё ниже — в системе участка: пол на y = 0, -Z смотрит на лобби. Трава острова на y = -1.
+UG_DEPTH = 24.0              # глубина котлована под зоной строительства (Config.Underground.Depth)
+SLAB = 2.0                   # толщина бетонной плиты пола
+RIM = 6.0                    # толщина стенок котлована: от ±32 до ±38
+RIM_TOP = -0.1               # верх стенок чуть ниже пола (над травой на 0.9)
+BEDROCK = 3.0                # толщина дна котлована
+PATH_TOP = -0.5              # верх тропинки: на 0.5 выше травы, чтобы рельеф не проступал сквозь неё
+SLAB_COLOR = (164, 166, 164)
+SOIL_COLOR = (118, 92, 64)
+RIM_COLOR = (78, 80, 84)
+BEDROCK_COLOR = (62, 62, 66)
+NO_TOUCH = {"CanTouch": False}
+
+
+def plot_ground(pcf):
+    """Заглушка земли, чтобы участок выглядел целым в Studio без запуска: плита пола (Layer = 1, верхний
+    слой клеток) и один брусок грунта на всю глубину (Layer = 0: он занимает слои 1–6 сразу).
+    При запуске Underground.rebuild удаляет детали без атрибута Rect и собирает слои клеток заново."""
+    soil_h = UG_DEPTH - SLAB
+    return folder("Ground", [
+        part("Slab", (2 * PLOT_HALF, SLAB, 2 * PLOT_HALF), pcf * T(0, -SLAB / 2, 0), SLAB_COLOR, "Concrete",
+             props=NO_TOUCH, attrs={"Layer": 1}),
+        part("Soil", (2 * PLOT_HALF, soil_h, 2 * PLOT_HALF), pcf * T(0, -SLAB - soil_h / 2, 0), SOIL_COLOR, "Ground",
+             props=NO_TOUCH, attrs={"Layer": 0}),
+    ])
+
+
+def plot_foundation(pcf):
+    """Неподвижные дно и стенки котлована. Рельеф под участком вырезается при запуске
+    (Underground.carveAll: коробка 72×26.5×72), стенки до ±38 закрывают ступеньки вокселей.
+    Стенки стоят на дне, а не проходят сквозь него: иначе их наружные и нижние грани совпали бы с гранями дна."""
+    outer = 2 * (PLOT_HALF + RIM)           # 76
+    wall_h = RIM_TOP + UG_DEPTH             # от дна (-24) до -0.1
+    wall_y = (RIM_TOP - UG_DEPTH) / 2
+    mid = PLOT_HALF + RIM / 2               # середина стенки: 35
+    kids = [part("Bedrock", (outer, BEDROCK, outer), pcf * T(0, -UG_DEPTH - BEDROCK / 2, 0), BEDROCK_COLOR, "Concrete",
+                 props=NO_TOUCH)]
+    for z in (-mid, mid):  # стенки вдоль X — во всю длину
+        kids.append(part("Rim", (outer, wall_h, RIM), pcf * T(0, wall_y, z), RIM_COLOR, "Concrete", props=NO_TOUCH))
+    for x in (-mid, mid):  # стенки вдоль Z — между ними
+        kids.append(part("Rim", (RIM, wall_h, 2 * PLOT_HALF), pcf * T(x, wall_y, 0), RIM_COLOR, "Concrete", props=NO_TOUCH))
+    return folder("Foundation", kids)
+
+
+def plot_path(pcf):
+    """Тропинка от моста к крыльцу с бордюром из камней. Верх тропинки на 0.5 выше травы, низ утоплен
+    в рельеф; камни бордюра на 0.2 выше тропинки и заходят в неё на 0.2. Концы спрятаны под настилом
+    моста (он начинается с z = -70) и внутри крыльца (с z = -44), так что совпадающих граней нет."""
+    z0, z1 = -73.0, -43.0
+    bottom = -1.9
+    kids = [part("Path", (8, PATH_TOP - bottom, z1 - z0), pcf * T(0, (PATH_TOP + bottom) / 2, (z0 + z1) / 2),
+                 (128, 120, 108), "Cobblestone")]
+    curb_top = PATH_TOP + 0.2
+    count = 12
+    span = (z1 - z0 - 0.8) / count  # камни короче тропинки на 0.4 с каждого конца: их торцы не совпадают с её торцами
+    for side in (-1, 1):
+        for k in range(count):
+            z = z0 + 0.4 + (k + 0.5) * span
+            c = (98, 96, 92) if (k + (side > 0)) % 2 == 0 else (110, 108, 102)
+            kids.append(part("Curb", (0.8, curb_top - bottom, span - 0.15), pcf * T(side * 4.2, (curb_top + bottom) / 2, z),
+                             c, "Slate"))
+    return kids
+
+
 def build_plot(i, a, layout):
     center = (math.cos(a) * PLOT_R, FLOOR, math.sin(a) * PLOT_R)
     pcf = look_at(center, (0, FLOOR, 0))
     color = PLOT_COLORS[i]
     island(center[0], center[2], ISLAND_R, rocks=12, avoid_angles=(a + math.pi,))
     kids = [
-        part("Base", (64, 2, 64), pcf * T(0, -1, 0), (164, 166, 164), "Concrete"),
-        part("Skirt", (66, 5, 66), pcf * T(0, -3.6, 0), (84, 86, 90), "Concrete"),
-        part("Porch", (16, 2, 12), pcf * T(0, -1, -38), (110, 112, 118), "Slate"),
-        part("Path", (8, 1, 30), pcf * T(0, -1.4, -58), (128, 120, 108), "Cobblestone"),
+        plot_ground(pcf),
+        plot_foundation(pcf),
+        # невидимая плоскость пола: к её верхней грани крепится сетка строительства (клиент)
+        part("GridPlane", (2 * PLOT_HALF, 0.2, 2 * PLOT_HALF), pcf * T(0, -0.05, 0), (255, 255, 255), transparency=1,
+             collide=False, shadow=False, props={"CanQuery": False, "CanTouch": False}),
+        # крыльцо лежит на стенке котлована и не доходит до её внутренней грани (z = -32) на 0.5
+        part("Porch", (16, 2, 11.5), pcf * T(0, -1, -38.25), (110, 112, 118), "Slate"),
     ]
-    # неоновая рамка зоны строительства
-    for sx, sz, x, z in ((65, 0.5, 0, 32.25), (65, 0.5, 0, -32.25), (0.5, 65, 32.25, 0), (0.5, 65, -32.25, 0)):
-        kids.append(part("Border", (sx, 0.3, sz), pcf * T(x, 0.15, z), color, "Neon"))
+    kids += plot_path(pcf)
+    # неоновая рамка зоны строительства стоит на стенках котлована; полосы вдоль X — между полосами вдоль Z
+    for sx, sz, x, z in ((64, 0.5, 0, 32.25), (64, 0.5, 0, -32.25), (0.5, 65, 32.25, 0), (0.5, 65, -32.25, 0)):
+        kids.append(part("Border", (sx, 0.4, sz), pcf * T(x, (RIM_TOP + 0.3) / 2, z), color, "Neon"))
     for x in (-32.5, 32.5):
         for z in (-32.5, 32.5):
-            kids.append(cyl("Corner", pcf * T(x, 1.5, z), 3, 1.4, (60, 62, 68), "Metal"))
+            kids.append(cyl("Corner", pcf * T(x, (RIM_TOP + 3) / 2, z), 3 - RIM_TOP, 1.4, (60, 62, 68), "Metal"))
             kids.append(ball("CornerLight", pcf.point((x, 3.3, z)), 1.2, color, "Neon"))
     # табличка владельца
     for x in (-5.5, 5.5):
@@ -636,7 +711,7 @@ def build_fort(i, a, layout_entry):
         kids.append(part("Rail", (2.4, 1, 16), rcf, steel, "Metal"))
         kids.append(part("RailMissile", (11, 1.5, 1.5), rcf * T(0, 1.3, -1) * ALONG_Z, (236, 236, 240), "SmoothPlastic", shape="Cylinder"))
         kids.append(ball("RailNose", rcf.point((0, 1.3, -6.6)), 1.5, (210, 40, 40), "SmoothPlastic"))
-        kids.append(part("RailBase", (3, 6, 3), fcf * T(x, 5, -8), dark, "Metal"))
+        kids.append(part("RailBase", (3, 5, 3), fcf * T(x, 5.5, -8), dark, "Metal"))  # низ внутри палубы
         rails.append(rcf.point((0, 2.5, -9)))
     # шахты самонаводящихся ракет
     silos = []
@@ -654,10 +729,12 @@ def build_fort(i, a, layout_entry):
         bcf = mcf * T(0, 2.2, -0.6) * angles(math.radians(35), 0, 0) * VERTICAL
         kids.append(part("MortarTube", (5, 1.2, 1.2), bcf, (40, 44, 40), "Metal", shape="Cylinder"))
         mortars.append(mcf.point((0, 5, -2.2)))
-    # ящики и флаги
+    # ящики и флаги: каждый ящик в своей ячейке через 16 стадов (одинаковые верхние грани не пересекаются),
+    # перед командной башней
     for k in range(6):
         c = rng.choice([(70, 90, 70), (110, 96, 70), (80, 84, 92)])
-        kids.append(part("Crate", (6, 3.4, 3.4), fcf * T(rng.uniform(-40, 40), 7.7, rng.uniform(26, 33)) * angles(0, rng.uniform(-0.2, 0.2), 0), c, "Metal"))
+        x = -40 + k * 16 + rng.uniform(-3, 3)
+        kids.append(part("Crate", (6, 3.4, 3.4), fcf * T(x, 7.7, rng.uniform(29.5, 33.5)) * angles(0, rng.uniform(-0.2, 0.2), 0), c, "Metal"))
     for x in (-46, 46):
         kids.append(cyl("FlagPole", fcf * T(x, 13, -34), 18, 0.5, (190, 190, 196), "Metal"))
         kids.append(part("FlagCloth", (0.15, 3.4, 6), fcf * T(x, 19.6, -34) * angles(0, math.pi / 2, 0) * T(0, 0, 3), (150, 20, 24), "Fabric"))

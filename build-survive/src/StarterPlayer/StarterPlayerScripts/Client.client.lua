@@ -21,6 +21,7 @@ local ShopUI = require(UI.ShopUI)
 local SiegeUI = require(UI.SiegeUI)
 local SavesUI = require(UI.SavesUI)
 local SettingsUI = require(UI.SettingsUI)
+local AdminUI = require(UI.AdminUI)
 
 local player = Players.LocalPlayer
 local _ = Serializer
@@ -34,6 +35,7 @@ ShopUI.init()
 SiegeUI.init()
 SavesUI.init()
 SettingsUI.init()
+AdminUI.init()
 BuildController.init()
 Projectiles.init()
 
@@ -45,10 +47,12 @@ Net.event("Data").OnClientEvent:Connect(function(d)
 	State.bestWave = d.bestWave or 0
 	State.slots = d.slots or {}
 	State.stats = d.stats or {}
+	State.prefabs = d.prefabs or {}
 	State.saveEnabled = d.saveEnabled == true
 	State.set("gold", d.gold or 0)
 	State.changed:Fire("unlocked", State.unlocked)
 	State.changed:Fire("slots", State.slots)
+	State.changed:Fire("prefabs", State.prefabs)
 	State.changed:Fire("saveEnabled", State.saveEnabled)
 	if firstData and d.settings then
 		for k, v in d.settings do
@@ -79,7 +83,7 @@ end)
 
 -- Кнопки меню справа
 HUD.onMenu:Connect(function(key)
-	if key == "shop" or key == "siege" or key == "saves" or key == "settings" then
+	if key == "shop" or key == "siege" or key == "saves" or key == "settings" or key == "admin" then
 		if key == "siege" and State.inSiege() then
 			HUD.toast("Осада уже идёт", "warning")
 			return

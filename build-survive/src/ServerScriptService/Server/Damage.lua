@@ -32,8 +32,21 @@ local debrisFolder: Folder
 local debrisCount = 0
 local rng = Random.new()
 
-local blockParams = RaycastParams.new()
+local blockParams = RaycastParams.new()      -- только блоки участка
 blockParams.FilterType = Enum.RaycastFilterType.Include
+local groundParams = RaycastParams.new()     -- только земля под участком и стенки котлована
+groundParams.FilterType = Enum.RaycastFilterType.Include
+local coverParams = RaycastParams.new()      -- блоки и земля вместе
+coverParams.FilterType = Enum.RaycastFilterType.Include
+
+-- Земля под участком (плита пола, грунт, стенки и дно котлована) не ломается,
+-- но гасит урон как толстая стена: доля урона, которую гасят 2 стада толщины (как blast/nuke у материалов)
+local GROUND_RESIST = {
+	Slab = { blast = 0.62, nuke = 0.5 },
+	Soil = { blast = 0.8, nuke = 0.62 },
+	Rim = { blast = 0.9, nuke = 0.8 },
+	Bedrock = { blast = 0.9, nuke = 0.8 },
+}
 
 local overlap = OverlapParams.new()
 overlap.FilterType = Enum.RaycastFilterType.Include
@@ -93,34 +106,83 @@ local function resistOf(def, kind: string): number
 	return def.blast or 0.3
 end
 
--- Какая доля урона дойдёт от точки from до точки to сквозь блоки участка (1 = вся, 0 = ничего)
-function Damage.cover(plot: Plot, from: Vector3, to: Vector3, kind: string): number
-	blockParams.FilterDescendantsInstances = { plot.blocks }
+-- Деталь земли участка? Возвращает её стойкость (как у материала) или nil
+local function groundDef(plot: Plot, part: Instance)
+	if part.Parent == plot.ground then
+		return GROUND_RESIST[part.Name] or GROUND_RESIST.Soil
+	elseif part:IsDescendantOf(plot.foundation) then
+		return GROUND_RESIST[part.Name] or GROUND_RESIST.Rim
+	end
+	return nil
+end
+
+-- Сколько луч из точки entry (на грани детали) в направлении unit пройдёт внутри детали, но не дальше maxDist.
+-- Для земли это честнее «толщины по осям»: плиты грунта огромные, а луч может срезать лишь угол.
+local function chordLength(part: BasePart, entry: Vector3, unit: Vector3, maxDist: number): number
+	local p = part.CFrame:PointToObjectSpace(entry)
+	local d = part.CFrame:VectorToObjectSpace(unit)
+	local h = part.Size / 2
+	local t = maxDist
+	local function axis(pc: number, dc: number, hc: number)
+		if dc > 1e-6 then
+			t = math.min(t, (hc - pc) / dc)
+		elseif dc < -1e-6 then
+			t = math.min(t, (-hc - pc) / dc)
+		end
+	end
+	axis(p.X, d.X, h.X)
+	axis(p.Y, d.Y, h.Y)
+	axis(p.Z, d.Z, h.Z)
+	return math.max(t, 0)
+end
+
+-- Доля урона, которая дойдёт от from до to сквозь всё, что видит params (1 = вся, 0 = ничего).
+-- Каждый блок или кусок земли на пути — слой, который гасит часть урона.
+local function trace(plot: Plot, params: RaycastParams, from: Vector3, to: Vector3, kind: string): number
+	local span = to - from
+	if span.Magnitude < 0.1 then
+		return 1
+	end
 	local factor = 1
-	local origin = from
-	for _ = 1, 8 do
+	-- старт чуть позади точки взрыва: если снаряд взорвался ровно на грани стены или грунта,
+	-- луч всё равно войдёт в неё снаружи и заметит
+	local origin = from - span.Unit * 0.05
+	for _ = 1, 12 do
 		local delta = to - origin
 		local dist = delta.Magnitude
 		if dist < 0.1 then
 			break
 		end
 		local unit = delta / dist
-		local result = workspace:Raycast(origin, delta, blockParams)
+		local result = workspace:Raycast(origin, delta, params)
 		if not result then
 			break
 		end
-		local block = result.Instance
-		if block:IsA("BasePart") and block.Name == "Block" then
-			local def = Damage.defOf(block)
-			local layer = (1 - resistOf(def, kind)) ^ (thickness(block, unit) / 2)
-			factor *= layer
+		local part = result.Instance
+		if part:IsA("BasePart") then
+			local ground = groundDef(plot, part)
+			if ground then
+				local len = chordLength(part, result.Position, unit, (to - result.Position).Magnitude)
+				if len > 0.05 then -- луч, скользнувший по поверхности земли, не гасится
+					factor *= (1 - resistOf(ground, kind)) ^ (math.clamp(len, 0.5, 24) / 2)
+				end
+			elseif part.Name == "Block" then
+				factor *= (1 - resistOf(Damage.defOf(part), kind)) ^ (thickness(part, unit) / 2)
+			end
 			if factor < 0.01 then
 				return 0
 			end
 		end
+		-- следующий луч стартует внутри этой детали и её саму уже не видит
 		origin = result.Position + unit * 0.05
 	end
 	return factor
+end
+
+-- Какая доля урона дойдёт от точки from до точки to сквозь блоки и землю участка (1 = вся, 0 = ничего)
+function Damage.cover(plot: Plot, from: Vector3, to: Vector3, kind: string): number
+	coverParams.FilterDescendantsInstances = { plot.blocks, plot.ground, plot.foundation }
+	return trace(plot, coverParams, from, to, kind)
 end
 
 local function falloff(x: number, kind: string): number
@@ -286,6 +348,9 @@ function Damage.explode(plot: Plot, pos: Vector3, o: ExplosionOpts)
 	-- 3. Блоки
 	overlap.FilterDescendantsInstances = { plot.blocks }
 	blockParams.FilterDescendantsInstances = { plot.blocks }
+	groundParams.FilterDescendantsInstances = { plot.ground, plot.foundation }
+	-- земля лежит ниже пола: луч может пройти сквозь неё, только если взрыв или блок ниже пола
+	local blastBelow = plot.cf:PointToObjectSpace(pos).Y < -0.05
 	local parts = workspace:GetPartBoundsInRadius(pos, R, overlap)
 	local broken = {}
 	for _, b in parts do
@@ -300,6 +365,10 @@ function Damage.explode(plot: Plot, pos: Vector3, o: ExplosionOpts)
 					local hit = workspace:Raycast(pos, toBlock, blockParams)
 					if hit and hit.Instance ~= b and hit.Instance.Name == "Block" then
 						occl = 1 - resistOf(Damage.defOf(hit.Instance :: BasePart), kind) * 0.9
+					end
+					-- подземный бункер под взрывом на поверхности (или наоборот): грунт гасит урон слоями
+					if blastBelow or plot.cf:PointToObjectSpace(b.Position).Y < 0 then
+						occl *= trace(plot, groundParams, pos, b.Position, kind)
 					end
 				end
 				local dmg = o.blockDamage * mul * f * occl

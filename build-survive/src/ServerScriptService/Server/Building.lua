@@ -9,9 +9,11 @@ local Serializer = require(Shared.Serializer)
 local Util = require(Shared.Util)
 local Net = require(Shared.Net)
 local Examples = require(Shared.Examples)
+local UG = require(Shared.Underground)
 
 local Plots = require(script.Parent.Plots)
 local Data = require(script.Parent.Data)
+local Underground = require(script.Parent.Underground)
 
 local Building = {}
 
@@ -19,6 +21,9 @@ type Spec = Serializer.Spec
 type Plot = Plots.Plot
 
 local lastAction: { [Player]: number } = {}
+local lastDig: { [Player]: number } = {}
+
+local NEED_DIG = "Сначала выкопай здесь землю — инструмент «Копать» (5)"
 
 local function notify(player: Player, text: string, kind: string?)
 	Net.event("Notify"):FireClient(player, text, kind or "info")
@@ -140,12 +145,14 @@ local function validate(player: Player, req: any): (Spec?, string?)
 	}, nil
 end
 
-local function pushUndo(plot: Plot, action: any)
+-- Запомнить действие для Ctrl+Z (им пользуется и магазин готовых построек)
+function Building.pushUndo(plot: Plot, action: any)
 	table.insert(plot.undo, action)
 	if #plot.undo > Config.UndoDepth then
 		table.remove(plot.undo, 1)
 	end
 end
+local pushUndo = Building.pushUndo
 
 local function cooldownOk(player: Player): boolean
 	local now = os.clock()
@@ -182,6 +189,9 @@ function Building.place(player: Player, req: any): (boolean, string?)
 	end
 	if not Grid.inBounds(spec.pos, e) then
 		return false, "Строить можно только внутри рамки участка"
+	end
+	if not Underground.isClear(plot, spec.pos, e) then
+		return false, NEED_DIG
 	end
 	if Building.count(plot) >= Config.MaxBlocks then
 		return false, "Достигнут лимит: " .. Config.MaxBlocks .. " блоков"
@@ -251,6 +261,7 @@ function Building.paint(player: Player, block: any, color: any): (boolean, strin
 	return true, nil
 end
 
+-- Постройка вместе с выкопанной землёй
 function Building.serialize(plot: Plot): string
 	local specs = {}
 	for _, child in plot.blocks:GetChildren() do
@@ -258,14 +269,15 @@ function Building.serialize(plot: Plot): string
 			table.insert(specs, Building.specOf(child))
 		end
 	end
-	return Serializer.encode(specs)
+	return Serializer.encode(specs, Underground.encode(plot))
 end
 
 function Building.clear(plot: Plot)
 	plot.blocks:ClearAllChildren()
 end
 
--- Построить из строки (сохранение, снимок до осады). Неверные блоки пропускаются.
+-- Построить из строки (сохранение, снимок до осады). Неверные блоки пропускаются —
+-- в том числе подземные там, где земля не выкопана (маску земли ставит Building.restore).
 function Building.loadString(plot: Plot, str: string?): number
 	local specs = Serializer.decode(str)
 	local n = 0
@@ -278,7 +290,7 @@ function Building.loadString(plot: Plot, str: string?): number
 			spec.shape = Blocks.ShapeById[spec.shape] and spec.shape or 1
 			spec.size = Blocks.normalizeSize(spec.shape, spec.item, spec.size, Config.MaxBlockSize)
 			local e = Grid.extents(spec.size, spec.rot)
-			if Grid.inBounds(spec.pos, e) and Grid.isAligned(spec.pos, e) then
+			if Grid.inBounds(spec.pos, e) and Grid.isAligned(spec.pos, e) and Underground.isClear(plot, spec.pos, e) then
 				Building.create(plot, spec)
 				n += 1
 			end
@@ -287,13 +299,46 @@ function Building.loadString(plot: Plot, str: string?): number
 	return n
 end
 
--- Заменить постройку целиком (снимок / слот). withUndo — можно будет отменить.
+-- Заменить постройку целиком вместе с землёй (снимок / слот / пример). withUndo — можно будет отменить.
+-- Сначала ставится маска земли: подземные блоки проверяются по ней.
 function Building.restore(plot: Plot, str: string?, withUndo: boolean?)
 	if withUndo then
 		pushUndo(plot, { type = "clear", data = Building.serialize(plot) })
 	end
 	Building.clear(plot)
+	Underground.setMask(plot, UG.decode(Serializer.dig(str)))
 	Building.loadString(plot, str)
+end
+
+local function isInt(v: any): boolean
+	return typeof(v) == "number" and v == math.floor(v)
+end
+
+-- Копать (fill = false) или засыпать (fill = true) клетку земли (ix, iy, iz) под своим участком
+function Building.dig(player: Player, ix: any, iy: any, iz: any, fill: any): (boolean, string?)
+	if not (isInt(ix) and isInt(iy) and isInt(iz)) or typeof(fill) ~= "boolean" or not UG.inRange(ix, iy, iz) then
+		return false, "Неверный запрос"
+	end
+	local plot = Plots.of(player)
+	if not plot then
+		return false, "У тебя нет участка"
+	end
+	local can, why = Building.canEdit(plot)
+	if not can then
+		return false, why
+	end
+	local now = os.clock()
+	if now - (lastDig[player] or 0) < Config.Underground.DigCooldown then
+		return false, nil
+	end
+	lastDig[player] = now
+	local i = UG.index(ix, iy, iz)
+	local ok, err = Underground.digCell(plot, i, fill)
+	if not ok then
+		return false, err
+	end
+	pushUndo(plot, { type = "dig", index = i, fill = fill })
+	return true, nil
 end
 
 function Building.undo(player: Player): (boolean, string?)
@@ -314,8 +359,12 @@ function Building.undo(player: Player): (boolean, string?)
 			action.block:Destroy()
 		end
 	elseif action.type == "delete" then
-		if not Building.overlaps(plot, action.spec) and Building.count(plot) < Config.MaxBlocks then
-			Building.create(plot, action.spec)
+		local spec = action.spec
+		if not Underground.isClear(plot, spec.pos, Grid.extents(spec.size, spec.rot)) then
+			return false, NEED_DIG
+		end
+		if not Building.overlaps(plot, spec) and Building.count(plot) < Config.MaxBlocks then
+			Building.create(plot, spec)
 		end
 	elseif action.type == "paint" then
 		local b = action.block
@@ -323,8 +372,10 @@ function Building.undo(player: Player): (boolean, string?)
 			setColor(b, action.color)
 		end
 	elseif action.type == "clear" then
-		Building.clear(plot)
-		Building.loadString(plot, action.data)
+		Building.restore(plot, action.data)
+	elseif action.type == "dig" then
+		-- обратное действие; если оно уже невозможно (в яме блок или игрок, к клетке не подобраться), пропускаем
+		Underground.digCell(plot, action.index, not action.fill)
 	end
 	return true, nil
 end
@@ -400,6 +451,7 @@ end
 
 function Building.forget(player: Player)
 	lastAction[player] = nil
+	lastDig[player] = nil
 end
 
 return Building

@@ -15,7 +15,9 @@ export type Plot = {
 	colorName: string,
 	blocks: Folder,
 	effects: Folder,
-	base: BasePart,
+	ground: Folder,       -- земля под полом: плиты и грунт (собирает Underground)
+	foundation: Folder,   -- неподвижные стенки котлована и дно
+	gridPlane: BasePart,  -- невидимая плоскость пола: к ней крепится сетка строительства
 	spawn: SpawnLocation,
 	sign: BasePart?,
 	towers: { Vector3 },
@@ -25,6 +27,7 @@ export type Plot = {
 	siege: any,
 	launched: boolean,
 	undo: { any },
+	dug: { [number]: boolean }, -- выкопанные клетки земли (индексы Shared/Underground)
 }
 
 Plots.list = {} :: { Plot }
@@ -43,7 +46,9 @@ function Plots.init()
 			colorName = colorInfo.name,
 			blocks = model:WaitForChild("Blocks") :: Folder,
 			effects = model:WaitForChild("Effects") :: Folder,
-			base = model:WaitForChild("Base") :: BasePart,
+			ground = model:WaitForChild("Ground") :: Folder,
+			foundation = model:WaitForChild("Foundation") :: Folder,
+			gridPlane = model:WaitForChild("GridPlane") :: BasePart,
 			spawn = model:WaitForChild("Spawn") :: SpawnLocation,
 			sign = model:FindFirstChild("Sign") :: BasePart?,
 			towers = entry.towers,
@@ -52,6 +57,7 @@ function Plots.init()
 			siege = nil,
 			launched = false,
 			undo = {},
+			dug = {},
 		}
 		model:SetAttribute("PlotIndex", entry.index)
 		model:SetAttribute("Owner", 0)
@@ -111,15 +117,15 @@ end
 function Plots.isOnIsland(plot: Plot, pos: Vector3, radius: number?): boolean
 	local l = plot.cf:PointToObjectSpace(pos)
 	local r = radius or 82
-	return l.X * l.X + l.Z * l.Z <= r * r and l.Y > -30 and l.Y < Config.PlotSize.Y + 60
+	return l.X * l.X + l.Z * l.Z <= r * r and l.Y > -(Config.Underground.Depth + 6) and l.Y < Config.PlotSize.Y + 60
 end
 
--- Позиция внутри зоны строительства (с запасом margin)?
+-- Позиция внутри зоны строительства (с запасом margin)? Снизу — до дна котлована.
 function Plots.isInBuildZone(plot: Plot, pos: Vector3, margin: number?): boolean
 	local m = margin or 0
 	local l = plot.cf:PointToObjectSpace(pos)
 	local hx, hz = Config.PlotSize.X / 2 + m, Config.PlotSize.Z / 2 + m
-	return math.abs(l.X) <= hx and math.abs(l.Z) <= hz and l.Y > -10 and l.Y < Config.PlotSize.Y + 40
+	return math.abs(l.X) <= hx and math.abs(l.Z) <= hz and l.Y > -(Config.Underground.Depth + 6) and l.Y < Config.PlotSize.Y + 40
 end
 
 function Plots.ownerCharacter(plot: Plot): (Model?, Humanoid?, BasePart?)
