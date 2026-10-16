@@ -1,0 +1,133 @@
+{
+  "name": "BuildAndSurvive",
+  "tree": {
+    "$className": "DataModel",
+
+    "Workspace": {
+      "$className": "Workspace",
+      "$properties": {
+        "StreamingEnabled": false,
+        "FallenPartsDestroyHeight": -200
+      },
+      "Terrain": {
+        "$className": "Terrain",
+        "$properties": {
+          "WaterColor": [0.07, 0.36, 0.42],
+          "WaterReflectance": 0.9,
+          "WaterTransparency": 0.55,
+          "WaterWaveSize": 0.22,
+          "WaterWaveSpeed": 9,
+          "Decoration": true
+        },
+        "Clouds": {
+          "$className": "Clouds",
+          "$properties": { "Cover": 0.52, "Density": 0.62, "Color": [1, 1, 1] }
+        }
+      },
+      "Map": { "$path": "src/Workspace/Map.model.json" },
+      "Plots": { "$path": "src/Workspace/Plots.model.json" }
+    },
+
+    "Lighting": {
+      "$className": "Lighting",
+      "$properties": {
+        "Technology": "Future",
+        "LightingStyle": "Realistic",
+        "PrioritizeLightingQuality": true,
+        "GlobalShadows": true,
+        "ShadowSoftness": 0.12,
+        "Brightness": 3,
+        "ClockTime": 14.6,
+        "GeographicLatitude": 34,
+        "Ambient": [0.07, 0.07, 0.09],
+        "OutdoorAmbient": [0.47, 0.49, 0.55],
+        "EnvironmentDiffuseScale": 1,
+        "EnvironmentSpecularScale": 1,
+        "ExposureCompensation": 0.1,
+        "ColorShift_Top": [1, 0.97, 0.92],
+        "ColorShift_Bottom": [0, 0, 0]
+      },
+      "Atmosphere": {
+        "$className": "Atmosphere",
+        "$properties": {
+          "Density": 0.3,
+          "Offset": 0.12,
+          "Color": [0.78, 0.84, 0.92],
+          "Decay": [0.42, 0.46, 0.55],
+          "Glare": 0.35,
+          "Haze": 1.4
+        }
+      },
+      "Sky": {
+        "$className": "Sky",
+        "$properties": {
+          "SunAngularSize": 13,
+          "MoonAngularSize": 9,
+          "StarCount": 3000,
+          "CelestialBodiesShown": true
+        }
+      },
+      "Bloom": {
+        "$className": "BloomEffect",
+        "$properties": { "Intensity": 0.55, "Size": 30, "Threshold": 1.45 }
+      },
+      "SunRays": {
+        "$className": "SunRaysEffect",
+        "$properties": { "Intensity": 0.05, "Spread": 0.75 }
+      },
+      "ColorCorrection": {
+        "$className": "ColorCorrectionEffect",
+        "$properties": {
+          "Brightness": 0.02,
+          "Contrast": 0.1,
+          "Saturation": 0.14,
+          "TintColor": [1, 0.985, 0.96]
+        }
+      },
+      "DepthOfField": {
+        "$className": "DepthOfFieldEffect",
+        "$properties": { "FarIntensity": 0.12, "FocusDistance": 80, "InFocusRadius": 120, "NearIntensity": 0 }
+      }
+    },
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Shared": { "$path": "src/ReplicatedStorage/Shared" },
+      "Client": { "$path": "src/ReplicatedStorage/Client" }
+    },
+
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "Main": { "$path": "src/ServerScriptService/Main.server.lua" },
+      "Server": { "$path": "src/ServerScriptService/Server" }
+    },
+
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "$properties": {
+        "CameraMaxZoomDistance": 260,
+        "CharacterWalkSpeed": 20,
+        "CharacterJumpHeight": 8
+      },
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "Client": { "$path": "src/StarterPlayer/StarterPlayerScripts/Client.client.lua" }
+      }
+    },
+
+    "StarterGui": {
+      "$className": "StarterGui",
+      "$properties": { "ResetPlayerGuiOnSpawn": false }
+    },
+
+    "SoundService": {
+      "$className": "SoundService",
+      "$properties": { "RespectFilteringEnabled": true, "AmbientReverb": "NoReverb" }
+    },
+
+    "Players": {
+      "$className": "Players",
+      "$properties": { "CharacterAutoLoads": true }
+    }
+  }
+}
