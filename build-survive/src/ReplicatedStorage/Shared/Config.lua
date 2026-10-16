@@ -12,7 +12,8 @@ Config.MaxBlockSize = 16                  -- максимальный разме
 Config.DefaultBlockSize = Vector3.new(2, 2, 2)
 Config.UndoDepth = 60
 Config.PlaceCooldown = 0.045              -- антиспам на сервере (сек)
-Config.HoldRepeat = 0.09                  -- зажатая кнопка мыши: пауза между блоками (сек)
+Config.HoldDelay = 0.35                   -- зажатая кнопка мыши: через сколько секунд начинается протяжка
+Config.HoldRepeat = 0.12                  -- протяжка: пауза между блоками (сек)
 
 -- Экономика
 Config.StartGold = 500

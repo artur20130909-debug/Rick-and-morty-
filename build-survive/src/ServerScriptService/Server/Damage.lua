@@ -136,7 +136,7 @@ end
 local function charColor(block: BasePart)
 	local hp, maxHp = tonumber(block:GetAttribute("Hp")) or 1, tonumber(block:GetAttribute("MaxHp")) or 1
 	local base = block:GetAttribute("BaseColor") or block.Color
-	block.Color = base:Lerp(Config.CharredColor, math.clamp(1 - hp / maxHp, 0, 1) * 0.75)
+	BlockFactory.applyColor(block, base:Lerp(Config.CharredColor, math.clamp(1 - hp / maxHp, 0, 1) * 0.75))
 end
 
 local function makeDebris(block: BasePart, from: Vector3?, kind: string)
@@ -146,11 +146,16 @@ local function makeDebris(block: BasePart, from: Vector3?, kind: string)
 			d:Destroy()
 		end
 	end
+	-- все детали-потомки: у двери декор висит на полотне (внуки блока)
 	local parts = BlockFactory.allParts(block)
 	for _, p in parts do
 		p.CanQuery = false
 		p.CanTouch = false
 		p.CollisionGroup = "Debris"
+		if p.Name == "DoorLeaf" then
+			-- полотно открытой двери тоже падает на землю, а не сквозь неё
+			p.CanCollide = true
+		end
 	end
 	block.Parent = debrisFolder
 	block.Anchored = false

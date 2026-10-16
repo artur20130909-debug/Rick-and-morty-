@@ -426,6 +426,123 @@ def build_bridge(i, a):
     return model("Bridge%d" % (i + 1), kids)
 
 
+# ---------------------------------------------------------------- ВЫШКИ
+GROUND = 4.0                 # верх травы острова
+T_STEEL = (70, 74, 80)
+T_DARK = (40, 42, 46)
+T_OLIVE = (66, 76, 56)
+T_HAZARD = (240, 190, 40)
+T_SAND = (178, 158, 112)
+
+
+def strip(name, p0, p1, w, t, color, material="SmoothPlastic", **kw):
+    """Плоская полоса от p0 до p1: ширина w (горизонтально), толщина t."""
+    return part(name, (w, t, math.dist(p0, p1)), look_at(scale(add(p0, p1), 0.5), p1), color, material, **kw)
+
+
+def local_aabb(node, inv, origin):
+    """AABB детали в системе вышки: центр ± |R|·size/2."""
+    pr = node["properties"]
+    cf = pr["CFrame"]["CFrame"]
+    p = matvec(inv, sub(tuple(cf["position"]), origin))
+    r = matmul(inv, cf["orientation"])
+    h = [sum(abs(r[i][j]) * pr["Size"][j] / 2 for j in range(3)) for i in range(3)]
+    return [p[i] - h[i] for i in range(3)], [p[i] + h[i] for i in range(3)]
+
+
+def check_supported(name, nodes, tcf, ground=GROUND + 0.05, tol=0.05):
+    """Без зазоров: низ AABB каждой видимой детали лежит на земле либо касается/входит в AABB
+    другой детали, причём по цепочке таких опор деталь доходит до земли."""
+    inv = [list(row) for row in zip(*tcf.r)]
+    boxes = [(n["name"], *local_aabb(n, inv, tcf.p)) for n in nodes if n["properties"].get("Transparency", 0) < 1]
+
+    def rests_on(a, b):
+        (lo, hi), (lo2, hi2) = a[1:], b[1:]
+        return (lo2[1] - tol <= lo[1] <= hi2[1] + tol
+                and lo[0] <= hi2[0] + tol and lo2[0] <= hi[0] + tol
+                and lo[2] <= hi2[2] + tol and lo2[2] <= hi[2] + tol)
+
+    held = {i for i, b in enumerate(boxes) if b[1][1] <= ground}
+    grew = True
+    while grew:
+        grew = False
+        for i, b in enumerate(boxes):
+            if i not in held and any(rests_on(b, boxes[j]) for j in held):
+                held.add(i)
+                grew = True
+    loose = [boxes[i][0] for i in range(len(boxes)) if i not in held]
+    assert not loose, "%s: детали висят в воздухе: %s" % (name, ", ".join(loose))
+
+
+def build_tower(name, base, center):
+    """Пулемётная вышка у угла участка. Возвращает (модель, позиция дула)."""
+    # система вышки: начало под колонной на y=0, -Z смотрит на центр участка (только рысканье)
+    tcf = look_at((base[0], 0, base[2]), (center[0], 0, center[2]))
+    dist = math.hypot(center[0] - base[0], center[2] - base[2])
+
+    def at(x, y, z):
+        return tcf * T(x, y, z)
+
+    kids = [
+        # бетонное основание (утоплено в траву), колонна, жёлто-чёрное кольцо
+        part("Footing", (9, 1.8, 9), at(0, GROUND + 0.1, 0), (150, 148, 142), "Concrete"),
+        cyl("Column", at(0, 11.1, 0), 12.2, 4, (124, 124, 120), "Concrete"),
+        cyl("HazardRing", at(0, 14, 0), 2, 4.4, T_HAZARD, "Metal"),
+        cyl("HazardStripe", at(0, 14, 0), 0.7, 4.5, (28, 28, 30), "Metal"),
+        # площадка 8×8 из рифлёного металла: 17.2..18.0
+        part("Deck", (8, 0.8, 8), at(0, 17.6, 0), (92, 96, 102), "DiamondPlate"),
+    ]
+    # лестница снаружи (+Z): стоит на основании, поручни выходят над площадкой
+    for sx in (-0.75, 0.75):
+        kids.append(part("LadderRail", (0.24, 15.5, 0.24), at(sx, 12.65, 4.1), T_STEEL, "Metal"))
+    for k in range(1, 6):
+        kids.append(part("Rung", (1.74, 0.2, 0.2), at(0, 5 + 13 * k / 6, 4.1), T_STEEL, "Metal", shape="Cylinder"))
+    # перила по бокам (сзади проход к лестнице, спереди мешки)
+    for sx in (-3.75, 3.75):
+        for sz in (-3.75, 3.75):
+            kids.append(cyl("RailPost", at(sx, 19.35, sz), 2.7, 0.3, T_STEEL, "Metal"))
+        kids.append(part("Handrail", (0.22, 0.22, 7.8), at(sx, 20.55, 0), T_HAZARD, "Metal"))
+    # мешки с песком подковой по краю площадки
+    kids.append(part("Sandbags", (6.6, 1, 1), at(0, 18.5, -3.4), T_SAND, "Fabric", shape="Cylinder"))
+    for sx in (-3.4, 3.4):
+        kids.append(part("Sandbags", (5.5, 1, 1), at(sx, 18.5, -0.15) * ALONG_Z, T_SAND, "Fabric", shape="Cylinder"))
+
+    # турель: поворотное основание 18.0..18.5, голова 3.2×2.2×3.4 стоит на нём (18.5..20.7)
+    kids.append(cyl("TurretBase", at(0, 18.25, 0), 0.5, 3.4, (48, 50, 54), "Metal"))
+    head = at(0, 19.6, 0)
+    kids += [
+        part("Head", (3.2, 2.2, 3.4), head, T_OLIVE, "Metal"),
+        part("Armor", (3.2, 1.3, 1), head * T(0, -0.45, -2.2), (80, 92, 68), "Metal", cls="WedgePart"),
+        part("Eye", (1.6, 0.26, 0.16), head * T(0, 0.85, -1.76), (255, 50, 40), "Neon"),
+        part("Scope", (1.7, 0.44, 0.44), head * T(0.95, 1.32, -0.45) * ALONG_Z, (30, 32, 34), "Metal", shape="Cylinder"),
+        cyl("Antenna", head * T(-1.2, 2.4, 1.3), 2.6, 0.1, (30, 32, 34), "Metal"),
+        # ящик с патронами слева, лента уходит в бок головы
+        part("AmmoBox", (0.9, 1.2, 1.6), head * T(-2.05, -0.5, 0.1), (92, 100, 64), "Metal"),
+        strip("AmmoBelt", head.point((-2.0, 0.14, 0.3)), head.point((-1.5, 0.48, -0.45)), 0.5, 0.08, (196, 156, 66), "Metal"),
+    ]
+    # спаренные стволы: из головы вниз к центру участка (только тангаж)
+    gun = look_at(head.point((0, 0.3, -1.2)), (center[0], FLOOR + 6, center[2]))
+    for sx in (-0.6, 0.6):
+        g = gun * T(sx, 0, 0)
+        kids += [
+            part("Jacket", (4.2, 0.8, 0.8), g * T(0, 0, -1.7) * ALONG_Z, (44, 46, 48), "DiamondPlate", shape="Cylinder"),
+            part("Barrel", (1.95, 0.36, 0.36), g * T(0, 0, -4.475) * ALONG_Z, (28, 30, 32), "Metal", shape="Cylinder"),
+            part("Brake", (0.5, 0.48, 0.48), g * T(0, 0, -4.9) * ALONG_Z, (70, 72, 76), "Metal", shape="Cylinder"),
+        ]
+    muzzle_pos = gun.point((0, 0, -5.45))
+    # прожектор на правом боку головы, светит вниз на участок
+    lamp = look_at(head.point((2.05, 0.35, -0.55)), tcf.point((2.05, FLOOR, -dist * 0.6))) * ALONG_Z
+    kids += [
+        part("Searchlight", (1.1, 0.9, 0.9), lamp, T_DARK, "Metal", shape="Cylinder",
+             children=[light("SpotLight", rng_=45, brightness=3, color=(255, 236, 200), angle=50, face="Right")]),
+        part("Lens", (0.1, 0.72, 0.72), lamp * T(0.57, 0, 0), (255, 240, 205), "Neon", shape="Cylinder"),
+    ]
+    check_supported(name, kids, tcf)
+    kids.append(part("Muzzle", (0.4, 0.4, 0.4), T(*muzzle_pos), (0, 0, 0), transparency=1, collide=False, shadow=False,
+                     props={"CanQuery": False, "CanTouch": False}))
+    return model(name, kids), muzzle_pos
+
+
 # ---------------------------------------------------------------- УЧАСТКИ
 def build_plot(i, a, layout):
     center = (math.cos(a) * PLOT_R, FLOOR, math.sin(a) * PLOT_R)
@@ -461,22 +578,9 @@ def build_plot(i, a, layout):
     towers = []
     muzzles = []
     for k, (x, z) in enumerate(((-46, -46), (46, -46), (-46, 46), (46, 46))):
-        base = pcf.point((x, 0, z))
-        head_pos = (base[0], FLOOR + 15.2, base[2])
-        head_cf = look_at(head_pos, (center[0], FLOOR + 6, center[2]))
-        muzzle_pos = head_cf.point((0, 0.2, -5.6))
+        tower, muzzle_pos = build_tower("Tower%d" % (k + 1), pcf.point((x, 0, z)), center)
+        towers.append(tower)
         muzzles.append(muzzle_pos)
-        towers.append(model("Tower%d" % (k + 1), [
-            cyl("Pillar", T(base[0], FLOOR + 5, base[2]), 14, 5, (118, 118, 116), "Concrete"),
-            cyl("Ring", T(base[0], FLOOR + 10, base[2]), 1, 5.6, (240, 190, 40), "Metal"),
-            part("Platform", (7, 1, 7), T(base[0], FLOOR + 12.5, base[2]), (60, 64, 70), "DiamondPlate"),
-            part("Head", (3.4, 2.4, 3.6), head_cf, (54, 60, 54), "Metal"),
-            part("Barrel", (4.4, 0.7, 0.7), head_cf * T(0, 0.2, -3.6) * ALONG_Z, (30, 32, 34), "Metal", shape="Cylinder"),
-            part("Barrel2", (3.4, 0.5, 0.5), head_cf * T(0.9, -0.5, -3.1) * ALONG_Z, (30, 32, 34), "Metal", shape="Cylinder"),
-            part("Eye", (0.8, 0.4, 0.2), head_cf * T(0, 0.9, -1.85), (255, 50, 40), "Neon"),
-            part("Muzzle", (0.4, 0.4, 0.4), T(*muzzle_pos), (0, 0, 0), transparency=1, collide=False, shadow=False,
-                 props={"CanQuery": False, "CanTouch": False}),
-        ]))
     kids.append(folder("Towers", towers))
     kids.append(folder("Blocks", []))
     kids.append(folder("Effects", []))

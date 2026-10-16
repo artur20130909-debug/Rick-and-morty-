@@ -352,6 +352,15 @@ function buildBlock(b, worldMatrix, plotColor, opts = {}) {
   let matName, shape;
   if (b.item > 0) { const info = ITEM_INFO[b.item]; matName = info[1]; shape = info[2]; } else { matName = MAT_INFO[b.mat]; shape = SHAPES[b.shape]; }
   const color = opts.char ? lerpColor(b.color, COLOR_CHAR, opts.char) : b.color;
+  if (b.item === 6) { // дверь: коробка + полотно с филёнками и ручкой (как BlockFactory.buildDoor)
+    const [w, h, d] = b.size, t = 0.35, dark = color.map(v => Math.round(v * 0.75));
+    const add = (size, off, mn, col) => { const m = partMesh('Block', size, mn, col); placeMesh(m, worldMatrix.clone().multiply(new THREE.Matrix4().makeTranslation(...off))); meshes.push(m); };
+    add([t, h, d], [-w / 2 + t / 2, 0, 0], 'Wood', dark); add([t, h, d], [w / 2 - t / 2, 0, 0], 'Wood', dark); add([w, t, d], [0, h / 2 - t / 2, 0], 'Wood', dark);
+    const lw = w - 2 * t, lh = h - t;
+    add([lw, lh, 0.3], [0, -t / 2, 0], 'WoodPlanks', color);
+    for (const z of [-0.18, 0.18]) { add([lw * 0.62, lh * 0.3, 0.06], [0, -t / 2 - lh * 0.2, z], 'WoodPlanks', dark); add([lw * 0.35, lh * 0.18, 0.06], [0, -t / 2 + lh * 0.25, z], 'Glass', [170, 214, 235]); add([0.2, 0.2, 0.25], [lw / 2 - 0.45, -t / 2, z * 1.6], 'Metal', [220, 190, 90]); }
+    return meshes;
+  }
   const main = partMesh(shape, b.size, matName, color, opts.ghost ? 0.55 : (MAT_TRANSP[b.mat] && !b.item ? MAT_TRANSP[b.mat] : 0), MAT_REFL[b.mat] || 0);
   placeMesh(main, worldMatrix); meshes.push(main);
   if (b.item > 0) {
@@ -821,6 +830,14 @@ const scenes = {
     focusShadows(plotPoint(3, 0, 0, -40), 110);
     hudTop(12450, 21); hudMenu(); launchBar();
     toast('Испытание! Колёс: 8, двигателей: 0', 'var(--info)');
+  },
+  house() {
+    setSun(42, 150); updateEnv();
+    placeBuild(6, HUT); placeBuild(1, ROBOT); clouds();
+    character(plotPoint(6, 3, 0, -24), 200, { torso: [196, 40, 28], legs: [27, 42, 53] });
+    look(plotPoint(6, -30, 20, -52), plotPoint(6, 2, 7, 0));
+    focusShadows(plotPoint(6, 0, 0, 0), 90);
+    hudTop(500, 170); hudMenu(); hudHotbar(null);
   },
   shop() {
     setSun(48, 195); updateEnv(); defaultWorld();

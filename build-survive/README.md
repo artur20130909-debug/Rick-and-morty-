@@ -16,7 +16,7 @@
 | ![Ракетная осада](assets/screenshots/03_missile_siege.jpg) | ![Ядерная бомба на парашюте](assets/screenshots/04_nuke_incoming.jpg) |
 | ![Ядерный взрыв](assets/screenshots/05_nuke_blast.jpg) | ![Орбитальный лазер](assets/screenshots/06_orbital_laser.jpg) |
 | ![Испытание танка](assets/screenshots/07_tank_test.jpg) | ![Магазин](assets/screenshots/08_shop.jpg) |
-| ![Меню осады](assets/screenshots/09_siege_menu.jpg) | |
+| ![Меню осады](assets/screenshots/09_siege_menu.jpg) | ![Стартовый дом](assets/screenshots/10_starter_house.jpg) |
 
 ## Как открыть
 1. Roblox Studio → **File → Open from File** → `BuildAndSurvive.rbxlx`.

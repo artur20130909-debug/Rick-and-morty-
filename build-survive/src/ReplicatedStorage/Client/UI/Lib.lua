@@ -159,6 +159,34 @@ function Lib.setButtonColor(b: GuiObject, color: Color3)
 	Lib.tween(b, 0.15, { BackgroundColor3 = color })
 end
 
+-- Подсветка обводкой (выбранная карточка, активная кнопка)
+function Lib.setStroke(obj: GuiObject, on: boolean, color: Color3?)
+	local stroke = obj:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		stroke.Color = if on then color or Theme.Accent else Theme.Stroke
+		stroke.Transparency = if on then 0 else 0.82
+		stroke.Thickness = if on then 3 else 1.5
+	end
+end
+
+-- Шкала: тёмная дорожка и цветная заливка (длина заливки — Size.X.Scale от 0 до 1)
+function Lib.bar(color: Color3, height: number?): (Frame, Frame)
+	local h = height or 8
+	local track = new("Frame", {
+		Size = UDim2.new(1, 0, 0, h),
+		BackgroundColor3 = Theme.Bg,
+		BorderSizePixel = 0,
+	}, { Lib.corner(h / 2) })
+	local fill = new("Frame", {
+		Name = "Fill",
+		Size = UDim2.fromScale(0, 1),
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+		Parent = track,
+	}, { Lib.corner(h / 2), Lib.gradient(Color3.new(1, 1, 1), Color3.fromRGB(185, 185, 195), 90) })
+	return track, fill
+end
+
 -- Модальное окно по центру экрана с заголовком и крестиком
 function Lib.modal(parent: Instance, title: string, size: Vector2, onClose: (() -> ())?): (Frame, Frame)
 	local shade = new("TextButton", {

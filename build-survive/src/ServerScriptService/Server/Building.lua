@@ -223,6 +223,16 @@ function Building.delete(player: Player, block: any): (boolean, string?)
 	return true, nil
 end
 
+-- Перекрасить блок вместе с декором (детали с Tint) и светом лампы
+local function setColor(part: BasePart, color: Color3)
+	BlockFactory.applyColor(part, color)
+	part:SetAttribute("BaseColor", color)
+	local light = part:FindFirstChildOfClass("PointLight")
+	if light and part:GetAttribute("Item") == Blocks.ItemByKey.Lamp.id then
+		light.Color = color
+	end
+end
+
 function Building.paint(player: Player, block: any, color: any): (boolean, string?)
 	local plot, part = ownBlock(player, block)
 	if not plot or not part or typeof(color) ~= "Color3" then
@@ -237,12 +247,7 @@ function Building.paint(player: Player, block: any, color: any): (boolean, strin
 		return true, nil
 	end
 	pushUndo(plot, { type = "paint", block = part, color = old })
-	part.Color = color
-	part:SetAttribute("BaseColor", color)
-	local light = part:FindFirstChildOfClass("PointLight")
-	if light and part:GetAttribute("Item") == Blocks.ItemByKey.Lamp.id then
-		light.Color = color
-	end
+	setColor(part, color)
 	return true, nil
 end
 
@@ -315,8 +320,7 @@ function Building.undo(player: Player): (boolean, string?)
 	elseif action.type == "paint" then
 		local b = action.block
 		if b and b.Parent == plot.blocks then
-			b.Color = action.color
-			b:SetAttribute("BaseColor", action.color)
+			setColor(b, action.color)
 		end
 	elseif action.type == "clear" then
 		Building.clear(plot)

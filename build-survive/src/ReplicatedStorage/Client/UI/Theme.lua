@@ -24,6 +24,13 @@ Theme.Info = Color3.fromRGB(86, 168, 255)
 Theme.Purple = Color3.fromRGB(160, 110, 255)
 Theme.Gold = Color3.fromRGB(255, 206, 64)
 
+-- редкость блоков в магазине (зависит от цены)
+Theme.RarityCommon = Color3.fromRGB(158, 166, 186)
+Theme.RarityUncommon = Color3.fromRGB(86, 214, 104)
+Theme.RarityRare = Color3.fromRGB(64, 156, 255)
+Theme.RarityEpic = Color3.fromRGB(178, 92, 255)
+Theme.RarityLegendary = Color3.fromRGB(255, 184, 40)
+
 Theme.PanelTransparency = 0.08
 Theme.Radius = UDim.new(0, 14)
 

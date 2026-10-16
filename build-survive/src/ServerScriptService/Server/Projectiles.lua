@@ -276,7 +276,7 @@ local function stepOne(p: Proj, dt: number)
 			if not p.rolled[turret] and (turret.Position - newPos).Magnitude < Blocks.AARange and Specials.aaReady(turret) then
 				p.rolled[turret] = true
 				Specials.aaFired(turret)
-				Net.event("AAShot"):FireAllClients({ from = turret.Position + Vector3.new(0, 2.5, 0), to = newPos })
+				Net.event("AAShot"):FireAllClients({ from = turret.CFrame:PointToWorldSpace(Vector3.new(0, 3.3, -1.9)), to = newPos })
 				if rng:NextNumber() < w.aa then
 					detonate(p, newPos, nil, { intercepted = true, air = true })
 					return
@@ -289,7 +289,7 @@ local function stepOne(p: Proj, dt: number)
 		for _, turret in Specials.aaTurrets(p.plot) do
 			if (turret.Position - newPos).Magnitude < Blocks.AARange and Specials.aaReady(turret) then
 				Specials.aaFired(turret)
-				Net.event("AAShot"):FireAllClients({ from = turret.Position + Vector3.new(0, 2.5, 0), to = newPos })
+				Net.event("AAShot"):FireAllClients({ from = turret.CFrame:PointToWorldSpace(Vector3.new(0, 3.3, -1.9)), to = newPos })
 				detonate(p, newPos, nil, { intercepted = true, air = true })
 				return
 			end

@@ -4,6 +4,7 @@ local TweenService = game:GetService("TweenService")
 
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Blocks = require(Shared.Blocks)
+local BlockFactory = require(Shared.BlockFactory)
 local Net = require(Shared.Net)
 
 local Plots = require(script.Parent.Plots)
@@ -34,15 +35,45 @@ local ITEM_AA = Blocks.ItemByKey.AATurret.id
 local MAT_CRYSTAL = Blocks.MaterialByKey.Crystal.id
 
 -- ДВЕРИ ---------------------------------------------------------------------------
-local function toggleDoor(door: BasePart)
+local DOOR_SWING = math.rad(95)
+local DOOR_TWEEN = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- Полотно поворачивается на петлях (Weld "DoorHinge": C0 — ось петель) — от того, кто открыл.
+-- Открытая дверь не мешает ходить; закрытая снова твёрдая, когда полотно встанет на место.
+local function toggleDoor(door: BasePart, player: Player?)
 	local open = not door:GetAttribute("Open")
 	door:SetAttribute("Open", open)
-	door.CanCollide = not open
-	door.Transparency = open and 0.75 or 0
 	local prompt = door:FindFirstChild("DoorPrompt") :: ProximityPrompt?
 	if prompt then
 		prompt.ActionText = open and "Закрыть" or "Открыть"
 	end
+	local leaf = door:FindFirstChild("DoorLeaf") :: BasePart?
+	if not leaf then
+		return
+	end
+	local hinge = leaf:FindFirstChild("DoorHinge") :: Weld?
+	if not hinge then
+		return
+	end
+	local goal = CFrame.new(hinge.C0.Position)
+	if open then
+		leaf.CanCollide = false
+		local sign = 1
+		local char = player and player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if root and root:IsA("BasePart") and door.CFrame:PointToObjectSpace(root.Position).Z > 0 then
+			sign = -1
+		end
+		goal *= CFrame.Angles(0, sign * DOOR_SWING, 0)
+	end
+	-- новый твин сам отменяет предыдущий (то же свойство C0)
+	local tween = TweenService:Create(hinge, DOOR_TWEEN, { C0 = goal })
+	tween.Completed:Connect(function(state: Enum.PlaybackState)
+		if state == Enum.PlaybackState.Completed and not door:GetAttribute("Open") and leaf.Parent then
+			leaf.CanCollide = true
+		end
+	end)
+	tween:Play()
 end
 
 -- ЩИТЫ ----------------------------------------------------------------------------
@@ -168,11 +199,11 @@ end
 
 -- ЦИКЛЫ ---------------------------------------------------------------------------
 function Specials.init()
-	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt, _player: Player)
+	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt, player: Player)
 		if prompt.Name == "DoorPrompt" then
 			local door = prompt.Parent
 			if door and door:IsA("BasePart") and door:GetAttribute("Item") == ITEM_DOOR then
-				toggleDoor(door)
+				toggleDoor(door, player)
 			end
 		end
 	end)
@@ -216,7 +247,7 @@ function Specials.init()
 								hp = math.min(maxHp, hp + maxHp * regen)
 								b:SetAttribute("Hp", hp)
 								local base = b:GetAttribute("BaseColor") or b.Color
-								b.Color = base:Lerp(Color3.fromRGB(28, 22, 18), (1 - hp / maxHp) * 0.7)
+								BlockFactory.applyColor(b, base:Lerp(Color3.fromRGB(28, 22, 18), (1 - hp / maxHp) * 0.7))
 							end
 						end
 					end

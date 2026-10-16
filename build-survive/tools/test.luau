@@ -219,15 +219,191 @@ for _, it in Blocks.Items do
 		if ok then
 			built += 1
 			check(part.ClassName == (it.class or "Part"), "класс " .. it.key)
-			for _, d in part:GetChildren() do
+			local solid = opts.ghost == nil and opts.preview == nil
+			for _, d in part:GetDescendants() do
 				if d:IsA("BasePart") then
-					check(d.CanQuery == false and d.CanCollide == false, "декор не мешает лучам: " .. it.key)
+					if d.Name == "DoorLeaf" then
+						-- полотно двери — твёрдое (кроме призрака и иконки), но лучи его не видят
+						check(d.CanQuery == false and d.CanCollide == solid, "полотно двери: столкновения только у настоящей двери")
+					else
+						check(d.CanQuery == false and d.CanCollide == false, "декор не мешает лучам: " .. it.key)
+					end
 				end
 			end
 		end
 	end
 end
 check(built == 18 * 5 + 12 * 3, "собрано блоков: " .. built)
+
+-- Габариты детали в мире (AABB) по CFrame и Size
+local function aabb(p)
+	local cf, s = p.CFrame, p.Size
+	local x, y, z = cf.XVector, cf.YVector, cf.ZVector
+	local h = Vector3.new(
+		math.abs(x.X) * s.X + math.abs(y.X) * s.Y + math.abs(z.X) * s.Z,
+		math.abs(x.Y) * s.X + math.abs(y.Y) * s.Y + math.abs(z.Y) * s.Z,
+		math.abs(x.Z) * s.X + math.abs(y.Z) * s.Y + math.abs(z.Z) * s.Z
+	) / 2
+	return { lo = cf.Position - h, hi = cf.Position + h, part = p }
+end
+local function touching(a, b, tol: number): boolean
+	return a.lo.X <= b.hi.X + tol and b.lo.X <= a.hi.X + tol
+		and a.lo.Y <= b.hi.Y + tol and b.lo.Y <= a.hi.Y + tol
+		and a.lo.Z <= b.hi.Z + tol and b.lo.Z <= a.hi.Z + tol
+end
+local function inside(a, b, tol: number): boolean
+	return a.lo.X >= b.lo.X - tol and a.lo.Y >= b.lo.Y - tol and a.lo.Z >= b.lo.Z - tol
+		and a.hi.X <= b.hi.X + tol and a.hi.Y <= b.hi.Y + tol and a.hi.Z <= b.hi.Z + tol
+end
+local function buildItem(key: string, size: any?, opts: any?)
+	local it = Blocks.ItemByKey[key]
+	local spec = { mat = 0, shape = 1, item = it.id, size = size or it.size, rot = 1, color = it.color }
+	return BlockFactory.build(spec, CFrame.new(3, 6, -2) * CFrame.Angles(0, math.rad(30), 0), opts or {})
+end
+local function decorOf(part)
+	local list = {}
+	for _, d in part:GetDescendants() do
+		if d:IsA("BasePart") then
+			table.insert(list, d)
+		end
+	end
+	return list
+end
+
+-- Декор не висит в воздухе: от главной детали до каждой детали можно дойти по касающимся
+-- габаритам (допуск 0.05)
+for _, it in Blocks.Items do
+	local part = buildItem(it.key)
+	local boxes = { aabb(part) }
+	for _, d in decorOf(part) do
+		table.insert(boxes, aabb(d))
+	end
+	local reached = { [1] = true }
+	local queue = { 1 }
+	while #queue > 0 do
+		local i = table.remove(queue)
+		for j = 1, #boxes do
+			if not reached[j] and touching(boxes[i], boxes[j], 0.05) then
+				reached[j] = true
+				table.insert(queue, j)
+			end
+		end
+	end
+	for j = 2, #boxes do
+		local d = boxes[j].part
+		check(reached[j] == true, it.key .. ": деталь висит в воздухе " .. d.Name .. " " .. tostring(d.Size)
+			.. " в " .. tostring(part.CFrame:PointToObjectSpace(d.CFrame.Position)))
+	end
+end
+
+-- Турель ПВО: каждая деталь касается другой детали или самого блока; не больше 16 деталей
+do
+	local turret = buildItem("AATurret")
+	local parts = decorOf(turret)
+	check(#parts <= 16 and #parts >= 10, "турель ПВО: деталей декора " .. #parts)
+	local boxes = { aabb(turret) }
+	for _, d in parts do
+		table.insert(boxes, aabb(d))
+	end
+	local wedges = 0
+	for i = 2, #boxes do
+		local ok = false
+		for j = 1, #boxes do
+			if j ~= i and touching(boxes[i], boxes[j], 0.05) then
+				ok = true
+				break
+			end
+		end
+		check(ok, "турель ПВО: деталь ни к чему не прилегает " .. tostring(boxes[i].part.Size))
+		if boxes[i].part.ClassName == "WedgePart" then
+			wedges += 1
+		end
+	end
+	check(wedges >= 1, "турель ПВО: есть наклонная броня")
+end
+
+-- Дверь: невидимая главная деталь, полотно на Weld, коробка и полотно красятся с блоком
+do
+	local door = buildItem("Door")
+	check(door.Transparency == 1 and door.CanCollide == false and door.CanQuery == true and door.CastShadow == false,
+		"дверь: главная деталь прозрачная, без столкновений, но видна лучам")
+	local leaf = door:FindFirstChild("DoorLeaf")
+	check(leaf ~= nil and leaf:IsA("BasePart"), "дверь: есть полотно DoorLeaf")
+	if leaf then
+		check(leaf.CanCollide == true and leaf.CanQuery == false and leaf.Massless == true, "дверь: полотно твёрдое, лучи его не видят")
+		local hinge = leaf:FindFirstChild("DoorHinge")
+		check(hinge ~= nil and hinge.ClassName == "Weld", "дверь: полотно держит Weld DoorHinge")
+		if hinge then
+			check(hinge.Part0 == door and hinge.Part1 == leaf, "дверь: Weld от блока к полотну")
+			local expected = door.CFrame * hinge.C0 * hinge.C1:Inverse()
+			check(vnear(leaf.CFrame.Position, expected.Position) and vnear(leaf.CFrame.LookVector, expected.LookVector),
+				"дверь: полотно стоит там, куда его ставит Weld")
+			-- открытая дверь (как в Specials): полотно уходит из проёма к петлям
+			local opened = door.CFrame * (CFrame.new(hinge.C0.Position) * CFrame.Angles(0, math.rad(95), 0)) * hinge.C1:Inverse()
+			local lp = door.CFrame:PointToObjectSpace(opened.Position)
+			local hp = hinge.C0.Position
+			check(math.abs(lp.X - hp.X) < 0.3 and math.abs(lp.Z) > leaf.Size.X * 0.45, "дверь: открытое полотно освобождает проём " .. tostring(lp))
+		end
+		check(inside(aabb(leaf), aabb(door), 0.01), "дверь: закрытое полотно внутри блока")
+		local onLeaf = 0
+		for _, d in leaf:GetDescendants() do
+			if d:IsA("BasePart") then
+				onLeaf += 1
+			end
+		end
+		check(onLeaf >= 8, "дверь: на полотне филёнки, окошко, ручка и петли: " .. onLeaf)
+	end
+	-- в призраке и иконке полотно без столкновений
+	for _, opts in { { ghost = true }, { preview = true } } do
+		local d2 = buildItem("Door", nil, opts)
+		local l2 = d2:FindFirstChild("DoorLeaf")
+		check(l2 ~= nil and l2.CanCollide == false, "дверь-призрак/иконка: полотно без столкновений")
+	end
+	-- дверь любого размера собирается, детали не вылезают за блок (кроме ручки)
+	for _, size in { Vector3.new(1, 1, 1), Vector3.new(2, 3, 1), Vector3.new(6, 9, 2), Vector3.new(16, 16, 16) } do
+		local ok, d = pcall(buildItem, "Door", size)
+		check(ok, "дверь " .. tostring(size) .. ": " .. tostring(d))
+		if ok then
+			for _, p in decorOf(d) do
+				check(p.Size.X > 0 and p.Size.Y > 0 and p.Size.Z > 0, "дверь " .. tostring(size) .. ": размер детали > 0")
+			end
+			local l = d:FindFirstChild("DoorLeaf")
+			check(l ~= nil and inside(aabb(l), aabb(d), 0.01), "дверь " .. tostring(size) .. ": полотно в проёме")
+		end
+	end
+
+	-- applyColor: блок и детали с Tint перекрашиваются, остальные — нет
+	local before = {}
+	for _, p in decorOf(door) do
+		before[p] = p.Color
+	end
+	local red = Color3.fromRGB(200, 40, 40)
+	BlockFactory.applyColor(door, red)
+	check(door.Color == red, "applyColor: цвет блока")
+	local tintedCount = 0
+	for _, p in decorOf(door) do
+		local k = p:GetAttribute("Tint")
+		if type(k) == "number" then
+			tintedCount += 1
+			local c = p.Color
+			check(near(c.R, math.min(red.R * k, 1), 0.01) and near(c.G, math.min(red.G * k, 1), 0.01) and near(c.B, math.min(red.B * k, 1), 0.01),
+				"applyColor: деталь с Tint " .. k .. " в цвет блока")
+		else
+			check(p.Color == before[p], "applyColor: деталь без Tint не меняется (" .. p.Name .. ")")
+		end
+	end
+	check(tintedCount >= 8, "дверь: полотно, филёнки и коробка помечены Tint: " .. tintedCount)
+	local leafTint = leaf and leaf:GetAttribute("Tint")
+	check(leafTint == 1, "дверь: полотно — цвет блока")
+	-- коробка темнее полотна
+	local darker = 0
+	for _, p in door:GetChildren() do
+		if p:IsA("BasePart") and p.Name == "Decor" and type(p:GetAttribute("Tint")) == "number" and p:GetAttribute("Tint") < 1 then
+			darker += 1
+		end
+	end
+	check(darker == 3, "дверь: коробка из трёх деталей темнее полотна: " .. darker)
+end
 
 -- Примеры построек: в сетке, внутри участка, без пересечений, колёса на что-то опираются
 local Examples = loadModule("Examples")
