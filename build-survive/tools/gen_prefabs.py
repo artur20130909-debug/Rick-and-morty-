@@ -35,17 +35,13 @@ ROTS = ge.ROTS
 rot_index = ge.rot_index
 extents = ge.extents
 
-# ---- каталог блоков (сверяется с Shared/Blocks.lua ниже) ----
-MAT = dict(ge.MAT)
-MAT_COLOR = dict(ge.MAT_COLOR)
-SHAPE = dict(ge.SHAPE)
-ITEM = dict(ge.ITEM)
-ITEM_SIZE = dict(ge.ITEM_SIZE)
-ITEM_COLOR = dict(ge.ITEM_COLOR)
-# охранник (id 13) — по спецификации v3, если его ещё нет в таблицах gen_examples
-ITEM.setdefault("Guard", 13)
-ITEM_SIZE.setdefault("Guard", (2, 5, 2))
-ITEM_COLOR.setdefault("Guard", (72, 86, 60))
+# ---- каталог блоков (сверяется с Shared/Blocks.lua в check_catalog) ----
+MAT = ge.MAT
+MAT_COLOR = ge.MAT_COLOR
+SHAPE = ge.SHAPE
+ITEM = ge.ITEM
+ITEM_SIZE = ge.ITEM_SIZE
+ITEM_COLOR = ge.ITEM_COLOR
 RESIZABLE_MIN = {"Door": (2, 5, 1), "Lamp": (1, 1, 1)}   # особые блоки, которым можно менять размер
 
 FACE = {"-z": 0, "+z": 180, "-x": 90, "+x": -90}  # куда смотрит перед детали (скат клина, лицо охранника)
@@ -55,6 +51,7 @@ HOUSE_XZ = 22                  # дом: x, z от -22 до 22
 HOUSE_TOP = 60                 # и не выше 60
 KIOSK_LO, KIOSK_HI = 24, 32    # бункер: на поверхности только павильон в углу участка
 MAX_PREFAB_BLOCKS = 650        # лимит блоков одной постройки
+MAX_SHADOW_LAMPS = 8           # лампы крупнее 1×1×1 светят с тенями (BlockFactory) — это дорого
 MAX_ITEM_SIZE = 16             # = Config.MaxBlockSize
 HEADROOM = 6                   # высота прохода (персонаж ~5 стадов)
 DOOR_HEADROOM = 7              # у дверей
@@ -84,17 +81,25 @@ def lua_config():
         return int(m.group(1))
     plot = re.search(r"Config\.PlotSize\s*=\s*Vector3\.new\((\d+),\s*(\d+),\s*(\d+)\)", src)
     assert plot, "Config.lua: PlotSize"
+    ug = re.search(r"Config\.Underground\s*=\s*\{([^}]*)\}", src)
+    assert ug, "Config.lua: Underground"
+
+    def ug_num(name):
+        m = re.search(r"\b" + name + r"\s*=\s*(\d+)", ug.group(1))
+        assert m, "Config.Underground: не найдено " + name
+        return int(m.group(1))
     return {
         "MaxBlocks": num(r"Config\.MaxBlocks\s*=\s*(\d+)"),
         "MaxBlockSize": num(r"Config\.MaxBlockSize\s*=\s*(\d+)"),
         "PlotSize": tuple(int(v) for v in plot.groups()),
-        "Depth": num(r"Depth\s*=\s*(\d+)"),
-        "Cell": num(r"Cell\s*=\s*(\d+)"),
+        "Depth": ug_num("Depth"),
+        "Cell": ug_num("Cell"),
     }
 
 
 CFG = lua_config()
 assert CFG["MaxBlockSize"] == MAX_ITEM_SIZE, CFG
+assert (CFG["Depth"], CFG["Cell"]) == (24, 4), CFG      # раскладка бункеров рассчитана на эту глубину
 HALF = CFG["PlotSize"][0] // 2               # 32
 CELL, DEPTH = CFG["Cell"], CFG["Depth"]       # 4, 24
 NX = CFG["PlotSize"][0] // CELL               # 16
@@ -105,7 +110,7 @@ assert CFG["PlotSize"][0] == CFG["PlotSize"][2] and COUNT % 4 == 0
 
 
 def check_catalog():
-    """Номера материалов и особых блоков совпадают с Shared/Blocks.lua (охранника там может ещё не быть)."""
+    """Номера материалов и особых блоков, их размеры и изменяемость совпадают с Shared/Blocks.lua."""
     src = read(os.path.join(SHARED, "Blocks.lua"))
     mats = dict((k, int(i)) for i, k in re.findall(r'\{\s*id\s*=\s*(\d+),\s*key\s*=\s*"(\w+)",\s*name\s*=\s*"[^"]*",\s*material', src))
     for k, i in MAT.items():
@@ -114,11 +119,8 @@ def check_catalog():
     found = {}
     for m in re.finditer(r'\{\s*id\s*=\s*(\d+),\s*key\s*=\s*"(\w+)"([^{}]*?)\},', items_src):
         found[m.group(2)] = (int(m.group(1)), m.group(3))
+    assert set(found) == set(ITEM), ("особые блоки", sorted(set(found) ^ set(ITEM)))
     for k, i in ITEM.items():
-        if k not in found:
-            assert k == "Guard", ("особый блок не найден в Blocks.lua", k)
-            print("  (в Blocks.lua пока нет охранника — беру id 13 и размер 2×5×2 из спецификации)")
-            continue
         fid, body = found[k]
         assert fid == i, ("особый блок", k, i, fid)
         size = re.search(r"size\s*=\s*Vector3\.new\(([^)]*)\)", body)
@@ -494,7 +496,8 @@ def validate(pf):
             assert lo[1] >= -DEPTH and hi[1] <= HOUSE_TOP, ("глубина", tag)
             assert -HALF <= lo[0] and hi[0] <= HALF and -HALF <= lo[2] and hi[2] <= HALF, ("вне участка", tag)
             if hi[1] > 0:
-                assert KIOSK_LO <= lo[0] and hi[0] <= KIOSK_HI and KIOSK_LO <= lo[2] and hi[2] <= KIOSK_HI, ("над землёй вне павильона", tag)
+                assert KIOSK_LO <= lo[0] and hi[0] <= KIOSK_HI and KIOSK_LO <= lo[2] and hi[2] <= KIOSK_HI, \
+                    ("над землёй вне павильона", tag)
             for i in cells_in_box(lo, hi):
                 assert i in pf.dug, ("блок в невыкопанной земле", tag, cell_coords(i))
     # пересечения (объём общей части коробок)
@@ -511,6 +514,10 @@ def validate(pf):
         assert not pf.dug, name
     else:
         assert pf.dug and dug_connected(pf.dug), (name, "выкопанные клетки не связаны с поверхностью")
+        # в верхнем слое копаем только под павильоном: остальной пол участка остаётся целым
+        top = [cell_coords(i) for i in pf.dug if cell_coords(i)[1] == 1]
+        kiosk_cells = range((KIOSK_LO + HALF) // CELL + 1, (KIOSK_HI + HALF) // CELL + 1)
+        assert all(ix in kiosk_cells and iz in kiosk_cells for ix, _, iz in top), (name, "дыра в полу вне павильона")
         assert decode_mask(encode_mask(pf.dug)) == pf.dug
         assert len(encode_mask(pf.dug)) == COUNT // 4
     # охрана и оборудование по уровням
@@ -518,6 +525,9 @@ def validate(pf):
     assert guards == 0 or pf.tier >= 4, (name, "охрана только с 4 уровня")
     assert aa == 0 or pf.tier >= 3, (name, "ПВО только с 3 уровня")
     assert shields == 0 or pf.tier >= 5, (name, "щит только на 5 уровне")
+    shadow_lamps = sum(1 for b in blocks if b["kind"] == "item" and b["key"] == "Lamp"
+                       and math.sqrt(sum(v * v for v in b["size"])) > 2)
+    assert shadow_lamps <= MAX_SHADOW_LAMPS, (name, "ламп с тенями", shadow_lamps)
     walk_check(pf)
 
 
@@ -578,7 +588,7 @@ def walk_check(pf):
                 if n not in seen and stand(*n):
                     seen.add(n)
                     queue.append(n)
-    pf.reach = seen
+    pf.reach = seen        # для отладки раскладки: куда игрок может дойти
     for label, (tx, ty, tz) in pf.targets:
         ok = any(tx - 1 <= x <= tx and tz - 1 <= z <= tz and y == ty for x, z, y in seen)
         assert ok, (pf.key, "не дойти до цели", label, (tx, ty, tz))
@@ -985,7 +995,9 @@ def brick_house():
     pf.box((-9, 1, 3), (-6, 3, 4), "Plastic", (66, 90, 124))
     table(pf, (-4, 1, -2), (-1, 3, 2), (120, 80, 50), DARK)
     pf.box((3, 1, -5), (8, 8, -4), "Wood", DARK)
-    for y, cs in ((1, ((190, 52, 48), (52, 92, 184), (60, 146, 82), (226, 184, 60))), (4, ((132, 72, 166), (230, 230, 220), (200, 90, 50), (60, 120, 160)))):
+    BOOKS = ((1, ((190, 52, 48), (52, 92, 184), (60, 146, 82), (226, 184, 60))),
+             (4, ((132, 72, 166), (230, 230, 220), (200, 90, 50), (60, 120, 160))))
+    for y, cs in BOOKS:
         for i, c in enumerate(cs):
             pf.box((4 + i, y + 1, -4), (5 + i, y + 3, -3), "Plastic", c)
     for y in (4, 7):
@@ -1153,7 +1165,8 @@ def cottage():
     for x0, x1 in ((-20, -6), (2, 10)):
         pf.box((x0, 0, -20), (x1, 1, -12), "Plastic", (98, 150, 70))
         for x in range(x0 + 8 if x0 < -6 else x0, x1, 2):
-            pf.part((x, 1, -13), (x + 1, 2, -12), "Plastic", ((230, 80, 100), (250, 210, 70), (160, 100, 220))[(x // 2) % 3], "Ball")
+            flower = ((230, 80, 100), (250, 210, 70), (160, 100, 220))[(x // 2) % 3]
+            pf.part((x, 1, -13), (x + 1, 2, -12), "Plastic", flower, "Ball")
     pf.cyl((-18, 1, -18), (-16, 8, -16), "Wood", "y", (104, 74, 48))
     pf.ball((-21, 8, -21), (-13, 16, -13), "Plastic", (80, 150, 66))
 
@@ -1348,18 +1361,14 @@ def mansion():
         pf.box((x, 1, -11), (x + 1, 31, -10), "Crystal", CRYS)
 
     # ---- четыре круглые башни по углам: титан, неоновые кольца, кристальные шпили
+    TOWER = ((3, 0, 11, "Steel", STEEL), (4, 11, 12, "Neon", PURPLE), (3, 12, 23, "Titanium", TI),
+             (4, 23, 24, "Neon", CYAN), (3, 24, 35, "Titanium", TI), (4, 35, 36, "Steel", STEEL),
+             (2, 36, 40, "Crystal", CRYS))                      # (радиус, низ, верх, материал, цвет)
     for cx in (-16, 16):
         for cz in (-10, 14):
-            lo = lambda r, y0: (cx - r, y0, cz - r)
-            hi = lambda r, y1: (cx + r, y1, cz + r)
-            pf.cyl(lo(3, 0), hi(3, 11), "Steel", "y", STEEL)
-            pf.cyl(lo(4, 11), hi(4, 12), "Neon", "y", PURPLE)
-            pf.cyl(lo(3, 12), hi(3, 23), "Titanium", "y", TI)
-            pf.cyl(lo(4, 23), hi(4, 24), "Neon", "y", CYAN)
-            pf.cyl(lo(3, 24), hi(3, 35), "Titanium", "y", TI)
-            pf.cyl(lo(4, 35), hi(4, 36), "Steel", "y", STEEL)
-            pf.cyl(lo(2, 36), hi(2, 40), "Crystal", "y", CRYS)
-            pf.ball(lo(1, 40), hi(1, 42), "Neon", PURPLE)
+            for r, y0, y1, mat, color in TOWER:
+                pf.cyl((cx - r, y0, cz - r), (cx + r, y1, cz + r), mat, "y", color)
+            pf.ball((cx - 1, 40, cz - 1), (cx + 1, 42, cz + 1), "Neon", PURPLE)
 
     # ---- фасад: вход 6×8 под козырьком на кристальных колоннах, ленточные окна
     door(pf, "z", -10, -9, -3, 3, 1, 8, (60, 66, 78))
@@ -1371,8 +1380,8 @@ def mansion():
         window(pf, "z", -10, -9, x0, x0 + 6, 4, 9, -1, None, glass="ArmorGlass", glass_color=AG)
     for y0, y1 in ((13, 18), (23, 28)):
         window(pf, "z", -10, -9, -11, 11, y0, y1, -1, None, glass="ArmorGlass", glass_color=AG)
-        for x in (-6, -1, 4):
-            pf.box((x, y0, -10), (x + 2 if x == -1 else x + 1, y1, -9), "Titanium", TI)
+        for x0, x1 in ((-6, -5), (-1, 1), (4, 5)):
+            pf.box((x0, y0, -10), (x1, y1, -9), "Titanium", TI)
         window(pf, "z", 13, 14, -11, 11, y0, y1, 1, None, glass="ArmorGlass", glass_color=AG)
         for x0 in (-16, 15):
             window(pf, "x", x0, x0 + 1, -5, 9, y0, y1, 1 if x0 > 0 else -1, None, glass="ArmorGlass", glass_color=AG)
@@ -1402,9 +1411,8 @@ def mansion():
     pf.box((-2, 1, 3), (2, 2, 7), "Neon", CYAN)
     pf.box((-1, 2, 4), (1, 5, 6), "Crystal", CRYS)
     pf.ball((-2, 5, 3), (2, 9, 7), "Crystal", CRYS)
-    for x0, face in ((8, "-x"),):
-        for z0 in (-2, 2, 6):
-            pf.item((x0 + 3, 1, z0), (x0 + 5, 2, z0 + 2), "Seat", (40, 42, 50), face=face)
+    for z0 in (-2, 2, 6):
+        pf.item((11, 1, z0), (13, 2, z0 + 2), "Seat", (40, 42, 50), face="-x")
     pf.box((14, 1, -3), (15, 5, 10), "Plastic", (40, 42, 50))
     pf.box((7, 1, 1), (10, 3, 7), "Titanium", TI)
     pf.box((-10, 1, 11), (8, 7, 13), "Steel", STEEL)                               # оружейная стойка
@@ -1414,7 +1422,7 @@ def mansion():
     pf.item((10, 3, 11), (12, 5, 13), "Medkit")
     for x0 in (-9, 4):
         pf.lamp((x0, 9, -4), (2, 1, 2), COOL)
-        pf.lamp((x0, 9, 5), (2, 1, 2), COOL)
+        pf.lamp((x0, 9, 5), color=COOL)
 
     # ---- второй этаж: командный зал — экран, стол, кресла
     pf.box((-7, 11, 12), (7, 19, 13), "Steel", DARK)
@@ -1427,7 +1435,7 @@ def mansion():
     pf.item((-11, 11, 10), (-9, 13, 12), "Medkit")
     for x0 in (-6, 4):
         pf.lamp((x0, 19, 0), (2, 1, 2), COOL)
-        pf.lamp((x0, 19, 8), (2, 1, 2), COOL)
+        pf.lamp((x0, 19, 8), color=COOL)
     # гостевая зона: диван у окна, ковёр, столик; бар напротив
     pf.box((-10, 11, -9), (-4, 13, -7), "Plastic", (52, 54, 62))
     pf.box((-10, 13, -9), (-4, 14, -8), "Plastic", (52, 54, 62))
@@ -1449,7 +1457,7 @@ def mansion():
     pf.box((6, 21, -8), (10, 23, -5), "Plastic", (60, 40, 90))
     for x0 in (-6, 4):
         pf.lamp((x0, 29, -2), (2, 1, 2), COOL)
-        pf.lamp((x0, 29, 6), (2, 1, 2), COOL)
+        pf.lamp((x0, 29, 6), color=COOL)
 
     # ---- крыша: будка над лестницей, площадка с «H», турели, щит, охрана, зубцы
     pf.box((-15, 31, -10), (16, 33, -9), "Titanium", TI)
@@ -1483,6 +1491,422 @@ def mansion():
     return pf
 
 
+# ================================================================ БУНКЕРЫ
+# Вход у всех бункеров одинаковый: павильон 8×8 в углу участка (x, z от 24 до 32), дверь шириной 3
+# на южной стене (x 25..28). За дверью — лестничная шахта под павильоном: марш вниз на север
+# (x 25..28) до площадки на −6, разворот и второй марш на юг (x 29..32) до −11; дальше коридор
+# уходит на юг вдоль восточного края участка (внутри x 29..32, западная облицовка — x 28..29).
+# Между маршами — стенка до +2.
+
+
+def dig_box(pf, lo, hi):
+    """Выкопать клетки ровно по коробке (границы — по сетке клеток)."""
+    for i in range(3):
+        assert (lo[i] - (0 if i == 1 else -HALF)) % CELL == 0 and (hi[i] - (0 if i == 1 else -HALF)) % CELL == 0, (pf.key, lo, hi)
+    pf.dig_box(lo, hi)
+
+
+def kiosk_shaft(pf, stair, mass, divider, sill):
+    """Шахта под павильоном: облицовка, два марша с площадкой, стенка между маршами.
+    stair — цвета ступеней (материал, (цвет, цвет)); mass, divider, sill — (материал, цвет)."""
+    dig_box(pf, (24, -12, 24), (32, 0, 32))
+    smat, scolors = stair
+    for k in range(5):                                    # марш вниз на север, ступени −1..−5
+        pf.box((25, -12, 25 + k), (28, -1 - k, 26 + k), smat, scolors[k % 2])
+    pf.box((25, -12, 30), (32, -6, 32), smat, scolors[1])  # площадка −6
+    for k in range(5):                                    # марш вниз на юг, ступени −7..−11
+        pf.box((29, -12, 29 - k), (32, -7 - k, 30 - k), smat, scolors[k % 2])
+    pf.box((29, -12, 24), (32, -11, 25), smat, scolors[1])
+    pf.box((24, -12, 24), (25, 0, 32), *mass)               # облицовка под западной стеной
+    pf.box((25, -12, 24), (29, -1, 25), *mass)              # и под южной (порог — отдельно)
+    pf.box((28, -12, 24), (29, 2, 30), *divider)
+    pf.box((25, -1, 24), (28, 0, 25), *sill)
+    pf.box((29, -1, 24), (32, 0, 25), *mass)                # балка под южной стеной над проходом
+    pf.start = (25, 0, 19)
+
+
+def kiosk_walls(pf, mat, color, door_color, height=8):
+    """Стены павильона высотой height с дверью 3×7 на юг."""
+    walls(pf, (24, 0, 24), (32, height, 32), mat, color)
+    door(pf, "z", 24, 25, 25, 28, 0, 7, door_color)
+
+
+def room(pf, lo, hi, floor=None, wall=None, ceil=None, skip=(), dig=True):
+    """Комната под землёй: копает клетки (dig) и кладёт облицовку — каждая (материал, цвет) или None:
+    пол толщиной 1, стены по периметру (кроме сторон skip: "-x", "+x", "-z", "+z"), потолок."""
+    if dig:
+        dig_box(pf, lo, hi)
+    (x0, y0, z0), (x1, y1, z1) = lo, hi
+    yb = y0 + 1 if floor else y0
+    yt = y1 - 1 if ceil else y1
+    if floor:
+        pf.box((x0, y0, z0), (x1, y0 + 1, z1), *floor)
+    if ceil:
+        pf.box((x0, y1 - 1, z0), (x1, y1, z1), *ceil)
+    if wall:
+        sides = {"-z": ((x0, yb, z0), (x1, yt, z0 + 1)), "+z": ((x0, yb, z1 - 1), (x1, yt, z1)),
+                 "-x": ((x0, yb, z0), (x0 + 1, yt, z1)), "+x": ((x1 - 1, yb, z0), (x1, yt, z1))}
+        for side, (a, b) in sides.items():
+            if side not in skip:
+                pf.box(a, b, *wall)
+
+
+def cellar():
+    pf = Prefab("Cellar", "bunker", 1, "Погреб", "🕳",
+                "Деревянная будка в углу участка, а под ней — погреб с полками, бочками и мешками. "
+                "Земля сверху защищает от взрывов.",
+                ["Будка с дверью и лестницей вниз", "Погреб 12×12 под землёй", "Полки, бочки и мешки",
+                 "Фонари"])
+    WOOD = (150, 106, 66)
+    DARK = (92, 62, 40)
+    PLANK = (132, 92, 56)
+    WARM = (255, 210, 140)
+    # будка: дощатые стены, двускатная крыша, фонарь у двери, окошко
+    kiosk_shaft(pf, ("Wood", ((156, 112, 70), (140, 98, 60))), ("Wood", DARK), ("Wood", PLANK), ("Wood", DARK))
+    kiosk_walls(pf, "Wood", WOOD, (120, 82, 50), height=7)
+    for y in (2, 5):
+        walls(pf, (24, y, 24), (32, y + 1, 32), "Wood", (134, 94, 58))
+    for x in (24, 31):
+        for z in (24, 31):
+            pf.box((x, 0, z), (x + 1, 7, z + 1), "Wood", DARK)
+    gable_roof(pf, "z", (24, 24), (32, 32), 7, 1, 1, ((96, 72, 54), (84, 62, 46)), fill=("Wood", PLANK),
+               fill_lo=(24, 24), fill_hi=(32, 32))
+    window(pf, "x", 24, 25, 28, 30, 3, 5, -1, None)
+    pf.lamp((29, 5, 24), color=WARM)
+    pf.lamp((26, 5, 29), color=WARM)
+    # погреб 12×12 под будкой и южнее: земляные стены, дощатый пол, опоры и балки
+    dig_box(pf, (20, -12, 12), (32, -4, 24))
+    pf.box((20, -12, 12), (32, -11, 24), "Wood", PLANK)
+    for x, z in ((20, 12), (20, 23), (31, 12), (20, 17), (31, 17)):
+        pf.box((x, -11, z), (x + 1, -5, z + 1), "Wood", DARK)
+    for z in (12, 17):
+        pf.box((20, -5, z), (32, -4, z + 1), "Wood", DARK)
+    pf.box((20, -5, 23), (29, -4, 24), "Wood", DARK)
+    # полки с банками у западной стены
+    for y in (-11, -8):
+        pf.box((21, y + 2, 13), (23, y + 3, 23), "Wood", PLANK)
+    for z, c in zip(range(14, 23, 2), ((200, 60, 50), (230, 180, 60), (90, 160, 70), (200, 120, 60), (150, 80, 160))):
+        pf.ball((21, -8, z), (22, -7, z + 1), "Glass", c)
+        pf.cyl((22, -5, z), (23, -4, z + 1), "Glass", "y", c)
+    # бочки и мешки
+    for x, z in ((24, 13), (27, 13)):
+        pf.cyl((x, -11, z), (x + 3, -7, z + 3), "Wood", "y", (120, 80, 48))
+    for x in (24, 26, 28):
+        pf.box((x, -11, 21), (x + 2, -9, 23), "Sandbag", (190, 166, 118))
+    pf.box((25, -9, 21), (27, -8, 23), "Sandbag", (176, 152, 106))
+    pf.lamp((25, -6, 17), color=WARM)
+    pf.lamp((30, -6, 13), color=WARM)
+    pf.targets = [("погреб", (25, -11, 18))]
+    return pf
+
+
+def corridor(pf, z0, floor, wall, steps_colors, ceil=None):
+    """Коридор под шахтой вдоль восточного края (x 28..32) от z = 24 на юг до z0, на слоях 2–4:
+    четыре ступени вниз до −15, дальше ровный пол; западная облицовка x 28..29."""
+    dig_box(pf, (28, -16, z0), (32, -4, 24))
+    for k in range(4):
+        pf.box((29, -16, 23 - k), (32, -12 - k, 24 - k), floor[0], steps_colors[k % 2])
+    pf.box((29, -16, z0), (32, -15, 20), *floor)
+    pf.box((28, -16, z0), (29, -4 if not ceil else -5, 24), *wall)
+    if ceil:
+        pf.box((28, -5, z0), (32, -4, 24), *ceil)
+
+
+def bunk(pf, x0, z0, x1, z1, frame, mattress, blanket):
+    """Двухъярусная кровать: стойки по углам, два матраса с одеялами (низ — на y = −15)."""
+    for x in (x0, x1 - 1):
+        for z in (z0, z1 - 1):
+            pf.box((x, -15, z), (x + 1, -8, z + 1), *frame)
+    for y in (-14, -10):
+        pf.box((x0, y, z0), (x1, y + 1, z1), *frame)
+        pf.box((x0, y + 1, z0), (x1, y + 2, z1), *mattress)
+        pf.box((x0, y + 1, z0 + 1), (x1, y + 2, z1 - 2), *blanket)
+
+
+def shelter():
+    pf = Prefab("Shelter", "bunker", 2, "Бетонное убежище", "🛡",
+                "Бетонная будка с железной дверью и убежище под землёй: койки, запасы воды и еды, "
+                "аптечка. Бетон и земля держат даже сильные взрывы.",
+                ["Бетонный вход с железной дверью", "Убежище 16×12 на глубине 16", "4 койки, стол и запасы",
+                 "Аптечка и свет"])
+    CON = (156, 156, 150)
+    DARKC = (112, 112, 108)
+    STEEL = (92, 98, 106)
+    YEL = (240, 196, 40)
+    BLK = (36, 36, 38)
+    COOL = (236, 240, 230)
+    # будка: бетон, железная дверь в жёлто-чёрной раме, вентиляция и мигалка на крыше
+    kiosk_shaft(pf, ("Concrete", ((176, 176, 170), (162, 162, 156))), ("Concrete", DARKC), ("Concrete", CON),
+                ("Steel", STEEL))
+    kiosk_walls(pf, "Concrete", CON, STEEL)
+    pf.box((24, 8, 24), (32, 9, 32), "Concrete", DARKC)
+    pf.box((25, 9, 25), (31, 10, 31), "Concrete", CON)
+    for x in (24, 28):
+        for y in range(0, 8):
+            pf.box((x, y, 24), (x + 1, y + 1, 25), "Plastic", YEL if y % 2 == 0 else BLK)
+    for x in range(25, 28):
+        pf.box((x, 7, 24), (x + 1, 8, 25), "Plastic", YEL if x % 2 == 0 else BLK)
+    for x, z in ((26, 29), (29, 26)):
+        pf.cyl((x, 10, z), (x + 1, 13, z + 1), "Metal", "y", (150, 154, 160))
+        pf.box((x - 1, 13, z - 1), (x + 2, 14, z + 2), "Metal", (150, 154, 160))
+    pf.lamp((28, 10, 28), color=(255, 60, 40))
+    pf.lamp((29, 5, 31), color=COOL)
+    # коридор и убежище: бетонная облицовка, пол, потолок
+    corridor(pf, 16, ("Concrete", DARKC), ("Concrete", CON), ((176, 176, 170), (162, 162, 156)))
+    room(pf, (16, -16, 4), (32, -4, 16), ("Concrete", DARKC), ("Concrete", CON), ("Concrete", CON), skip=("+x",))
+    door(pf, "z", 15, 16, 29, 32, -15, 7, STEEL, at="hi")
+    pf.lamp((29, -7, 19), color=COOL)
+    # койки у западной стены, стол и табуреты, полка с запасами, бак с водой, аптечка
+    for z0 in (5, 10):
+        bunk(pf, 17, z0, 20, z0 + 5, ("Metal", (70, 84, 70)), ("Plastic", (220, 220, 210)), ("Plastic", (80, 104, 70)))
+    table(pf, (23, -15, 9), (26, -12, 12), (120, 90, 60), (70, 70, 74))
+    pf.item((23, -15, 12), (25, -14, 14), "Seat", (70, 70, 74), face="-z")
+    pf.item((26, -15, 9), (28, -14, 11), "Seat", (70, 70, 74), face="-x")
+    pf.box((24, -12, 10), (25, -11, 11), "Plastic", (60, 64, 60))
+    pf.box((21, -15, 5), (27, -9, 7), "Metal", (110, 114, 120))
+    for y in (-13, -11):
+        pf.box((21, y, 5), (27, y + 1, 7), "Metal", (140, 144, 150))
+    for i, c in enumerate(((200, 60, 50), (60, 120, 200), (220, 180, 60), (60, 160, 90), (200, 60, 50), (60, 120, 200))):
+        pf.cyl((21 + i, -12, 6), (22 + i, -11, 7), "Metal", "y", c)
+    pf.cyl((27, -15, 5), (31, -9, 9), "Plastic", "y", (70, 120, 190))
+    pf.box((29, -15, 10), (31, -12, 12), "Metal", (110, 114, 120))
+    pf.item((29, -12, 10), (31, -10, 12), "Medkit")
+    pf.cyl((17, -6, 13), (31, -5, 14), "Metal", "x", (150, 154, 160))
+    for x0, z0 in ((20, 8), (26, 8), (23, 11)):
+        pf.lamp((x0, -6, z0), (2, 1, 2), COOL)
+    pf.targets = [("убежище", (23, -15, 7))]
+    return pf
+
+
+def military_bunker():
+    pf = Prefab("MilitaryBunker", "bunker", 3, "Военный бункер", "🪖",
+                "Армейский дот с турелью ПВО на крыше, а под ним — бункер из брони и бетона: коридор, "
+                "казарма и оружейная.",
+                ["Дот с мешками и турелью ПВО", "Броня и бетон под землёй", "Коридор, казарма и оружейная",
+                 "Аптечка и свет"])
+    OLIVE = (118, 124, 96)
+    OLIVE2 = (98, 104, 80)
+    CON = (150, 150, 146)
+    STEEL = (88, 94, 102)
+    PLATE = (140, 146, 152)
+    SAND = (196, 172, 124)
+    COOL = (236, 240, 230)
+    KHAKI = (110, 120, 80)
+    # дот: оливковый бетон с пятнами, броневая крыша, мешки по краю, турель ПВО, флаг, антенна
+    kiosk_shaft(pf, ("Metal", (PLATE, (126, 132, 138))), ("Concrete", (110, 110, 106)), ("Steel", STEEL),
+                ("Steel", STEEL))
+    kiosk_walls(pf, "Concrete", OLIVE, (70, 78, 62), height=7)
+    for lo, hi in (((24, 1, 26), (25, 4, 30)), ((29, 3, 24), (32, 6, 25)), ((26, 2, 31), (30, 5, 32)), ((31, 1, 27), (32, 5, 30))):
+        pf.box(lo, hi, "Concrete", OLIVE2)
+    window(pf, "x", 24, 25, 26, 30, 4, 5, -1, None, glass="ArmorGlass")
+    window(pf, "z", 31, 32, 26, 30, 4, 5, 1, None, glass="ArmorGlass")
+    pf.box((24, 7, 24), (32, 8, 32), "Steel", STEEL)
+    walls(pf, (24, 8, 24), (32, 9, 32), "Sandbag", SAND)
+    pf.item((27, 8, 27), (30, 10, 30), "AATurret")
+    pf.item((24, 9, 31), (25, 17, 32), "Flag")
+    pf.cyl((31, 9, 31), (32, 15, 32), "Metal", "y", (60, 62, 66))
+    pf.lamp((29, 5, 24), color=COOL)
+    pf.lamp((29, 5, 31), color=COOL)
+    # коридор с броневым потолком; казарма и оружейная к западу от него
+    corridor(pf, 0, ("Metal", PLATE), ("Concrete", CON), (PLATE, (126, 132, 138)), ceil=("Steel", STEEL))
+    dig_box(pf, (12, -16, 0), (28, -4, 24))
+    room(pf, (12, -16, 0), (29, -4, 24), ("Concrete", (126, 126, 122)), ("Concrete", CON), ("Steel", STEEL), dig=False)
+    pf.box((13, -15, 12), (28, -5, 13), "Steel", STEEL)                            # стена между комнатами
+    door(pf, "x", 28, 29, 17, 20, -15, 7, (70, 78, 62), at="hi")
+    door(pf, "x", 28, 29, 5, 8, -15, 7, (70, 78, 62), at="hi")
+    for z in (22, 10, 2):
+        pf.lamp((30, -6, z), color=COOL)
+    # казарма: три двухъярусные койки, шкафчики, стол
+    for x0 in (13, 17, 21):
+        bunk(pf, x0, 18, x0 + 3, 23, ("Metal", (70, 84, 70)), ("Plastic", (220, 220, 210)), ("Plastic", KHAKI))
+    for z0 in (13, 15):
+        pf.box((13, -15, z0), (15, -8, z0 + 2), "Metal", (90, 104, 84))
+    table(pf, (19, -15, 14), (23, -12, 16), (120, 90, 60), (70, 70, 74))
+    pf.item((19, -15, 16), (21, -14, 18), "Seat", (70, 70, 74), face="-z")
+    pf.item((21, -15, 16), (23, -14, 18), "Seat", (70, 70, 74), face="-z")
+    for x0 in (16, 22):
+        pf.lamp((x0, -6, 17), (2, 1, 2), COOL)
+    # оружейная: стойки с автоматами, ящики с патронами, мешки, стол с картой, аптечка
+    pf.box((13, -15, 1), (27, -14, 3), "Steel", STEEL)
+    pf.box((13, -14, 1), (27, -8, 2), "Steel", STEEL)
+    for x in range(14, 27, 2):
+        pf.box((x, -13, 2), (x + 1, -9, 3), "Metal", (40, 42, 46))
+    for x0, z0 in ((13, 8), (16, 8), (13, 5)):
+        pf.box((x0, -15, z0), (x0 + 3, -13, z0 + 3), "Wood", (104, 112, 70))
+        pf.box((x0, -13, z0 + 1), (x0 + 3, -12, z0 + 2), "Plastic", (200, 180, 70))
+    pf.box((16, -15, 5), (18, -13, 7), "Sandbag", SAND)
+    table(pf, (20, -15, 6), (25, -12, 10), (70, 110, 80), (70, 70, 74))
+    pf.box((21, -12, 7), (24, -11, 9), "Plastic", (220, 210, 170))
+    pf.box((25, -15, 10), (27, -13, 12), "Steel", STEEL)
+    pf.item((25, -13, 10), (27, -11, 12), "Medkit")
+    for x0 in (16, 22):
+        pf.lamp((x0, -6, 5), (2, 1, 2), COOL)
+    pf.targets = [("коридор", (30, -15, 3)), ("казарма", (24, -15, 14)), ("оружейная", (21, -15, 4))]
+    return pf
+
+
+def screen(pf, normal, w0, a0, a1, y0, y1, glow, frame):
+    """Настенный экран: тёмная рамка и светящаяся панель (толщина 1 — в слое w0..w0+1)."""
+    pf.box(*wall_box(normal, w0, w0 + 1, a0, a1, y0, y1), "Steel", frame)
+    pf.box(*wall_box(normal, w0, w0 + 1, a0 + 1, a1 - 1, y0 + 1, y1 - 1), "Neon", glow)
+
+
+def command_bunker():
+    pf = Prefab("CommandBunker", "bunker", 4, "Командный бункер", "📡",
+                "Командный пункт из свинца и титана: зал с неоновыми экранами и голограммой, казарма "
+                "и медпункт. На крыше входа — турель ПВО и два охранника.",
+                ["Свинец и титан — защита от радиации", "Командный зал с экранами",
+                 "Казарма и медпункт", "Турель ПВО и 2 охранника", "Две аптечки"])
+    LEAD = (96, 102, 124)
+    TI = (206, 210, 220)
+    DARK = (40, 42, 50)
+    CYAN = (90, 230, 255)
+    GREEN = (80, 255, 140)
+    COOL = (226, 240, 255)
+    # вход: свинцовые стены, титановые углы, неоновая полоса, на крыше турель, охрана и антенна
+    kiosk_shaft(pf, ("Titanium", (TI, (184, 190, 200))), ("Lead", LEAD), ("Titanium", TI), ("Titanium", TI))
+    kiosk_walls(pf, "Lead", LEAD, (70, 76, 92))
+    for x in (24, 31):
+        for z in (24, 31):
+            pf.box((x, 0, z), (x + 1, 8, z + 1), "Titanium", TI)
+    for lo, hi in (((28, 6, 24), (31, 7, 25)), ((24, 6, 25), (25, 7, 31)), ((31, 6, 25), (32, 7, 31)), ((25, 6, 31), (31, 7, 32))):
+        pf.box(lo, hi, "Neon", CYAN)
+    window(pf, "x", 24, 25, 26, 30, 3, 5, -1, None, glass="ArmorGlass")
+    pf.box((24, 8, 24), (32, 9, 32), "Titanium", TI)
+    pf.item((27, 9, 28), (30, 11, 31), "AATurret")
+    pf.item((24, 9, 24), (26, 14, 26), "Guard")
+    pf.item((30, 9, 24), (32, 14, 26), "Guard")
+    pf.cyl((31, 9, 31), (32, 17, 32), "Metal", "y", DARK)
+    pf.ball((30, 17, 30), (32, 19, 32), "Neon", (255, 60, 50))
+    pf.lamp((25, 6, 29), color=COOL)
+    # коридор, командный зал и казарма
+    corridor(pf, -4, ("Titanium", (184, 190, 200)), ("Lead", LEAD), (TI, (184, 190, 200)), ceil=("Lead", LEAD))
+    dig_box(pf, (4, -16, -4), (28, -4, 24))
+    room(pf, (4, -16, 8), (29, -4, 24), ("Lead", (70, 74, 88)), ("Lead", LEAD), ("Lead", LEAD), dig=False)
+    room(pf, (4, -16, -4), (29, -4, 9), ("Lead", (70, 74, 88)), ("Lead", LEAD), ("Lead", LEAD), dig=False)
+    door(pf, "x", 28, 29, 14, 17, -15, 7, (70, 76, 92), at="hi")
+    door(pf, "x", 28, 29, 1, 4, -15, 7, (70, 76, 92), at="hi")
+    for z in (20, 10, 0):
+        pf.lamp((30, -6, z), color=COOL)
+    # командный зал: экраны на северной и западной стенах, пульты, голостол
+    for a0 in (6, 13, 20):
+        screen(pf, "z", 22, a0, a0 + 6, -13, -7, (30, 110, 190) if a0 != 13 else (20, 140, 90), DARK)
+    for a0 in (11, 17):
+        screen(pf, "x", 5, a0, a0 + 5, -13, -8, (30, 110, 190), DARK)
+    pf.box((7, -15, 19), (25, -13, 21), "Titanium", TI)
+    pf.box((7, -13, 20), (25, -12, 21), "Neon", CYAN)
+    for x in (8, 12, 16, 20):
+        pf.item((x, -15, 17), (x + 2, -14, 19), "Seat", DARK, face="+z")
+    pf.box((13, -15, 11), (19, -13, 15), "Titanium", TI)
+    pf.box((14, -13, 12), (18, -12, 14), "Neon", GREEN)
+    pf.ball((15, -11, 12), (17, -9, 14), "Crystal")
+    pf.item((25, -15, 10), (27, -13, 12), "Medkit")
+    for x0 in (8, 20):
+        pf.lamp((x0, -6, 12), (2, 1, 2), COOL)
+    pf.lamp((14, -6, 18), (2, 1, 2), COOL)
+    # казарма с медпунктом
+    for x0 in (5, 9, 13):
+        bunk(pf, x0, 3, x0 + 3, 8, ("Titanium", TI), ("Plastic", (226, 226, 230)), ("Plastic", (60, 70, 110)))
+    for z0 in (-3, -1, 1):
+        pf.box((5, -15, z0), (7, -8, z0 + 2), "Lead", (80, 86, 104))
+    pf.box((19, -15, -3), (25, -14, 1), "Plastic", (236, 236, 240))
+    pf.box((19, -14, -3), (25, -13, 0), "Plastic", (200, 230, 240))
+    pf.box((25, -15, -3), (27, -13, -1), "Titanium", TI)
+    pf.item((25, -13, -3), (27, -11, -1), "Medkit")
+    pf.box((15, -15, -3), (17, -9, -1), "Plastic", (236, 236, 240))
+    pf.box((15, -11, -2), (17, -10, -1), "Neon", (255, 60, 60))
+    for x0 in (9, 19):
+        pf.lamp((x0, -6, 1), (2, 1, 2), COOL)
+    pf.targets = [("командный зал", (11, -15, 15)), ("казарма", (20, -15, 4)), ("медпункт", (22, -15, 3))]
+    return pf
+
+
+def doomsday_bunker():
+    pf = Prefab("DoomsdayBunker", "bunker", 5, "Бункер Судного дня", "☢",
+                "Два подземных уровня до самого дна участка: обсидиан, свинец и титан. В атриуме сияет "
+                "энергокристальное ядро. Вход прикрывают щит, две турели ПВО и охрана.",
+                ["Обсидиан, свинец и титан", "Два уровня до глубины 24", "Энергетическое ядро в атриуме",
+                 "Щит и 2 турели ПВО на входе", "4 охранника", "Медблок и аптечки"])
+    OBS = (44, 26, 60)
+    LEAD = (96, 102, 124)
+    TI = (206, 210, 220)
+    DARK = (36, 30, 46)
+    PURPLE = (170, 90, 255)
+    CYAN = (90, 230, 255)
+    CRYS = (80, 255, 240)
+    COOL = (226, 236, 255)
+    # вход: обсидиановая крепость с титановыми углами, на крыше щит, две турели ПВО и охрана
+    kiosk_shaft(pf, ("Titanium", (TI, (184, 190, 200))), ("Lead", LEAD), ("Obsidian", OBS), ("Titanium", TI))
+    kiosk_walls(pf, "Obsidian", OBS, (60, 50, 80))
+    for x in (24, 31):
+        for z in (24, 31):
+            pf.box((x, 0, z), (x + 1, 8, z + 1), "Titanium", TI)
+    walls(pf, (24, 5, 24), (32, 6, 32), "Neon", PURPLE)
+    pf.box((24, 7, 24), (32, 8, 32), "Titanium", TI)
+    pf.box((24, 8, 24), (32, 9, 32), "Lead", LEAD)
+    pf.item((24, 9, 29), (27, 11, 32), "AATurret")
+    pf.item((29, 9, 29), (32, 11, 32), "AATurret")
+    pf.item((27, 9, 25), (30, 12, 28), "Shield")
+    pf.item((24, 9, 24), (26, 14, 26), "Guard")
+    pf.item((30, 9, 24), (32, 14, 26), "Guard")
+    pf.lamp((25, 4, 29), color=COOL)
+    pf.lamp((30, 4, 31), color=COOL)
+    # первый уровень: коридор и кубрик
+    corridor(pf, 4, ("Titanium", (184, 190, 200)), ("Obsidian", OBS), (TI, (184, 190, 200)), ceil=("Lead", LEAD))
+    dig_box(pf, (12, -16, 12), (28, -4, 24))
+    room(pf, (12, -16, 12), (29, -4, 24), ("Lead", (70, 74, 88)), ("Obsidian", OBS), ("Lead", LEAD), dig=False)
+    door(pf, "x", 28, 29, 16, 19, -15, 7, (60, 50, 80), at="hi")
+    for x0 in (13, 17, 21):
+        bunk(pf, x0, 18, x0 + 3, 23, ("Titanium", TI), ("Plastic", (226, 226, 230)), ("Plastic", (80, 50, 120)))
+    for x0 in (13, 15, 17):
+        pf.box((x0, -15, 13), (x0 + 2, -8, 15), "Lead", (80, 86, 104))
+    table(pf, (20, -15, 13), (24, -12, 16), (60, 60, 70), TI, mat="Titanium")
+    pf.item((24, -15, 13), (26, -13, 15), "Medkit")
+    for z in (20, 10):
+        pf.lamp((30, -6, z), color=COOL)
+    pf.lamp((18, -6, 16), (2, 1, 2), COOL)
+    pf.lamp((24, -6, 20), (2, 1, 2), COOL)
+    # атриум на два уровня: балкон первого уровня, лестница вниз, энергетическое ядро
+    dig_box(pf, (8, -24, -12), (28, -4, 8))
+    room(pf, (8, -24, -12), (28, -4, 8), ("Obsidian", DARK), ("Obsidian", OBS), ("Lead", LEAD), dig=False)
+    door(pf, "x", 28, 29, 4, 7, -15, 7, (60, 50, 80), at="hi")
+    pf.cut((27, -15, 4), (28, -8, 7))
+    pf.box((9, -16, 3), (28, -15, 7), "Titanium", (184, 190, 200))
+    pf.box((13, -15, 3), (27, -13, 4), "ArmorGlass", (150, 200, 255))
+    pf.box((13, -16, 2), (27, -15, 3), "Neon", PURPLE)
+    steps(pf, "z", 1, -5, 9, 12, -23, 8, "Titanium", base=-23, colors=(TI, (184, 190, 200)))
+    pf.box((13, -23, -8), (23, -22, 2), "Titanium", TI)
+    pf.box((14, -22, -7), (22, -21, 1), "Neon", CYAN)
+    pf.box((16, -21, -5), (20, -20, -1), "Titanium", TI)
+    pf.ball((15, -20, -6), (21, -14, 0), "Crystal", CRYS)
+    for x in (13, 22):
+        for z in (-8, 1):
+            pf.box((x, -22, z), (x + 1, -14, z + 1), "Titanium", TI)
+            pf.box((x, -14, z), (x + 1, -13, z + 1), "Neon", PURPLE)
+    pf.cyl((17, -14, -4), (19, -5, -2), "Neon", "y", CRYS)
+    pf.item((14, -23, 3), (16, -18, 5), "Guard", face="+z")
+    pf.item((20, -23, 3), (22, -18, 5), "Guard", face="+z")
+    for x0, z0 in ((10, -10), (25, -10), (25, 0), (17, 0)):
+        pf.lamp((x0, -6, z0), (2, 1, 2), COOL)
+    pf.lamp((20, -13, 3), color=(200, 160, 255))
+    # второй уровень: медблок за атриумом
+    dig_box(pf, (8, -24, -24), (28, -16, -12))
+    room(pf, (8, -24, -24), (28, -16, -11), ("Obsidian", DARK), ("Obsidian", OBS), None, dig=False)
+    door(pf, "z", -12, -11, 17, 20, -23, 7, (60, 50, 80), at="lo")
+    for x0 in (10, 15, 22):
+        pf.box((x0, -23, -22), (x0 + 3, -21, -17), "Titanium", TI)
+        pf.box((x0, -21, -22), (x0 + 3, -20, -18), "Plastic", (240, 240, 244))
+        pf.box((x0, -21, -18), (x0 + 3, -20, -17), "Plastic", (200, 230, 255))
+    for x0 in (13, 20):
+        pf.item((x0, -23, -23), (x0 + 2, -21, -21), "Medkit")
+    pf.box((9, -23, -16), (12, -22, -13), "Crystal", CRYS)
+    for x0 in (12, 22):
+        pf.lamp((x0, -17, -16), (2, 1, 2), COOL)
+    pf.targets = [("кубрик", (25, -15, 17)), ("балкон", (20, -15, 6)), ("ядро", (18, -23, 3)),
+                  ("медблок", (18, -23, -15))]
+    return pf
+
+
 def log_segments(a_lo, a_hi, y, holes):
     """Отрезки бревна от a_lo до a_hi на высоте y..y+2 без проёмов holes = [(a0, a1, y0, y1)]."""
     cuts = sorted((a0, a1) for a0, a1, y0, y1 in holes if y0 < y + 2 and y < y1)
@@ -1496,7 +1920,8 @@ def log_segments(a_lo, a_hi, y, holes):
     return out
 
 
-DESIGNS = [cabin]
+DESIGNS = [cabin, brick_house, cottage, villa, mansion,
+           cellar, shelter, military_bunker, command_bunker, doomsday_bunker]
 
 
 def main():
