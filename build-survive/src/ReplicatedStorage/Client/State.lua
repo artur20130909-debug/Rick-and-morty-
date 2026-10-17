@@ -86,20 +86,51 @@ function State.spec()
 	local item = sel.kind == "item" and sel.id or 0
 	local mat = sel.kind == "mat" and sel.id or 0
 	local shape = sel.kind == "mat" and sel.shape or 1
+	local size = Blocks.normalizeSize(shape, item, sel.size, Config.MaxBlockSize)
+	if item > 0 then
+		-- у особого блока размер только приводится к пределам (дверь не меньше minSize):
+		-- запоминаем приведённый, чтобы кнопки «−»/«+» в панели шли от того, что видно
+		sel.size = size
+	end
 	return {
 		mat = mat,
 		shape = shape,
 		item = item,
-		size = Blocks.normalizeSize(shape, item, sel.size, Config.MaxBlockSize),
+		size = size,
 		rot = sel.rot,
 		color = sel.color,
 	}
 end
 
+-- Размер запоминается для каждого выбора отдельно: один общий для всех материалов ("mat")
+-- и свой у каждого особого блока с изменяемым размером (сначала — размер из каталога, у двери 4×7×1).
+local sizeMemory: { [string]: Vector3 } = {}
+
+local function sizeKey(kind: string, id: number): string?
+	if kind == "mat" then
+		return "mat"
+	end
+	local it = Blocks.ItemById[id]
+	if it and it.resizable then
+		return "item" .. id
+	end
+	return nil
+end
+
 function State.selectBlock(kind: string, id: number)
 	local sel = State.sel
+	local oldKey = sizeKey(sel.kind, sel.id)
+	if oldKey then
+		sizeMemory[oldKey] = sel.size
+	end
 	sel.kind = kind
 	sel.id = id
+	local key = sizeKey(kind, id)
+	if key then
+		sel.size = sizeMemory[key] or (if kind == "item" then Blocks.ItemById[id].size else Config.DefaultBlockSize)
+	elseif kind == "item" and Blocks.ItemById[id] then
+		sel.size = Blocks.ItemById[id].size -- размер фиксирован
+	end
 	if not sel.customColor then
 		local def = (kind == "item") and Blocks.ItemById[id] or Blocks.MaterialById[id]
 		sel.color = def.color

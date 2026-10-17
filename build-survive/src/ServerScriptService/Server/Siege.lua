@@ -33,7 +33,13 @@ export type State = {
 	diedConn: RBXScriptConnection?,
 	lastShot: number,
 	heavyReady: number,
+	admin: boolean,  -- осаду запустил или ускорил админ: рекорды и статистика не засчитываются
+	inWave: boolean, -- сейчас идёт волна (не отсчёт и не перерыв)
+	skip: boolean,   -- админ попросил засчитать текущую волну досрочно
 }
+
+-- Админ-панель: с какой самой поздней волны можно начать выживание
+Siege.MaxAdminWave = 30
 
 local rng = Random.new()
 
@@ -95,7 +101,7 @@ function Siege.finish(plot: Plot, reason: string)
 	local player = state.player
 	if state.mode == "survival" and reason ~= "left" then
 		local profile = Data.get(player)
-		if profile then
+		if profile and not state.admin then
 			profile.Stats.Sieges = (profile.Stats.Sieges or 0) + 1
 		end
 		Net.event("SiegeResult"):FireClient(player, {
@@ -126,8 +132,14 @@ function Siege.finish(plot: Plot, reason: string)
 	end)
 end
 
+-- Новый контекст атак: снаряды и лазеры, привязанные к старому, сразу прекращаются
+local function renewCtx(state: State)
+	local old = state.ctx
+	old.ended = true
+	state.ctx = { plot = state.plot, player = state.player, mul = old.mul, ended = false, nukes = old.nukes }
+end
+
 local function runSurvival(state: State)
-	local ctx = state.ctx
 	local plot = state.plot
 	for i = Config.Siege.CountdownTime, 1, -1 do
 		if state.ended then
@@ -140,6 +152,7 @@ local function runSurvival(state: State)
 	while not state.ended do
 		state.wave += 1
 		local wave = state.wave
+		local ctx = state.ctx
 		local headline = headlineFor(wave)
 		local duration = 18 + math.min(wave, 15) * 1.4
 		if headline == "Nuke" then
@@ -152,12 +165,13 @@ local function runSurvival(state: State)
 			phase = "wave", wave = wave, duration = duration, headline = headline,
 			newWeapon = (wave <= #Weapons.List) and Weapons.List[wave].key or nil,
 		})
+		state.inWave = true
 		Attacks.fire(ctx, headline)
 		local waveEnd = os.clock() + duration
 		local interval = math.max(0.75, 3.1 - wave * 0.13) / state.diff.rate
 		local nextAttack = os.clock() + 1.5
 		local heavy = Weapons.ByKey[headline].heavy
-		while os.clock() < waveEnd and not state.ended do
+		while os.clock() < waveEnd and not state.ended and not state.skip do
 			if os.clock() >= nextAttack then
 				Attacks.fire(ctx, pickWeapon(wave))
 				nextAttack = os.clock() + interval * rng:NextNumber(0.7, 1.3) * (heavy and 1.5 or 1)
@@ -178,8 +192,15 @@ local function runSurvival(state: State)
 			end
 			task.wait(0.1)
 		end
+		state.inWave = false
 		if state.ended then
 			return
+		end
+		if state.skip then
+			-- волну пропустил админ: её снаряды и лазеры убираем, награда — как за обычную волну (один раз)
+			state.skip = false
+			renewCtx(state)
+			Projectiles.clearPlot(plot)
 		end
 		-- волна пережита
 		state.cleared = wave
@@ -187,7 +208,7 @@ local function runSurvival(state: State)
 		state.gold += reward
 		Data.addGold(state.player, reward)
 		local profile = Data.get(state.player)
-		if profile then
+		if profile and not state.admin then
 			profile.Stats.Waves = (profile.Stats.Waves or 0) + 1
 			if wave > profile.BestWave then
 				profile.BestWave = wave
@@ -200,7 +221,9 @@ local function runSurvival(state: State)
 	end
 end
 
-function Siege.start(player: Player, mode: any, difficulty: any): (boolean, string?)
+-- Начать осаду. Аргументы уже проверены: mode — "survival" или "range", di — номер сложности,
+-- startWave — с какой волны начать (обычно 1), admin — осаду запустил админ.
+local function begin(player: Player, mode: string, di: number, startWave: number, admin: boolean): (boolean, string?)
 	local plot = Plots.of(player)
 	if not plot then
 		return false, "У тебя нет участка"
@@ -211,9 +234,6 @@ function Siege.start(player: Player, mode: any, difficulty: any): (boolean, stri
 	if plot.launched then
 		return false, "Сначала останови испытание"
 	end
-	if mode ~= "survival" and mode ~= "range" then
-		return false, nil
-	end
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -223,7 +243,6 @@ function Siege.start(player: Player, mode: any, difficulty: any): (boolean, stri
 	if not Plots.isOnIsland(plot, root.Position, 90) then
 		char:PivotTo(plot.spawn.CFrame + Vector3.new(0, 4, 0))
 	end
-	local di = math.clamp(math.floor(tonumber(difficulty) or 2), 1, #Config.Difficulties)
 	if mode == "range" then
 		di = 2
 	end
@@ -236,7 +255,7 @@ function Siege.start(player: Player, mode: any, difficulty: any): (boolean, stri
 		diff = diff,
 		ctx = { plot = plot, player = player, mul = diff.damage, ended = false, nukes = 0 },
 		snapshot = Building.serialize(plot),
-		wave = 0,
+		wave = startWave - 1,
 		cleared = 0,
 		gold = 0,
 		blocksLost = 0,
@@ -246,6 +265,9 @@ function Siege.start(player: Player, mode: any, difficulty: any): (boolean, stri
 		diedConn = nil,
 		lastShot = 0,
 		heavyReady = 0,
+		admin = admin,
+		inWave = false,
+		skip = false,
 	}
 	plot.siege = state
 	plot.model:SetAttribute("Siege", mode)
@@ -259,6 +281,20 @@ function Siege.start(player: Player, mode: any, difficulty: any): (boolean, stri
 		send(state, { phase = "range" })
 	end
 	return true, nil
+end
+
+-- Удалённый вызов StartSiege: всё, что прислал клиент, проверяется здесь.
+-- Лишние аргументы клиента отбрасываются — до админских параметров begin они не доходят.
+function Siege.start(player: Player, mode: any, difficulty: any): (boolean, string?)
+	if mode ~= "survival" and mode ~= "range" then
+		return false, nil
+	end
+	local d = tonumber(difficulty) or 2
+	if d ~= d then
+		d = 2 -- NaN
+	end
+	local di = math.clamp(math.floor(d), 1, #Config.Difficulties)
+	return begin(player, mode, di, 1, false)
 end
 
 function Siege.stop(player: Player): (boolean, string?)
@@ -310,6 +346,86 @@ function Siege.restore(player: Player): (boolean, string?)
 	Building.restore(plot, state.snapshot)
 	Specials.startShields(plot)
 	return true, "Постройка восстановлена"
+end
+
+-- АДМИН-ПАНЕЛЬ (вызывает только сервер, модуль Admin; к удалённым вызовам не привязано) -------
+
+-- Выживание сразу с волны wave на сложности difficulty. Рекорды в такой осаде не засчитываются.
+function Siege.adminStart(player: Player, difficulty: number, wave: number): (boolean, string?)
+	local di = math.clamp(math.floor(difficulty), 1, #Config.Difficulties)
+	local first = math.clamp(math.floor(wave), 1, Siege.MaxAdminWave)
+	return begin(player, "survival", di, first, true)
+end
+
+-- Засчитать текущую волну как пройденную. Сама волна заканчивается в runSurvival: награда — одна,
+-- как за обычную волну, снаряды волны убираются, дальше идёт обычный перерыв и следующая волна.
+function Siege.skipWave(player: Player): (boolean, string?)
+	local plot = Plots.of(player)
+	local state: State? = plot and plot.siege
+	if not state or state.ended or state.mode ~= "survival" then
+		return false, "Сейчас нет осады в режиме «Выживание»"
+	end
+	if not state.inWave then
+		return false, "Волна ещё не началась — подожди пару секунд"
+	end
+	if state.skip then
+		return false, "Волна уже заканчивается"
+	end
+	state.skip = true
+	state.admin = true
+	return true, "Волна " .. state.wave .. " засчитана"
+end
+
+-- Цели админского выстрела «по мне»: эти виды оружия сами следят за игроком
+local TRACKS_PLAYER = { Homing = true, Laser = true, Nuke = true }
+
+-- Выстрел любым оружием без перезарядки. target: "me" — по себе, "block" — по случайному блоку,
+-- Vector3 — в точку на своём острове. Если осады нет — сам включает полигон.
+function Siege.adminFire(player: Player, key: string, target: string | Vector3): (boolean, string?)
+	local plot = Plots.of(player)
+	if not plot then
+		return false, "У тебя нет участка"
+	end
+	local w = Weapons.ByKey[key]
+	if not w then
+		return false, "Нет такого оружия"
+	end
+	local aim: Vector3? = nil
+	if typeof(target) == "Vector3" then
+		if not Plots.isOnIsland(plot, target, 90) then
+			return false, "Цель должна быть на твоём острове"
+		end
+		aim = target
+	elseif target == "block" then
+		local list = plot.blocks:GetChildren()
+		if #list == 0 then
+			return false, "На участке нет ни одного блока"
+		end
+		aim = (list[rng:NextInteger(1, #list)] :: BasePart).Position
+	elseif target ~= "me" then
+		return false, "Неизвестная цель"
+	end
+	local state: State? = plot.siege
+	if not state then
+		local ok, err = begin(player, "range", 2, 1, true)
+		if not ok then
+			return false, err
+		end
+		state = plot.siege
+	end
+	if not state or state.ended then
+		return false, "Осада заканчивается — подожди, пока постройка восстановится"
+	end
+	-- «по мне»: самонаводящимся целиться не нужно, остальным — в то место, где игрок стоит сейчас
+	-- (полигон мог только что перенести его на участок)
+	if target == "me" and not TRACKS_PLAYER[w.key] then
+		local _, _, root = Plots.ownerCharacter(plot)
+		if root then
+			aim = root.Position
+		end
+	end
+	Attacks.fire(state.ctx, w.key, aim)
+	return true, nil
 end
 
 -- Что сохранить, если игрок выходит посреди осады (не руины, а целую постройку)

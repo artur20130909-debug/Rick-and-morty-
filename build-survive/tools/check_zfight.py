@@ -47,12 +47,8 @@ CARVE_HALF = (36.0, 13.25, 36.0)
 DYNAMIC = ["Plots/*/Ground/*"]
 
 # Намеренные совпадения: (шаблон пути A, шаблон пути B или "terrain", причина).
-# Пути вида "Plots/Plot1/Ground/Slab", шаблоны — fnmatch.
-EXCEPTIONS = [
-    # Заглушка земли из файла карты: при запуске сервер (Underground.rebuild) заменяет её
-    # плитой и грунтом по слоям, а рельеф под участком вырезается. Верх грунта (y = -2 от пола)
-    # закрыт плитой, низ — дном котлована.
-]
+# Пути вида "Plots/Plot1/Ground/Slab", шаблоны — fnmatch. Сейчас таких мест нет.
+EXCEPTIONS = []
 
 
 # ---------------------------------------------------------------- векторы
@@ -330,6 +326,11 @@ class Terrain:
                 h = [s / 2 for s in op["size"]]
                 self.blocks.append((tuple(p[i] - h[i] for i in range(3)), tuple(p[i] + h[i] for i in range(3))))
         self.carves = [Frame(Frame(pl["pos"], pl["rot"]).point((0, CARVE_OFFSET, 0)), pl["rot"]) for pl in data["plots"]]
+        # все высоты, на которых бывает поверхность рельефа: грани далеко от них не проверяются
+        self.levels = sorted({c[2] for c in self.cyls + self.water} | {b[1][1] for b in self.blocks})
+
+    def near_level(self, y0, y1, tol):
+        return any(y0 - tol <= y <= y1 + tol for y in self.levels)
 
     def carved(self, x, margin=0.0):
         for cf in self.carves:
@@ -362,7 +363,7 @@ class Terrain:
         return False
 
     def surface(self, x, z):
-        """Верх рельефа в точке (x, z): (высота, материал) или None."""
+        """Верх рельефа в точке (x, z): (высота, материал) или None. Над мелью — поверхность воды."""
         best = None
         for (cx, cz), y0, y1, r, mat in self.cyls:
             if (x - cx) ** 2 + (z - cz) ** 2 <= r * r and (best is None or y1 > best[0]):
@@ -372,10 +373,9 @@ class Terrain:
                 best = (hi[1], "Block")
         if best is not None and self.carved((x, best[0] - 0.01, z)):
             return None  # здесь котлован: его стены и дно закрыты деталями Foundation
-        if best is None:
-            for (cx, cz), y0, y1, r, mat in self.water:
-                if (x - cx) ** 2 + (z - cz) ** 2 <= r * r:
-                    return (y1, mat)
+        for (cx, cz), y0, y1, r, mat in self.water:
+            if (x - cx) ** 2 + (z - cz) ** 2 <= r * r and (best is None or y1 > best[0]):
+                best = (y1, mat)
         return best
 
 
@@ -504,7 +504,7 @@ class Checker:
         """Верхние грани у самой поверхности рельефа."""
         issues = []
         for f in faces:
-            if f.n[1] < 0.98:
+            if f.n[1] < 0.98 or not self.terrain.near_level(f.lo[1], f.hi[1], SURFACE_TOL):
                 continue
             u, v = f.basis()
             poly = f.project(f.verts, u, v)
@@ -539,15 +539,82 @@ def excepted(issue):
     return False
 
 
-def main():
-    data = json.load(open(os.path.join(ROOT, "tools", "preview", "map.json"), encoding="utf-8"))
-    parts = load_parts()
-    terrain = Terrain(data)
+def analyze(parts, terrain):
+    """Все мерцающие места: пары граней, бока цилиндров, грани у рельефа."""
     checker = Checker(parts, terrain)
     faces = [f for p in parts for f in faces_of(p)]
     issues = checker.face_pairs(faces) + checker.cylinder_sides() + checker.terrain_faces(faces)
     issues.sort(key=lambda it: (it[1], it[2]))
-    print("деталей: %d, граней: %d, операций рельефа: %d" % (len(parts), len(faces), len(data["terrain"])))
+    return issues, len(faces)
+
+
+# ---------------------------------------------------------------- самопроверка
+def synthetic(path, size, pos, turn=0.0, cls="Part", shape=None):
+    """Деталь для самопроверки: размер, центр и поворот вокруг вертикали (радианы)."""
+    c, s = math.cos(turn), math.sin(turn)
+    rot = [[c, 0, s], [0, 1, 0], [-s, 0, c]]
+    props ={"Size": list(size), "CFrame": {"CFrame": {"position": list(pos), "orientation": rot}}}
+    if shape:
+        props["Shape"] = shape
+    return Part(path, cls, props)
+
+
+def vertical(part):
+    """Повернуть цилиндр самопроверки осью вверх (как VERTICAL в gen_map.py)."""
+    part.cf = Frame(part.cf.p, [[0, -1, 0], [1, 0, 0], [0, 0, 1]])
+    h = [sum(abs(part.cf.axes[k][i]) * part.half[k] for k in range(3)) for i in range(3)]
+    part.lo = tuple(part.cf.p[i] - h[i] for i in range(3))
+    part.hi = tuple(part.cf.p[i] + h[i] for i in range(3))
+    return part
+
+
+def selftest():
+    """Проверка самой проверки на заранее известных случаях: (название, детали, рельеф, сколько мест найти)."""
+    turn = math.radians(30)
+    grass = [{"op": "Cylinder", "pos": [100, 3, 0], "height": 2, "radius": 20, "material": "Grass"}]
+    cases = [
+        ("повёрнутые блоки с общим верхом", [
+            synthetic("A", (8, 2, 8), (0, 1, 0), turn),
+            synthetic("B", (2, 0.4, 2), (1, 1.8, 1), turn)], [], 1),
+        ("плитка выше на 0.1", [
+            synthetic("A", (8, 2, 8), (0, 1, 0), turn),
+            synthetic("B", (2, 0.4, 2), (1, 1.9, 1), turn)], [], 0),
+        ("блок на блоке (грани смотрят навстречу)", [
+            synthetic("A", (8, 2, 8), (0, 1, 0)),
+            synthetic("B", (2, 2, 2), (0, 3, 0))], [], 0),
+        ("торец цилиндра вровень с верхом блока", [
+            synthetic("A", (8, 2, 8), (0, 1, 0)),
+            vertical(synthetic("C", (1.5, 2, 2), (0, 1.25, 0), shape="Cylinder"))], [], 1),
+        ("соосные цилиндры одного радиуса", [
+            synthetic("D1", (4, 1, 1), (0, 10, 0), shape="Cylinder"),
+            synthetic("D2", (2, 1, 1), (2, 10, 0), shape="Cylinder")], [], 1),
+        ("клинья со сдвигом вбок: скат, низ и зад", [
+            synthetic("W1", (2, 2, 2), (0, 20, 0), cls="WedgePart"),
+            synthetic("W2", (2, 2, 2), (1, 20, 0), cls="WedgePart")], [], 3),
+        ("общий верх закрыт третьей деталью", [
+            synthetic("A", (8, 2, 8), (0, 1, 0)),
+            synthetic("B", (2, 0.4, 2), (0, 1.8, 0)),
+            synthetic("E", (4, 1, 4), (0, 2.5, 0))], [], 0),
+        ("верх на 0.1 над травой", [synthetic("P", (4, 1, 4), (100, 3.6, 0))], grass, 1),
+        ("верх на 0.5 над травой", [synthetic("P", (4, 1, 4), (100, 4.0, 0))], grass, 0),
+    ]
+    failed = 0
+    for name, parts, ops, expected in cases:
+        issues, _ = analyze(parts, Terrain({"terrain": ops, "plots": []}))
+        if len(issues) != expected:
+            failed += 1
+            print("САМОПРОВЕРКА НЕ ПРОШЛА: %s — найдено %d, ожидалось %d" % (name, len(issues), expected))
+    print("самопроверка: %d случаев, ошибок %d" % (len(cases), failed))
+    return failed == 0
+
+
+def main():
+    if not selftest():
+        sys.exit(2)
+    data = json.load(open(os.path.join(ROOT, "tools", "preview", "map.json"), encoding="utf-8"))
+    parts = load_parts()
+    issues, nfaces = analyze(parts, Terrain(data))
+    print("деталей: %d, граней: %d, операций рельефа: %d" % (len(parts), nfaces, len(data["terrain"])))
     bad = 0
     for issue in issues:
         kind, a, b, gap, area, pos = issue

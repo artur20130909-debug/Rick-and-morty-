@@ -269,10 +269,13 @@ def lamp_post(name, x, z, face_angle):
 
 
 def flag_pole(name, x, z, color, h=14):
+    # полотнище смотрит от центра лобби — в сторону своего моста (а не сквозь табло позади флага)
+    out = norm((x, 0, z))
+    cloth = (x + out[0] * 2.6, FLOOR + h - 2, z + out[2] * 2.6)
     kids = [
         cyl("Pole", T(x, FLOOR + h / 2, z), h, 0.45, (210, 210, 215), "Metal"),
         ball("Top", (x, FLOOR + h + 0.3, z), 0.8, (240, 200, 70), "Metal"),
-        part("Cloth", (0.15, 3, 5), T(x, FLOOR + h - 2, z + 2.6), color, "Fabric"),
+        part("Cloth", (0.15, 3, 5), look_at(cloth, add(cloth, out)), color, "Fabric"),
     ]
     return model(name, kids)
 
@@ -377,10 +380,11 @@ def build_lobby(plot_angles):
     kids.append(part("LobbySpawn", (8, 0.4, 8), T(0, FLOOR + INNER_RING_TOP + 0.2, 22), (255, 196, 64), "SmoothPlastic", cls="SpawnLocation",
                      props={"Neutral": True, "Duration": 0, "AllowTeamChangeOnTouch": False}, transparency=0.2))
 
-    # Флаги участков, фонари, деревья
+    # Флаги участков, фонари, деревья. Фонарь стоит рядом с флагом у выхода к мосту: между мостами
+    # уже заняты места табло, магазина и досок, и фонари втыкались бы в их задние стенки
     for i, a in enumerate(plot_angles):
         kids.append(flag_pole("Flag%d" % (i + 1), math.cos(a) * 34, math.sin(a) * 34, PLOT_COLORS[i]))
-        a2 = a + math.pi / 6
+        a2 = a + math.radians(6)
         kids.append(lamp_post("Lamp%d" % (i + 1), math.cos(a2) * 37, math.sin(a2) * 37, a2))
     trees = []
     n = 0
@@ -418,11 +422,12 @@ def build_bridge(i, a):
     for side in (-4.7, 4.7):
         kids.append(part("Rail", (0.5, 0.5, L), cf * T(side, 3.6, 0), (120, 84, 52), "Wood"))
         kids.append(part("RailLow", (0.35, 0.35, L), cf * T(side, 2.0, 0), (120, 84, 52), "Wood"))
-        # стойки толще перил и выше их на 0.2, наружу выступают за край настила на 0.1:
+        # стойки толще перил и выше их на 0.2, наружу выступают за край настила на 0.1;
+        # крайние стоят на 0.1 внутри концов настила, а не свисают с них:
         # ни одна грань не совпадает с гранями настила и перил
         n = int(L // 8)
         for k in range(n + 1):
-            z = -L / 2 + k * (L / n)
+            z = max(-L / 2 + 0.5, min(L / 2 - 0.5, -L / 2 + k * (L / n)))
             kids.append(part("Post", (0.8, 3.75, 0.8), cf * T(side, 2.175, z), (110, 76, 46), "Wood"))
         # сваи из воды доходят до середины настила
         for k in range(int(L // 16) + 1):
@@ -558,6 +563,9 @@ RIM = 6.0                    # толщина стенок котлована: �
 RIM_TOP = -0.1               # верх стенок чуть ниже пола (над травой на 0.9)
 BEDROCK = 3.0                # толщина дна котлована
 PATH_TOP = -0.5              # верх тропинки: на 0.5 выше травы, чтобы рельеф не проступал сквозь неё
+SIGN_Z = -43.5               # табличка владельца над концом тропинки (на крыльце)
+SIGN_BOTTOM = 7.2            # низ таблички над полом: выше головы персонажа
+SIGN_H = 3.8
 SLAB_COLOR = (164, 166, 164)
 SOIL_COLOR = (118, 92, 64)
 RIM_COLOR = (78, 80, 84)
@@ -637,10 +645,12 @@ def build_plot(i, a, layout):
         for z in (-32.5, 32.5):
             kids.append(cyl("Corner", pcf * T(x, (RIM_TOP + 3) / 2, z), 3 - RIM_TOP, 1.4, (60, 62, 68), "Metal"))
             kids.append(ball("CornerLight", pcf.point((x, 3.3, z)), 1.2, color, "Neon"))
-    # табличка владельца
+    # табличка владельца — арка над входом с тропинки: низ на SIGN_BOTTOM над крыльцом, под ней проходит персонаж
+    sign_y = SIGN_BOTTOM + SIGN_H / 2
+    post_top = SIGN_BOTTOM + SIGN_H - 1      # столбы входят в табличку снизу
     for x in (-5.5, 5.5):
-        kids.append(cyl("SignPost", pcf * T(x, 2.5, -43.5), 6, 0.6, (60, 62, 68), "Metal"))
-    kids.append(part("Sign", (12, 3.8, 0.5), pcf * T(0, 5.2, -43.5), (22, 26, 36), "SmoothPlastic", children=[
+        kids.append(cyl("SignPost", pcf * T(x, (post_top - 0.5) / 2, SIGN_Z), post_top + 0.5, 0.8, (60, 62, 68), "Metal"))
+    kids.append(part("Sign", (12, SIGN_H, 0.5), pcf * T(0, sign_y, SIGN_Z), (22, 26, 36), "SmoothPlastic", children=[
         surface_gui([
             {"name": "Stripe", "className": "Frame", "properties": {"Size": udim2(1, 0, 0.12, 0), "BackgroundColor3": col(color), "BorderSizePixel": 0}},
             label("Owner", "Свободный участок", (0.04, 0, 0.18, 0), (0.92, 0, 0.5, 0), (255, 255, 255), FONT_HEAVY),

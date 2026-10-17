@@ -59,7 +59,8 @@ Blocks.Materials = {
 		hp = 1500, price = 12000, blast = 0.82, nuke = 0.75, regen = 0.03, density = 1, desc = "Сам восстанавливает прочность." },
 }
 
--- Особые блоки. Их размер фиксирован (кроме тех, где resizable = true).
+-- Особые блоки. Их размер фиксирован (кроме тех, где resizable = true; minSize — наименьший размер).
+-- iconYaw — поворот модели на иконке в интерфейсе (камера иконки смотрит на блок сзади-справа).
 Blocks.Items = {
 	{ id = 1, key = "Seat", name = "Сиденье", class = "Seat", size = Vector3.new(2, 1, 2), material = M.WoodPlanks,
 		color = Color3.fromRGB(140, 96, 60), hp = 150, price = 0, density = 0.6, desc = "На нём можно сидеть." },
@@ -71,8 +72,8 @@ Blocks.Items = {
 		color = Color3.fromRGB(110, 114, 122), hp = 300, price = 600, density = 1, desc = "Толкает постройку вперёд (W)." },
 	{ id = 5, key = "Balloon", name = "Воздушный шар", shape = "Ball", size = Vector3.new(4, 4, 4), material = M.SmoothPlastic,
 		color = Color3.fromRGB(235, 64, 52), hp = 40, price = 300, density = 0.1, desc = "Поднимает постройку в воздух." },
-	{ id = 6, key = "Door", name = "Дверь", size = Vector3.new(4, 7, 1), resizable = true, material = M.WoodPlanks,
-		color = Color3.fromRGB(120, 82, 50), hp = 400, price = 150, density = 0.6, desc = "Открывается кнопкой E." },
+	{ id = 6, key = "Door", name = "Дверь", size = Vector3.new(4, 7, 1), resizable = true, minSize = Vector3.new(2, 3, 1),
+		material = M.WoodPlanks, color = Color3.fromRGB(120, 82, 50), hp = 400, price = 150, density = 0.6, desc = "Открывается кнопкой E." },
 	{ id = 7, key = "Lamp", name = "Лампа", size = Vector3.new(1, 1, 1), resizable = true, material = M.Neon,
 		color = Color3.fromRGB(255, 226, 160), hp = 50, price = 50, density = 1, desc = "Светит в бункере." },
 	{ id = 8, key = "Flag", name = "Флаг", size = Vector3.new(1, 8, 1), material = M.Metal,
@@ -85,6 +86,9 @@ Blocks.Items = {
 		color = Color3.fromRGB(70, 82, 70), hp = 900, price = 3500, density = 3, desc = "Сбивает ракеты и снаряды на подлёте." },
 	{ id = 12, key = "Shield", name = "Генератор щита", size = Vector3.new(3, 3, 3), material = M.Metal,
 		color = Color3.fromRGB(60, 70, 96), hp = 800, price = 6000, density = 3, desc = "Купол радиусом 18, держит 2500 урона." },
+	{ id = 13, key = "Guard", name = "Охранник", size = Vector3.new(2, 5, 2), material = M.Fabric,
+		color = Color3.fromRGB(72, 86, 60), hp = 350, price = 9000, density = 1, blast = 0.25, nuke = 0.15, iconYaw = math.rad(200),
+		desc = "Солдат с автоматом: сбивает ракеты и дроны рядом с собой." },
 }
 
 Blocks.ShieldRadius = 18
@@ -93,6 +97,9 @@ Blocks.ShieldRecharge = 18
 Blocks.AARange = 85
 Blocks.AACooldown = 1.1
 Blocks.MedkitRange = 10
+Blocks.GuardRange = 55      -- охранник стреляет по снарядам ближе этого расстояния
+Blocks.GuardCooldown = 0.55 -- секунд между очередями одного охранника
+Blocks.GuardChance = 0.5    -- шанс сбить = шанс турели ПВО для этого оружия (aa) × GuardChance
 
 Blocks.MaterialById = {}
 Blocks.MaterialByKey = {}
@@ -147,14 +154,15 @@ local function clampInt(v, lo, hi)
 end
 
 -- Приводит размер к допустимому: целые стады, ограничения формы (шар — одинаковый по всем осям,
--- цилиндр — круглый), фиксированный размер у особых блоков.
+-- цилиндр — круглый), фиксированный размер у особых блоков, не меньше minSize (дверь — настоящая дверь).
 function Blocks.normalizeSize(shapeId: number, itemId: number, size: Vector3, maxSize: number): Vector3
 	if itemId and itemId > 0 then
 		local it = Blocks.ItemById[itemId]
 		if not it.resizable then
 			return it.size
 		end
-		return Vector3.new(clampInt(size.X, 1, maxSize), clampInt(size.Y, 1, maxSize), clampInt(size.Z, 1, maxSize))
+		local lo: Vector3 = it.minSize or Vector3.one
+		return Vector3.new(clampInt(size.X, lo.X, maxSize), clampInt(size.Y, lo.Y, maxSize), clampInt(size.Z, lo.Z, maxSize))
 	end
 	local x, y, z = clampInt(size.X, 1, maxSize), clampInt(size.Y, 1, maxSize), clampInt(size.Z, 1, maxSize)
 	if shapeId == 5 then

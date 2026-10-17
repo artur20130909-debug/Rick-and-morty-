@@ -1,4 +1,4 @@
--- Профили игроков: золото, купленные блоки, рекорды, слоты сохранений.
+-- Профили игроков: золото, купленные блоки и готовые постройки, рекорды, слоты сохранений.
 -- Если DataStore недоступен (Studio без доступа к API), игра работает, но ничего не сохраняет.
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
@@ -13,6 +13,7 @@ local Data = {}
 export type Profile = {
 	Gold: number,
 	Unlocked: { [string]: boolean },
+	Prefabs: { [string]: boolean }, -- купленные готовые дома и бункеры (ключи Shared/Prefabs)
 	BestWave: number,
 	Slots: { [string]: string },
 	SlotInfo: { [string]: { count: number, time: number } },
@@ -42,6 +43,7 @@ local function defaultProfile(): Profile
 	return {
 		Gold = Config.StartGold,
 		Unlocked = {},
+		Prefabs = {},
 		BestWave = 0,
 		Slots = {},
 		SlotInfo = {},
@@ -175,6 +177,7 @@ function Data.sync(player: Player)
 	Net.event("Data"):FireClient(player, {
 		gold = p.Gold,
 		unlocked = p.Unlocked,
+		prefabs = p.Prefabs,
 		bestWave = p.BestWave,
 		slots = slots,
 		settings = p.Settings,
@@ -202,6 +205,19 @@ function Data.unlock(player: Player, key: string)
 	local p = profiles[player]
 	if p then
 		p.Unlocked[key] = true
+	end
+end
+
+-- Готовые постройки (магазин домов и бункеров)
+function Data.ownsPrefab(player: Player, key: string): boolean
+	local p = profiles[player]
+	return p ~= nil and p.Prefabs[key] == true
+end
+
+function Data.givePrefab(player: Player, key: string)
+	local p = profiles[player]
+	if p then
+		p.Prefabs[key] = true
 	end
 end
 
