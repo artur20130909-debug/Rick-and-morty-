@@ -339,7 +339,7 @@ const ITEM_DECOR = {
 const ITEM_INFO = {
   1: ['Seat', 'WoodPlanks', 'Block'], 2: ['DriverSeat', 'SmoothPlastic', 'Block'], 3: ['Wheel', 'Rubber', 'Cylinder'], 4: ['Thruster', 'Metal', 'Cylinder'],
   5: ['Balloon', 'SmoothPlastic', 'Ball'], 6: ['Door', 'WoodPlanks', 'Block'], 7: ['Lamp', 'Neon', 'Block'], 8: ['Flag', 'Metal', 'Block'],
-  9: ['TNT', 'SmoothPlastic', 'Block'], 10: ['Medkit', 'SmoothPlastic', 'Block'], 11: ['AATurret', 'Metal', 'Block'], 12: ['Shield', 'Metal', 'Block'],
+  9: ['TNT', 'SmoothPlastic', 'Block'], 10: ['Medkit', 'SmoothPlastic', 'Block'], 11: ['AATurret', 'Metal', 'Block'], 12: ['Shield', 'Metal', 'Block'], 13: ['Guard', 'Fabric', 'Block'],
 };
 const MAT_INFO = { 1: 'WoodPlanks', 2: 'SmoothPlastic', 3: 'Brick', 4: 'Cobblestone', 5: 'Concrete', 6: 'Glass', 7: 'Ice', 8: 'Neon', 9: 'Fabric', 10: 'Rubber', 11: 'DiamondPlate', 12: 'Glass', 13: 'Metal', 14: 'CorrodedMetal', 15: 'Metal', 16: 'Basalt', 17: 'Foil', 18: 'Glass' };
 const MAT_TRANSP = { 6: 0.45, 7: 0.15, 12: 0.3, 18: 0.12 };
