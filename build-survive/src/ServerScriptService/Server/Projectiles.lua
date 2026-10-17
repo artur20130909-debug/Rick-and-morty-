@@ -1,9 +1,10 @@
--- Снаряды на сервере: полёт, наведение, попадания, перехват ПВО, щиты.
+-- Снаряды на сервере: полёт, наведение, попадания, перехват ПВО и охранниками, щиты.
 -- Сервер считает «честную» траекторию лучами, а клиенты рисуют красивую картинку сами
 -- (получают старт снаряда и поправки для управляемых ракет).
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Blocks = require(Shared.Blocks)
+local BlockFactory = require(Shared.BlockFactory)
 local Weapons = require(Shared.Weapons)
 local Net = require(Shared.Net)
 
@@ -28,6 +29,7 @@ export type Proj = {
 	targetPos: Vector3,
 	mul: number,
 	rolled: { [BasePart]: boolean },
+	sightAt: { [BasePart]: number }, -- охранник не видел снаряд: когда проверить снова
 	splitY: number?,
 	burstY: number?,
 	bomblet: boolean?,
@@ -78,6 +80,7 @@ function Projectiles.spawn(plot: Plot, w, pos: Vector3, vel: Vector3, opts: any)
 		targetPos = opts.targetPos or pos,
 		mul = opts.mul or 1,
 		rolled = {},
+		sightAt = {},
 		splitY = opts.splitY,
 		burstY = opts.burstY,
 		bomblet = opts.bomblet,
@@ -167,6 +170,14 @@ local function detonate(p: Proj, pos: Vector3, normal: Vector3?, info: any)
 			Damage.bullet(p.plot, info.inst, pos, w.blockDamage * p.mul, w.playerDamage * p.mul)
 		end
 	end
+end
+
+-- Охранник видит точку: между дулом и целью ничего нет (стены, крыша, земля)
+local GUARD_SIGHT_RETRY = 0.15
+
+local function guardSees(guard: BasePart, from: Vector3, to: Vector3): boolean
+	local result = workspace:Raycast(from, to - from, params)
+	return result == nil or result.Instance == guard
 end
 
 local function fizzle(p: Proj)
@@ -292,6 +303,28 @@ local function stepOne(p: Proj, dt: number)
 				Net.event("AAShot"):FireAllClients({ from = turret.CFrame:PointToWorldSpace(Vector3.new(0, 3.3, -1.9)), to = newPos })
 				detonate(p, newPos, nil, { intercepted = true, air = true })
 				return
+			end
+		end
+	end
+
+	-- охранники: каждый стреляет по снаряду один раз, если видит его (пули и бомбочки не сбивают)
+	if w.aa > 0 and not p.bomblet then
+		local now = os.clock()
+		for _, guard in Specials.guards(p.plot) do
+			if not p.rolled[guard] and now >= (p.sightAt[guard] or 0)
+				and (guard.Position - newPos).Magnitude < Blocks.GuardRange and Specials.guardReady(guard) then
+				local from = BlockFactory.guardMuzzle(guard.CFrame, newPos)
+				if guardSees(guard, from, newPos) then
+					p.rolled[guard] = true
+					Specials.guardFired(guard)
+					Net.event("GuardShot"):FireAllClients({ from = from, to = newPos, g = guard })
+					if rng:NextNumber() < w.aa * Blocks.GuardChance then
+						detonate(p, newPos, nil, { intercepted = true, air = true })
+						return
+					end
+				else
+					p.sightAt[guard] = now + GUARD_SIGHT_RETRY
+				end
 			end
 		end
 	end

@@ -405,16 +405,12 @@ class Checker:
         """Совпадающие грани разных деталей."""
         clusters = {}
         groups = []
+        near = [(dx, dy, dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)]
         for f in faces:
             key = tuple(int(round(c * 1000)) for c in f.n)
-            found = None
-            for dx in (-1, 0, 1):
-                for dy in (-1, 0, 1):
-                    for dz in (-1, 0, 1):
-                        for g in clusters.get((key[0] + dx, key[1] + dy, key[2] + dz), ()):
-                            if dot(g[0], f.n) > PARALLEL:
-                                found = g
-                                break
+            # группа граней с той же нормалью (ищем и в соседних ячейках: округление режет по границе)
+            found = next((g for d in near for g in clusters.get((key[0] + d[0], key[1] + d[1], key[2] + d[2]), ())
+                          if dot(g[0], f.n) > PARALLEL), None)
             if found is None:
                 found = (f.n, [])
                 clusters.setdefault(key, []).append(found)
@@ -553,7 +549,7 @@ def synthetic(path, size, pos, turn=0.0, cls="Part", shape=None):
     """Деталь для самопроверки: размер, центр и поворот вокруг вертикали (радианы)."""
     c, s = math.cos(turn), math.sin(turn)
     rot = [[c, 0, s], [0, 1, 0], [-s, 0, c]]
-    props ={"Size": list(size), "CFrame": {"CFrame": {"position": list(pos), "orientation": rot}}}
+    props = {"Size": list(size), "CFrame": {"CFrame": {"position": list(pos), "orientation": rot}}}
     if shape:
         props["Shape"] = shape
     return Part(path, cls, props)

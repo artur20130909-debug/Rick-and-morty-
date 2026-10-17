@@ -55,6 +55,7 @@ end
 local Vector3 = roblox.Vector3
 local CFrame = roblox.CFrame
 local Color3 = roblox.Color3
+local Enum = roblox.Enum
 
 -- Grid ------------------------------------------------------------------------------
 local Grid = loadModule("Grid")
@@ -112,7 +113,8 @@ check(vnear(ct, Vector3.new(0, 3, 0)), "на верх блока: " .. tostring(
 check(not Grid.inBounds(Vector3.new(32, 1, 0), Vector3.new(2, 2, 2)), "за краем X")
 check(Grid.inBounds(Vector3.new(31, 1, 31), Vector3.new(2, 2, 2)), "угол участка — можно")
 check(not Grid.inBounds(Vector3.new(0, 96, 0), Vector3.new(2, 2, 2)), "выше потолка")
-check(not Grid.inBounds(Vector3.new(0, 0, 0), Vector3.new(2, 2, 2)), "ниже пола")
+check(Grid.inBounds(Vector3.new(0, -1, 0), Vector3.new(2, 2, 2)), "под полом (в выкопанной земле) — можно")
+check(not Grid.inBounds(Vector3.new(0, -24, 0), Vector3.new(2, 2, 2)), "ниже дна котлована")
 check(not Grid.isAligned(Vector3.new(0.3, 1, 0), Vector3.new(2, 2, 2)), "сдвинутый блок — не по сетке")
 -- мировой CFrame и обратно
 local wcf = Grid.worldCFrame(plotCF, Vector3.new(4, 3, -2), ry)
@@ -141,11 +143,27 @@ check(Serializer.count("v1|") == 0, "пустая постройка")
 -- Blocks ----------------------------------------------------------------------------
 local Blocks = loadModule("Blocks")
 check(#Blocks.Materials == 18, "18 материалов")
-check(#Blocks.Items == 12, "12 особых блоков")
+check(#Blocks.Items == 13, "13 особых блоков")
 check(vnear(Blocks.normalizeSize(5, 0, Vector3.new(2, 5, 3), 16), Vector3.new(5, 5, 5)), "шар — одинаковый по осям")
 check(vnear(Blocks.normalizeSize(4, 0, Vector3.new(6, 2, 3), 16), Vector3.new(6, 3, 3)), "цилиндр — круглый")
 check(vnear(Blocks.normalizeSize(1, 0, Vector3.new(40, 0, 2.6), 16), Vector3.new(16, 1, 3)), "ограничение размеров")
 check(vnear(Blocks.normalizeSize(1, 3, Vector3.new(9, 9, 9), 16), Blocks.ItemById[3].size), "колесо — фиксированный размер")
+-- дверь — настоящая дверь: не меньше minSize, по умолчанию 4×7×1; охранник — фиксированный
+local doorDef = Blocks.ItemByKey.Door
+check(vnear(doorDef.size, Vector3.new(4, 7, 1)), "дверь по умолчанию 4×7×1")
+check(doorDef.minSize ~= nil and doorDef.minSize.X >= 2 and doorDef.minSize.Y >= 3, "у двери есть наименьший размер")
+check(vnear(Blocks.normalizeSize(1, doorDef.id, Vector3.new(1, 1, 1), 16), doorDef.minSize), "дверь не меньше minSize")
+check(vnear(Blocks.normalizeSize(1, doorDef.id, Vector3.new(2, 2, 2), 16), Vector3.new(2, 3, 2)), "дверь 2×2×2 растёт только по высоте")
+check(vnear(Blocks.normalizeSize(1, doorDef.id, doorDef.size, 16), doorDef.size), "дверь 4×7×1 не меняется")
+check(vnear(Blocks.normalizeSize(1, doorDef.id, Vector3.new(30, 30, 0), 16), Vector3.new(16, 16, 1)), "дверь не больше предела")
+check(vnear(Blocks.normalizeSize(1, Blocks.ItemByKey.Lamp.id, Vector3.new(0, 0, 0), 16), Vector3.new(1, 1, 1)), "лампа без minSize — от 1")
+local guardDef = Blocks.ItemByKey.Guard
+check(guardDef.id == 13 and vnear(guardDef.size, Vector3.new(2, 5, 2)) and not guardDef.resizable, "охранник: id 13, 2×5×2, размер фиксирован")
+check(vnear(Blocks.normalizeSize(1, guardDef.id, Vector3.new(4, 4, 4), 16), guardDef.size), "охранник: размер не меняется")
+check(Blocks.GuardRange > 0 and Blocks.GuardCooldown > 0 and Blocks.GuardChance > 0 and Blocks.GuardChance <= 1, "охранник: дальность, перезарядка, шанс")
+for _, it in Blocks.Items do
+	check(it.minSize == nil or it.resizable == true, "minSize только у блоков с изменяемым размером: " .. it.key)
+end
 local wood = { mat = 1, shape = 1, item = 0 }
 check(Blocks.maxHp(wood, Vector3.new(2, 2, 2)) == 100, "прочность дерева 2×2×2")
 check(Blocks.maxHp(wood, Vector3.new(4, 4, 4)) == 800, "больше блок — больше прочность")
@@ -233,7 +251,7 @@ for _, it in Blocks.Items do
 		end
 	end
 end
-check(built == 18 * 5 + 12 * 3, "собрано блоков: " .. built)
+check(built == 18 * 5 + #Blocks.Items * 3, "собрано блоков: " .. built)
 
 -- Габариты детали в мире (AABB) по CFrame и Size
 local function aabb(p)
@@ -403,6 +421,204 @@ do
 		end
 	end
 	check(darker == 3, "дверь: коробка из трёх деталей темнее полотна: " .. darker)
+end
+
+-- Нет мерцания (z-fighting): у прямоугольных деталей блока нет совпадающих граней, смотрящих
+-- в одну сторону и перекрывающихся (сравнение в системе блока; детали, повёрнутые не на 90°, пропускаются)
+local function coplanarFaces(block): { string }
+	local list = {}
+	for _, d in block:GetDescendants() do
+		if d:IsA("BasePart") and d.ClassName == "Part" and d.Shape == Enum.PartType.Block and d.Transparency < 1 then
+			local cf = block.CFrame:ToObjectSpace(d.CFrame)
+			local square = true
+			for _, v in { cf.XVector, cf.YVector, cf.ZVector } do
+				if math.max(math.abs(v.X), math.abs(v.Y), math.abs(v.Z)) < 0.9999 then
+					square = false
+				end
+			end
+			if square then
+				local b = aabb({ CFrame = cf, Size = d.Size })
+				b.part = d
+				table.insert(list, b)
+			end
+		end
+	end
+	local found = {}
+	local axes = { "X", "Y", "Z" }
+	for i = 1, #list do
+		for j = i + 1, #list do
+			local a, b = list[i], list[j]
+			for k, ax in axes do
+				local o1, o2 = axes[k % 3 + 1], axes[(k + 1) % 3 + 1]
+				local ov1 = math.min(a.hi[o1], b.hi[o1]) - math.max(a.lo[o1], b.lo[o1])
+				local ov2 = math.min(a.hi[o2], b.hi[o2]) - math.max(a.lo[o2], b.lo[o2])
+				if ov1 > 0.005 and ov2 > 0.005 and (math.abs(a.lo[ax] - b.lo[ax]) < 0.002 or math.abs(a.hi[ax] - b.hi[ax]) < 0.002) then
+					table.insert(found, a.part.Name .. " " .. tostring(a.part.Size) .. " и " .. b.part.Name .. " " .. tostring(b.part.Size) .. " по " .. ax)
+				end
+			end
+		end
+	end
+	return found
+end
+for _, case in { { "Door", Vector3.new(2, 3, 1) }, { "Door", Vector3.new(4, 7, 1) }, { "Door", Vector3.new(9, 12, 2) }, { "AATurret" }, { "Guard" } } do
+	local b = buildItem(case[1], case[2])
+	for _, f in coplanarFaces(b) do
+		check(false, case[1] .. " " .. tostring(case[2] or "") .. ": мерцают грани " .. f)
+	end
+end
+
+-- Дверь наименьшего размера и по умолчанию: ручка видна с обеих сторон и не наезжает на филёнки
+for _, size in { Blocks.ItemByKey.Door.minSize, Blocks.ItemByKey.Door.size } do
+	local d = buildItem("Door", size)
+	local leaf = d:FindFirstChild("DoorLeaf")
+	if leaf then
+		local leafBox = aabb({ CFrame = CFrame.identity, Size = leaf.Size })
+		local plates, panels = {}, {}
+		for _, p in leaf:GetChildren() do
+			if p:IsA("BasePart") then
+				local b = aabb({ CFrame = leaf.CFrame:ToObjectSpace(p.CFrame), Size = p.Size })
+				if p.Material == Enum.Material.Metal and p.Shape == Enum.PartType.Block then
+					table.insert(plates, b)
+				elseif p.Material == Enum.Material.Wood then
+					table.insert(panels, b)
+				end
+			end
+		end
+		check(#plates == 2 and #panels == 4, "дверь " .. tostring(size) .. ": две накладки ручки и четыре филёнки")
+		for _, pl in plates do
+			check(pl.hi.Z > leafBox.hi.Z + 0.01 or pl.lo.Z < leafBox.lo.Z - 0.01, "дверь " .. tostring(size) .. ": накладка ручки выступает из полотна")
+			check(pl.lo.X >= leafBox.lo.X - 0.001, "дверь " .. tostring(size) .. ": накладка на полотне")
+			for _, pn in panels do
+				check(not touching(pl, pn, -0.001), "дверь " .. tostring(size) .. ": накладка ручки наезжает на филёнку")
+			end
+		end
+	end
+end
+
+-- ОХРАННИК: невидимая коробка, фигура из декора на сварках, суставы для анимации
+do
+	local guard = buildItem("Guard")
+	check(guard.Name == "Block" and guard.Transparency == 1 and guard.CanCollide == true and guard.CanQuery == true,
+		"охранник: главная деталь — невидимая твёрдая коробка, видна лучам")
+	check(vnear(guard.Size, Vector3.new(2, 5, 2)), "охранник: коробка 2×5×2")
+	local parts = decorOf(guard)
+	check(#parts >= 60, "охранник: детализированная фигура, деталей " .. #parts)
+	local tinted, lowest = 0, math.huge
+	local box = aabb({ CFrame = CFrame.identity, Size = guard.Size })
+	for _, p in parts do
+		check(p.CanCollide == false and p.CanQuery == false and p.CanTouch == false and p.Massless == true and p.Anchored == false,
+			"охранник: декор без столкновений, лучей и массы: " .. p.Name)
+		local joint = p:FindFirstChildOfClass("Weld") or p:FindFirstChildOfClass("WeldConstraint")
+		check(joint ~= nil and (joint :: any).Part0 == p.Parent and (joint :: any).Part1 == p, "охранник: деталь приварена к родителю: " .. p.Name)
+		local b = aabb({ CFrame = guard.CFrame:ToObjectSpace(p.CFrame), Size = p.Size })
+		check(inside(b, box, 0.01), "охранник: в покое деталь внутри коробки: " .. p.Name .. " " .. tostring(p.Size))
+		lowest = math.min(lowest, b.lo.Y)
+		if type(p:GetAttribute("Tint")) == "number" then
+			tinted += 1
+		end
+	end
+	check(near(lowest, -2.5, 0.005), "охранник: подошвы стоят на дне коробки (не висит): " .. lowest)
+	check(tinted >= 15, "охранник: форма красится вместе с блоком, деталей с Tint: " .. tinted)
+	check(guard:FindFirstChild("GuardMuzzle", true) ~= nil, "охранник: есть дуло GuardMuzzle")
+	local rig = BlockFactory.guardRig(guard)
+	check(rig ~= nil, "охранник: найдены все сварки для анимации")
+	check(BlockFactory.guardRig(buildItem("Door")) == nil, "у двери нет сварок охранника")
+	for _, opts in { { ghost = true }, { preview = true } } do
+		local g2 = buildItem("Guard", nil, opts)
+		check(BlockFactory.guardRig(g2) ~= nil and g2.Transparency == 1, "охранник-призрак/иконка собирается так же")
+	end
+
+	-- направление на цель
+	local cf = guard.CFrame
+	local yaw0, pitch0 = BlockFactory.guardAim(cf, cf * Vector3.new(0, 1.5, -40))
+	check(near(yaw0, 0, 0.01) and near(pitch0, 0, 0.01), "охранник: цель прямо впереди — поворот 0")
+	local yawR = BlockFactory.guardAim(cf, cf * Vector3.new(40, 1.5, 0))
+	check(near(yawR, -math.pi / 2, 0.01), "охранник: цель справа — поворот −90°: " .. yawR)
+	local _, pitchUp = BlockFactory.guardAim(cf, cf * Vector3.new(0, 300, -10))
+	check(pitchUp > math.rad(60), "охранник: цель высоко — автомат задран вверх")
+
+	-- поза: CFrame деталей по цепочке сварок (как в игре: Part1 = Part0 * C0 * C1⁻¹)
+	local rest = {}
+	for _, p in parts do
+		rest[p] = p.Parent.CFrame:ToObjectSpace(p.CFrame)
+	end
+	local function posed(p, memo)
+		if p == guard then
+			return guard.CFrame
+		end
+		if memo[p] then
+			return memo[p]
+		end
+		local parentCF = posed(p.Parent, memo)
+		local weld = p:FindFirstChildOfClass("Weld")
+		local cfp = if weld then parentCF * weld.C0 * weld.C1:Inverse() else parentCF * rest[p]
+		memo[p] = cfp
+		return cfp
+	end
+	if rig then
+		local muzzle = guard:FindFirstChild("GuardMuzzle", true)
+		local function find(name)
+			return guard:FindFirstChild(name, true)
+		end
+		local rifle = find("GuardRifle")
+		local function gloveOf(side)
+			local fore = find("GuardForearm" .. side)
+			local glove = nil
+			for _, c in fore:GetChildren() do
+				if c:IsA("BasePart") and c.Material == Enum.Material.Leather then
+					glove = c
+				end
+			end
+			return glove
+		end
+		local gloveR, gloveL = gloveOf("R"), gloveOf("L")
+		-- рукоятки автомата: пистолетная и передняя (полимерные детали ниже ствольной коробки)
+		local gripR, gripL = nil, nil
+		for _, c in rifle:GetChildren() do
+			if c:IsA("BasePart") and c.Material == Enum.Material.SmoothPlastic and c.Size.Y >= 0.2 then
+				local lp = rifle.CFrame:PointToObjectSpace(c.CFrame.Position)
+				if lp.Y < -0.15 and lp.Z > 0.05 and lp.Z < 0.4 then
+					gripR = c
+				elseif lp.Y < -0.15 and lp.Z < -0.4 then
+					gripL = c
+				end
+			end
+		end
+		check(gloveR ~= nil and gloveL ~= nil and gripR ~= nil and gripL ~= nil, "охранник: перчатки и рукоятки найдены")
+		local targets = {
+			cf * Vector3.new(0, 30, -50), cf * Vector3.new(45, 10, 5), cf * Vector3.new(-20, 50, 30),
+			cf * Vector3.new(3, 4, 50), cf * Vector3.new(-50, -6, -2), cf * Vector3.new(0, 200, 1),
+		}
+		for _, target in targets do
+			local yaw, pitch = BlockFactory.guardAim(cf, target)
+			for _, aim in { 0, 0.4, 1 } do
+				BlockFactory.poseGuard(rig, { yaw = yaw, pitch = pitch, aim = aim, breath = 1, headYaw = 0.5, sway = Vector3.new(0.02, 0.03, 0.01), recoil = 0.5 })
+				local memo = {}
+				if gloveR and gloveL and gripR and gripL then
+					local dR = (posed(gloveR, memo).Position - posed(gripR, memo).Position).Magnitude
+					local dL = (posed(gloveL, memo).Position - posed(gripL, memo).Position).Magnitude
+					check(dR < 0.12, "охранник: правая рука на рукоятке: " .. dR)
+					check(dL < 0.12, "охранник: левая рука на цевье: " .. dL)
+				end
+				if aim == 1 then
+					-- сервер считает дуло в позе прицеливания без дыхания и отдачи
+					BlockFactory.poseGuard(rig, { yaw = yaw, pitch = pitch, aim = 1 })
+					memo = {}
+					local from = BlockFactory.guardMuzzle(cf, target)
+					local tip = posed(muzzle, memo) * Vector3.new(muzzle.Size.X / 2, 0, 0)
+					check((from - tip).Magnitude < 0.05, "охранник: выстрел вылетает из дула: " .. (from - tip).Magnitude)
+					local barrel = (tip - posed(rifle, memo).Position).Unit
+					check(barrel:Dot((target - from).Unit) > 0.99, "охранник: ствол смотрит на цель")
+				end
+			end
+		end
+		-- поворот через «точно сзади» без рывка: сварки меняются плавно
+		BlockFactory.poseGuard(rig, { yaw = math.rad(-151), pitch = 0, aim = 1 })
+		local a1, b1 = rig.hips.C0, rig.waist.C0
+		BlockFactory.poseGuard(rig, { yaw = math.rad(-153), pitch = 0, aim = 1 })
+		local a2, b2 = rig.hips.C0, rig.waist.C0
+		check(a1.LookVector:Dot(a2.LookVector) > 0.99 and b1.LookVector:Dot(b2.LookVector) > 0.99, "охранник: разворот назад без рывка")
+	end
 end
 
 -- Примеры построек: в сетке, внутри участка, без пересечений, колёса на что-то опираются

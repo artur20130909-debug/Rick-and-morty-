@@ -80,28 +80,6 @@ function State.isUnlocked(kind: string, id: number): boolean
 	return State.unlocked[Blocks.unlockKey(kind, id)] == true
 end
 
--- Текущая спецификация блока для строительства
-function State.spec()
-	local sel = State.sel
-	local item = sel.kind == "item" and sel.id or 0
-	local mat = sel.kind == "mat" and sel.id or 0
-	local shape = sel.kind == "mat" and sel.shape or 1
-	local size = Blocks.normalizeSize(shape, item, sel.size, Config.MaxBlockSize)
-	if item > 0 then
-		-- у особого блока размер только приводится к пределам (дверь не меньше minSize):
-		-- запоминаем приведённый, чтобы кнопки «−»/«+» в панели шли от того, что видно
-		sel.size = size
-	end
-	return {
-		mat = mat,
-		shape = shape,
-		item = item,
-		size = size,
-		rot = sel.rot,
-		color = sel.color,
-	}
-end
-
 -- Размер запоминается для каждого выбора отдельно: один общий для всех материалов ("mat")
 -- и свой у каждого особого блока с изменяемым размером (сначала — размер из каталога, у двери 4×7×1).
 local sizeMemory: { [string]: Vector3 } = {}
@@ -115,6 +93,33 @@ local function sizeKey(kind: string, id: number): string?
 		return "item" .. id
 	end
 	return nil
+end
+
+-- Текущая спецификация блока для строительства
+function State.spec()
+	local sel = State.sel
+	local item = sel.kind == "item" and sel.id or 0
+	local mat = sel.kind == "mat" and sel.id or 0
+	local shape = sel.kind == "mat" and sel.shape or 1
+	local size = Blocks.normalizeSize(shape, item, sel.size, Config.MaxBlockSize)
+	if item > 0 then
+		-- у особого блока размер только приводится к пределам (дверь не меньше minSize):
+		-- запоминаем приведённый, чтобы кнопки «−»/«+» в панели шли от того, что видно
+		sel.size = size
+	end
+	-- размер текущего выбора помним всегда (и после пипетки, которая меняет выбор напрямую)
+	local key = sizeKey(sel.kind, sel.id)
+	if key then
+		sizeMemory[key] = sel.size
+	end
+	return {
+		mat = mat,
+		shape = shape,
+		item = item,
+		size = size,
+		rot = sel.rot,
+		color = sel.color,
+	}
 end
 
 function State.selectBlock(kind: string, id: number)

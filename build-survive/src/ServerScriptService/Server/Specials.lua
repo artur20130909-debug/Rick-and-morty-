@@ -1,4 +1,4 @@
--- Особые блоки: двери, аптечки, энергокристаллы, генераторы щита и турели ПВО.
+-- Особые блоки: двери, аптечки, энергокристаллы, генераторы щита, турели ПВО и охранники.
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local TweenService = game:GetService("TweenService")
 
@@ -27,11 +27,13 @@ export type Shield = {
 
 local shields: { [number]: { Shield } } = {}
 local aaReady: { [BasePart]: number } = {}
+local guardReady: { [BasePart]: number } = {}
 
 local ITEM_DOOR = Blocks.ItemByKey.Door.id
 local ITEM_MEDKIT = Blocks.ItemByKey.Medkit.id
 local ITEM_SHIELD = Blocks.ItemByKey.Shield.id
 local ITEM_AA = Blocks.ItemByKey.AATurret.id
+local ITEM_GUARD = Blocks.ItemByKey.Guard.id
 local MAT_CRYSTAL = Blocks.MaterialByKey.Crystal.id
 
 -- ДВЕРИ ---------------------------------------------------------------------------
@@ -178,15 +180,34 @@ function Specials.shieldCovering(plot: Plot, pos: Vector3): Shield?
 	return nil
 end
 
+-- Списки турелей и охранников участка: снаряды спрашивают их каждый шаг, поэтому список
+-- собирается заново, только когда блоки участка менялись (ChildAdded/ChildRemoved в Specials.init).
+-- Список общий: его только читают, не меняют.
+local itemLists: { [number]: { [number]: { BasePart } } } = {}
+
+local function blocksWithItem(plot: Plot, item: number): { BasePart }
+	local lists = itemLists[plot.index]
+	if not lists then
+		lists = {}
+		itemLists[plot.index] = lists
+	end
+	local list = lists[item]
+	if not list then
+		local out = {}
+		for _, b in plot.blocks:GetChildren() do
+			if b:IsA("BasePart") and b:GetAttribute("Item") == item then
+				table.insert(out, b)
+			end
+		end
+		lists[item] = out
+		list = out
+	end
+	return list
+end
+
 -- ПВО -----------------------------------------------------------------------------
 function Specials.aaTurrets(plot: Plot): { BasePart }
-	local out = {}
-	for _, b in plot.blocks:GetChildren() do
-		if b:IsA("BasePart") and b:GetAttribute("Item") == ITEM_AA then
-			table.insert(out, b)
-		end
-	end
-	return out
+	return blocksWithItem(plot, ITEM_AA)
 end
 
 function Specials.aaReady(turret: BasePart): boolean
@@ -197,8 +218,35 @@ function Specials.aaFired(turret: BasePart)
 	aaReady[turret] = os.clock() + Blocks.AACooldown
 end
 
+-- ОХРАННИКИ -----------------------------------------------------------------------
+-- Стреляют по ракетам рядом с собой (сам выстрел и шанс сбить — в Projectiles)
+function Specials.guards(plot: Plot): { BasePart }
+	return blocksWithItem(plot, ITEM_GUARD)
+end
+
+function Specials.guardReady(guard: BasePart): boolean
+	return os.clock() >= (guardReady[guard] or 0)
+end
+
+function Specials.guardFired(guard: BasePart)
+	guardReady[guard] = os.clock() + Blocks.GuardCooldown
+end
+
 -- ЦИКЛЫ ---------------------------------------------------------------------------
 function Specials.init()
+	for _, plot in Plots.list do
+		plot.blocks.ChildAdded:Connect(function()
+			itemLists[plot.index] = nil
+		end)
+		plot.blocks.ChildRemoved:Connect(function(b: Instance)
+			itemLists[plot.index] = nil
+			if b:IsA("BasePart") then
+				aaReady[b] = nil
+				guardReady[b] = nil
+			end
+		end)
+	end
+
 	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt, player: Player)
 		if prompt.Name == "DoorPrompt" then
 			local door = prompt.Parent

@@ -444,8 +444,9 @@ local function buildPrefabPreview(p: Prefab)
 
 	local cam = new("Camera", { FieldOfView = 30, Parent = vp })
 	vp.CurrentCamera = cam
+	-- шар вокруг габаритов целиком помещается в кадр при любом повороте: высокий особняк не обрезается
 	local center = (lo + hi) / 2
-	local dist = (hi - lo).Magnitude * 1.5 + 2
+	local dist = (hi - lo).Magnitude / 2 / math.sin(math.rad(cam.FieldOfView / 2)) + 2
 	local lift = if bunker then 0.42 else 0.55 -- бункер — чуть сбоку, чтобы было видно глубину
 	local angle = math.rad(35)
 	local function aim()
@@ -1238,7 +1239,7 @@ end
 local function buildPrefabPanel()
 	prefabPanel = new("ScrollingFrame", {
 		Position = UDim2.fromOffset(16, 288),
-		Size = UDim2.new(1, -24, 0, 206),
+		Size = UDim2.new(1, -24, 1, -288 - 102), -- до подписи над большой кнопкой
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 4,

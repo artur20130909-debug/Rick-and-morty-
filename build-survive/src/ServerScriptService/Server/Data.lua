@@ -208,17 +208,10 @@ function Data.unlock(player: Player, key: string)
 	end
 end
 
--- Готовые постройки (магазин домов и бункеров)
+-- Куплена ли готовая постройка (магазин домов и бункеров)
 function Data.ownsPrefab(player: Player, key: string): boolean
 	local p = profiles[player]
 	return p ~= nil and p.Prefabs[key] == true
-end
-
-function Data.givePrefab(player: Player, key: string)
-	local p = profiles[player]
-	if p then
-		p.Prefabs[key] = true
-	end
 end
 
 function Data.setSlot(player: Player, slot: number, str: string)

@@ -1,5 +1,5 @@
 -- Визуальные эффекты: взрывы, искры, ударные волны, ядерный гриб, орбитальный лазер,
--- бомбардировщик, предупреждающие круги, щиты, выстрелы ПВО.
+-- бомбардировщик, предупреждающие круги, щиты, выстрелы ПВО и охранников.
 -- Используются только встроенные текстуры Roblox (rbxasset://), поэтому всё работает сразу.
 local Debris = game:GetService("Debris")
 local Lighting = game:GetService("Lighting")
@@ -677,6 +677,66 @@ function Fx.aaShot(from: Vector3, to: Vector3)
 		}):Emit(4)
 	end)
 	SoundPlayer.play("AAShot", { position = from, speed = rng:NextNumber(1.05, 1.25) })
+end
+
+-- ВЫСТРЕЛ ОХРАННИКА ----------------------------------------------------------------
+-- Короткая очередь: яркие трассеры от дула к цели, вспышки у дула со светом, звук выстрелов.
+-- World.lua по тем же числам дёргает автомат отдачей.
+Fx.GuardRounds = 3 -- патронов в очереди
+Fx.GuardRoundTime = 0.075 -- секунд между выстрелами
+
+function Fx.guardShot(from: Vector3, to: Vector3)
+	local dist = (to - from).Magnitude
+	if dist < 1 or camDistance(from) > 700 then
+		return
+	end
+	for i = 0, Fx.GuardRounds - 1 do
+		task.delay(i * Fx.GuardRoundTime, function()
+			-- лёгкий разброс: трассеры очереди не ложатся в одну линию
+			local aim = to + Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(-1, 1), rng:NextNumber(-1, 1)) * dist * 0.012
+			local look = CFrame.lookAt(from, aim)
+			local len = math.min(6, dist * 0.4)
+			local travel = math.clamp(dist / 800, 0.04, 0.14)
+			local t = part({
+				Size = Vector3.new(0.1, 0.1, len),
+				CFrame = look * CFrame.new(0, 0, -len / 2),
+				Color = Color3.fromRGB(255, 240, 170),
+				Material = Enum.Material.Neon,
+			})
+			tween(t, travel, { CFrame = look * CFrame.new(0, 0, -((aim - from).Magnitude - len / 2)) }, Enum.EasingStyle.Linear)
+			Debris:AddItem(t, travel + 0.03)
+			-- вспышка у дула: огненный шарик и «лепесток» пламени вдоль ствола
+			local core = part({
+				Shape = Enum.PartType.Ball,
+				Size = Vector3.one * 0.5,
+				CFrame = CFrame.new(from),
+				Color = Color3.fromRGB(255, 228, 150),
+				Material = Enum.Material.Neon,
+			})
+			local petal = part({
+				Size = Vector3.new(0.06, 0.42, 0.9),
+				CFrame = look * CFrame.new(0, 0, -0.4) * CFrame.Angles(0, 0, rng:NextNumber(0, math.pi)),
+				Color = Color3.fromRGB(255, 196, 90),
+				Material = Enum.Material.Neon,
+			})
+			tween(core, 0.06, { Size = Vector3.one * 0.85, Transparency = 1 })
+			tween(petal, 0.06, { Transparency = 1 })
+			Debris:AddItem(core, 0.08)
+			Debris:AddItem(petal, 0.08)
+			SoundPlayer.play("GuardShot", { position = from, speed = rng:NextNumber(0.95, 1.12), volume = i == 0 and 1 or 0.8 })
+		end)
+	end
+	-- вспышки освещают всё вокруг, пока идёт очередь
+	if quality() >= 2 then
+		local holder = holderAt(from, 0.5)
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromRGB(255, 196, 120)
+		light.Range = 14
+		light.Brightness = 5
+		light.Shadows = false
+		light.Parent = holder
+		tween(light, Fx.GuardRounds * Fx.GuardRoundTime + 0.12, { Brightness = 0 })
+	end
 end
 
 -- ЩИТ -------------------------------------------------------------------------------

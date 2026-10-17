@@ -578,6 +578,7 @@ def walk_check(pf):
                 if n not in seen and stand(*n):
                     seen.add(n)
                     queue.append(n)
+    pf.reach = seen
     for label, (tx, ty, tz) in pf.targets:
         ok = any(tx - 1 <= x <= tx and tz - 1 <= z <= tz and y == ty for x, z, y in seen)
         assert ok, (pf.key, "не дойти до цели", label, (tx, ty, tz))
@@ -664,8 +665,518 @@ def write_outputs(prefabs):
         json.dump(data, f, ensure_ascii=False)
 
 
-# ================================================================ ПОСТРОЙКИ
-from prefab_designs import DESIGNS  # noqa: E402  (временная заглушка, заменяется ниже)
+# ================================================================ ПОМОЩНИКИ ДЛЯ ПОСТРОЕК
+def wall_box(normal, w0, w1, a0, a1, y0, y1):
+    """Коробка в координатах стены: normal — ось толщины ("x" или "z"), w — толщина, a — вдоль стены."""
+    if normal == "z":
+        return (a0, y0, w0), (a1, y1, w1)
+    return (w0, y0, a0), (w1, y1, a1)
+
+
+def walls(pf, lo, hi, mat, color=None, t=1):
+    """Четыре стены по периметру коробки lo..hi (внешние габариты), толщина t."""
+    (x0, y0, z0), (x1, y1, z1) = lo, hi
+    pf.box((x0, y0, z0), (x1, y1, z0 + t), mat, color)
+    pf.box((x0, y0, z1 - t), (x1, y1, z1), mat, color)
+    pf.box((x0, y0, z0 + t), (x0 + t, y1, z1 - t), mat, color)
+    pf.box((x1 - t, y0, z0 + t), (x1, y1, z1 - t), mat, color)
+
+
+def window(pf, normal, w0, w1, a0, a1, y0, y1, out, frame=None, frame_mat="Plastic", glass="Glass", glass_color=None,
+           mullions=(), transoms=(), sill=True, glass_w=None):
+    """Окно в стене толщиной w0..w1: проём a0..a1 × y0..y1, по краю рама (frame=None — без рамы),
+    перемычки mullions (вдоль стены) и transoms (по высоте), снаружи (out = ±1) подоконник.
+    glass_w — слой стены, где стоит стекло (по умолчанию вся толщина); остальное — ниша."""
+    pf.cut(*wall_box(normal, w0, w1, a0, a1, y0, y1))
+    g0, g1 = glass_w or (w0, w1)
+    f = 1 if frame else 0
+    pf.box(*wall_box(normal, g0, g1, a0 + f, a1 - f, y0 + f, y1 - f), glass, glass_color)
+    if frame:
+        for lo, hi in ((wall_box(normal, w0, w1, a0, a1, y0, y0 + 1)), (wall_box(normal, w0, w1, a0, a1, y1 - 1, y1)),
+                       (wall_box(normal, w0, w1, a0, a0 + 1, y0, y1)), (wall_box(normal, w0, w1, a1 - 1, a1, y0, y1))):
+            pf.box(lo, hi, frame_mat, frame)
+        for m in mullions:
+            pf.box(*wall_box(normal, g0, g1, m, m + 1, y0, y1), frame_mat, frame)
+        for t in transoms:
+            pf.box(*wall_box(normal, g0, g1, a0, a1, t, t + 1), frame_mat, frame)
+        if sill:
+            s0, s1 = (w1, w1 + 1) if out > 0 else (w0 - 1, w0)
+            pf.box(*wall_box(normal, s0, s1, a0 - 1, a1 + 1, y0, y0 + 1), frame_mat, frame)
+
+
+def door(pf, normal, w0, w1, a0, a1, y0, h, color, at="out"):
+    """Дверной проём в стене и дверь в нём (толщина 1). at — у какой грани стены стоит дверь:
+    "out"/"in" — наружная/внутренняя для стен с наружной стороной −Z/−X, "lo"/"hi" — по координате."""
+    pf.cut(*wall_box(normal, w0, w1, a0, a1, y0, y0 + h))
+    d0 = w0 if at in ("out", "lo") else w1 - 1
+    face = "-z" if normal == "z" else "-x"
+    pf.item(*wall_box(normal, d0, d0 + 1, a0, a1, y0, y0 + h), "Door", color, face)
+
+
+def gable_roof(pf, ridge, lo, hi, y0, rise, run, colors, mat="Wood", skip=(), fill=None, fill_lo=None, fill_hi=None):
+    """Двускатная крыша из рядов клиньев. ridge — ось конька ("x" или "z"); lo, hi — углы крыши по
+    горизонтали (x, z) вместе со свесами; каждый ряд — клин run вглубь и rise в высоту, цвета рядов
+    чередуются из colors. skip — коробки (труба), где ряды прерываются. fill — (материал, цвет)
+    ступенчатого заполнения под скатами (фронтоны и чердак) в пределах fill_lo..fill_hi (x, z).
+    Возвращает высоту конька."""
+    (x0, z0), (x1, z1) = lo, hi
+    across = (z0, z1) if ridge == "x" else (x0, x1)
+    along = (x0, x1) if ridge == "x" else (z0, z1)
+    half = (across[1] - across[0]) // 2
+    assert (across[1] - across[0]) % 2 == 0 and half % run == 0, (pf.key, "крыша", lo, hi, run)
+    rows = half // run
+
+    def piece(a0, a1, c0, c1, y_lo, y_hi):
+        if ridge == "x":
+            return (a0, y_lo, c0), (a1, y_hi, c1)
+        return (c0, y_lo, a0), (c1, y_hi, a1)
+
+    def segments(c0, c1, y_lo, y_hi):
+        """Отрезки вдоль конька без коробок skip."""
+        cuts = []
+        for s_lo, s_hi in skip:
+            lo3, hi3 = piece(along[0], along[1], c0, c1, y_lo, y_hi)
+            if all(s_lo[i] < hi3[i] and lo3[i] < s_hi[i] for i in range(3)):
+                k = 0 if ridge == "x" else 2
+                cuts.append((s_lo[k], s_hi[k]))
+        out, a = [], along[0]
+        for c_lo, c_hi in sorted(cuts):
+            if c_lo > a:
+                out.append((a, c_lo))
+            a = max(a, c_hi)
+        if a < along[1]:
+            out.append((a, along[1]))
+        return out
+
+    faces = ("-z", "+z") if ridge == "x" else ("-x", "+x")
+    for j in range(rows):
+        y_lo, y_hi = y0 + rise * j, y0 + rise * (j + 1)
+        color = colors[j % len(colors)]
+        for side, (c0, c1) in enumerate(((across[0] + run * j, across[0] + run * (j + 1)),
+                                         (across[1] - run * (j + 1), across[1] - run * j))):
+            for s0, s1 in segments(c0, c1, y_lo, y_hi):
+                for a0, a1 in split_len(s0, s1):
+                    pf.wedge(*piece(a0, a1, c0, c1, y_lo, y_hi), mat, faces[side], color)
+        if fill:
+            f0, f1 = across[0] + run * (j + 1), across[1] - run * (j + 1)
+            if f0 < f1:
+                (fx0, fz0), (fx1, fz1) = fill_lo, fill_hi
+                if ridge == "x":
+                    pf.box((fx0, y_lo, f0), (fx1, y_hi, f1), *fill)
+                else:
+                    pf.box((f0, y_lo, fz0), (f1, y_hi, fz1), *fill)
+    return y0 + rise * rows
+
+
+def steps(pf, axis, sign, start, a0, a1, y_floor, n, mat, color=None, base=None, depth=1, colors=None):
+    """Лестница вверх: n ступеней высотой 1 и глубиной depth, от start по оси axis в сторону sign,
+    поперёк — a0..a1. Первая ступень — на y_floor + 1. base — низ ступеней (None — ступени толщиной 1)."""
+    for i in range(n):
+        p0 = start + sign * depth * i
+        p1 = p0 + sign * depth
+        top = y_floor + i + 1
+        bot = base if base is not None else top - 1
+        c = colors[i % len(colors)] if colors else color
+        if axis == "z":
+            pf.box((a0, bot, min(p0, p1)), (a1, top, max(p0, p1)), mat, c)
+        else:
+            pf.box((min(p0, p1), bot, a0), (max(p0, p1), top, a1), mat, c)
+
+
+def table(pf, lo, hi, top_color, leg_color, mat="Wood", top_mat=None):
+    """Стол: столешница толщиной 1 на высоте hi[1] и четыре ножки по углам."""
+    (x0, y0, z0), (x1, y1, z1) = lo, hi
+    pf.box((x0, y1 - 1, z0), (x1, y1, z1), top_mat or mat, top_color)
+    for x in (x0, x1 - 1):
+        for z in (z0, z1 - 1):
+            pf.box((x, y0, z), (x + 1, y1 - 1, z + 1), mat, leg_color)
+
+
+# ================================================================ ДОМА
+def cabin():
+    pf = Prefab("Cabin", "house", 1, "Хижина", "🛖",
+                "Уютный бревенчатый домик с крыльцом, печью и кроватью. Первый свой дом!",
+                ["Брёвна и каменный фундамент", "Крыльцо под навесом", "Печь с трубой", "Стол, лавка и кровать"])
+    LOGS = ((128, 88, 54), (114, 77, 47))
+    DARK = (78, 52, 34)
+    RED = (172, 58, 44)
+    STONE = (118, 116, 110)
+    ROOF = ((92, 70, 54), (80, 60, 46))
+    PLANK = (142, 100, 62)
+    WARM = (255, 214, 150)
+
+    # фундамент из камня и дощатый пол с «половиком»
+    pf.box((-9, 0, -3), (9, 1, 11), "Stone", STONE)
+    pf.box((-7, 0, -1), (7, 1, 9), "Wood", (176, 132, 86))
+    pf.box((-3, 0, 1), (3, 1, 5), "Wood", (150, 62, 50))
+
+    # стены из брёвен: слои по 2 стада, передние и задние брёвна выступают за углы
+    holes_front = [(-5, 1, 1, 9), (3, 7, 3, 7)]          # дверь, окно (a0, a1, y0, y1)
+    holes_back = [(-2, 3, 3, 7)]
+    holes_left = [(2, 7, 3, 7)]
+    for layer, y in enumerate((1, 3, 5, 7)):
+        color = LOGS[layer % 2]
+        for z0, holes in ((-3, holes_front), (9, holes_back)):
+            for a0, a1 in log_segments(-10, 10, y, holes):
+                for s0, s1 in split_len(a0, a1):
+                    pf.cyl((s0, y, z0), (s1, y + 2, z0 + 2), "Wood", "x", color)
+        for x0, holes in ((-9, holes_left), (7, [])):
+            for a0, a1 in log_segments(-1, 9, y, holes):
+                pf.cyl((x0, y, a0), (x0 + 2, y + 2, a1), "Wood", "z", LOGS[(layer + 1) % 2])
+    # дверь с косяками и перемычкой
+    pf.box((-5, 1, -3), (-4, 9, -1), "Wood", DARK)
+    pf.box((0, 1, -3), (1, 9, -1), "Wood", DARK)
+    pf.box((-4, 8, -3), (0, 9, -1), "Wood", DARK)
+    pf.item((-4, 1, -3), (0, 8, -2), "Door", RED)
+    # окна в красных рамах со ставнями
+    window(pf, "z", -3, -1, 3, 7, 3, 7, -1, RED, glass_w=(-2, -1), mullions=(5,))
+    window(pf, "z", 9, 11, -2, 3, 3, 7, 1, RED, glass_w=(9, 10), mullions=(0,))
+    window(pf, "x", -9, -7, 2, 7, 3, 7, -1, RED, glass_w=(-8, -7), mullions=(4,))
+    SHUTTER = (62, 104, 70)
+    for a in (2, 7):
+        pf.box((a, 3, -4), (a + 1, 7, -3), "Wood", SHUTTER)
+    for a in (1, 7):
+        pf.box((-10, 3, a), (-9, 7, a + 1), "Wood", SHUTTER)
+
+    # крыша: ряды клиньев 3×3, конёк вдоль X; под скатами — дощатые фронтоны
+    chimney = ((9, 0, 2), (12, 22, 5))
+    top = gable_roof(pf, "x", (-11, -5), (11, 13), 9, 3, 3, ROOF, skip=[chimney],
+                     fill=("Wood", PLANK), fill_lo=(-9, -3), fill_hi=(9, 11))
+    pf.box((-11, top, 3), (9, top + 1, 5), "Wood", DARK)
+    # каменная труба у правого фронтона
+    pf.box((9, 0, 1), (13, 3, 6), "Stone", STONE)
+    pf.box((9, 3, 2), (12, 20, 5), "Stone", (128, 124, 118))
+    pf.box((8, 20, 1), (13, 21, 6), "Stone", (96, 94, 90))
+
+    # печь внутри: под, стенки, полка и огонь
+    pf.box((4, 1, 1), (7, 2, 6), "Stone", (104, 102, 98))
+    pf.box((4, 2, 1), (7, 6, 2), "Stone", STONE)
+    pf.box((4, 2, 5), (7, 6, 6), "Stone", STONE)
+    pf.box((6, 2, 2), (7, 6, 5), "Brick", (70, 44, 36))
+    pf.box((4, 6, 1), (7, 7, 6), "Wood", DARK)
+    pf.box((5, 7, 2), (7, 9, 5), "Stone", STONE)
+    pf.cyl((5, 2, 2), (6, 3, 5), "Wood", "z", (84, 54, 34))
+    pf.part((5, 3, 3), (6, 4, 4), "Neon", (255, 150, 40), "Ball")
+    pf.box((5, 3, 2), (6, 4, 3), "Neon", (255, 110, 40))
+    pf.box((5, 3, 4), (6, 4, 5), "Neon", (255, 190, 70))
+
+    # кровать в углу, стол и лавки, шкаф
+    pf.box((-7, 1, 4), (-3, 2, 9), "Wood", (122, 80, 50))
+    pf.box((-7, 2, 4), (-3, 3, 7), "Plastic", (168, 52, 44))
+    pf.box((-7, 2, 7), (-3, 3, 8), "Plastic", (244, 240, 230))
+    pf.box((-7, 1, 8), (-3, 5, 9), "Wood", DARK)
+    table(pf, (-1, 1, 6), (3, 4, 9), (170, 124, 80), DARK)
+    pf.item((-3, 1, 7), (-1, 2, 9), "Seat", face="+x")
+    pf.item((3, 1, 7), (5, 2, 9), "Seat", face="-x")
+    pf.part((1, 4, 7), (2, 5, 8), "Plastic", (214, 40, 40), "Ball")
+    pf.box((5, 1, 7), (7, 6, 9), "Wood", DARK)
+    pf.box((5, 6, 7), (7, 7, 9), "Wood", (176, 132, 86))
+    pf.lamp((0, 8, 3), color=WARM)
+
+    # крыльцо во всю ширину: настил, столбы, балка, навес, перила, фонарь, бочка
+    pf.box((-9, 0, -9), (9, 1, -3), "Wood", (136, 96, 60))
+    for x in (-9, 8):
+        pf.box((x, 1, -9), (x + 1, 7, -8), "Wood", DARK)
+    pf.box((-9, 7, -9), (9, 8, -8), "Wood", DARK)
+    for x0, x1 in ((-10, 0), (0, 10)):
+        pf.wedge((x0, 8, -10), (x1, 10, -5), "Wood", "-z", ROOF[1])
+    for x0, x1, posts in ((-8, -5, (-7,)), (2, 8, (3, 5, 7))):
+        pf.box((x0, 3, -9), (x1, 4, -8), "Wood", DARK)
+        for x in posts:
+            pf.box((x, 1, -9), (x + 1, 3, -8), "Wood", DARK)
+    for x in (-9, 8):
+        pf.box((x, 3, -8), (x + 1, 4, -3), "Wood", DARK)
+        pf.box((x, 1, -6), (x + 1, 3, -5), "Wood", DARK)
+    pf.lamp((-6, 5, -4), color=WARM)
+    pf.cyl((-8, 1, -7), (-6, 4, -5), "Wood", "y", (110, 72, 42))
+    pf.box((-8, 4, -7), (-6, 5, -5), "Wood", DARK)
+
+    # поленница за домом и колода с топором
+    for n, (z, y) in enumerate(((12, 0), (14, 0), (12, 2), (14, 2))):
+        pf.cyl((-9, y, z), (-3, y + 2, z + 2), "Wood", "x", (150, 104, 62) if n % 3 else (132, 90, 54))
+    pf.cyl((-12, 0, 12), (-10, 2, 14), "Wood", "y", (120, 84, 52))
+    pf.box((-11, 2, 13), (-10, 3, 14), "Metal", (150, 154, 160))
+
+    # дорожка из плоских камней к крыльцу
+    for z in (-21, -17, -13):
+        pf.box((-4, 0, z), (0, 1, z + 3), "Stone", (146, 142, 134))
+
+    pf.start = (-3, 0, -24)
+    pf.targets = [("комната", (-1, 1, 2)), ("у печи", (2, 1, 1))]
+    return pf
+
+
+def brick_house():
+    pf = Prefab("BrickHouse", "house", 2, "Кирпичный дом", "🏠",
+                "Крепкий кирпичный дом: гостиная с камином и спальня, большие окна и черепичная крыша.",
+                ["Кирпичные стены — держат взрывы", "Две комнаты: гостиная и спальня", "Камин и кирпичная труба",
+                 "Окна в белых рамах, лужайка"])
+    BRICK = (164, 76, 56)
+    WHITE = (244, 242, 236)
+    SLATE = ((76, 80, 92), (66, 70, 82))
+    PLINTH = (112, 110, 106)
+    CREAM = (234, 224, 200)
+    WARM = (255, 222, 160)
+    DOOR = (40, 66, 104)
+    WOOD = (150, 104, 66)
+    DARK = (92, 62, 40)
+
+    # цоколь, пол, стены, потолок с карнизом
+    pf.box((-11, 0, -7), (11, 1, 13), "Concrete", PLINTH)
+    pf.box((-9, 0, -5), (9, 1, 11), "Wood", (186, 140, 92))
+    walls(pf, (-10, 1, -6), (10, 10, 12), "Brick", BRICK)
+    pf.box((-11, 10, -7), (11, 11, 13), "Plastic", WHITE)
+    # угловые пилястры из светлого камня
+    for x in (-11, 10):
+        for z in (-7, 12):
+            pf.box((x, 1, z), (x + 1, 10, z + 1), "Concrete", (206, 200, 188))
+
+    # двускатная крыша, конёк вдоль Z: фронтон с круглым окном смотрит на крыльцо
+    chimney = ((8, 11, 0), (12, 23, 3))
+    top = gable_roof(pf, "z", (-12, -8), (12, 14), 11, 3, 4, SLATE, mat="Concrete", skip=[chimney],
+                     fill=("Brick", BRICK), fill_lo=(-10, -6), fill_hi=(10, 12))
+    pf.box((-1, top, -8), (1, top + 1, 14), "Concrete", (52, 54, 62))
+    pf.cyl((-1, 14, -6), (1, 16, -5), "Glass", "z")
+    pf.box((-2, 13, -7), (2, 14, -6), "Plastic", WHITE)
+    # кирпичная труба на правой стене; выше карниза она стоит на стене
+    pf.box((10, 0, -1), (13, 2, 4), "Concrete", PLINTH)
+    pf.box((10, 2, 0), (13, 11, 3), "Brick", (140, 64, 50))
+    pf.box((8, 11, 0), (12, 22, 3), "Brick", (140, 64, 50))
+    pf.box((7, 22, -1), (13, 23, 4), "Concrete", (70, 70, 74))
+
+    # фасад: дверь с белыми пилястрами, козырёк, фонари, два окна
+    door(pf, "z", -6, -5, -2, 2, 1, 7, DOOR)
+    for x in (-3, 2):
+        pf.box((x, 1, -7), (x + 1, 9, -6), "Plastic", WHITE)
+    pf.box((-3, 8, -7), (3, 9, -6), "Plastic", WHITE)
+    pf.wedge((-4, 9, -9), (4, 10, -6), "Concrete", "-z", SLATE[0])
+    for x in (-5, 4):
+        pf.lamp((x, 6, -7), color=WARM)
+    for a0 in (-8, 4):
+        window(pf, "z", -6, -5, a0, a0 + 4, 3, 8, -1, WHITE, transoms=(6,))
+    # окна по бокам и сзади
+    for x0, out in ((-10, -1), (9, 1)):
+        for a0 in ((-3, 6) if out < 0 else (6,)):
+            window(pf, "x", x0, x0 + 1, a0, a0 + 4, 3, 8, out, WHITE, transoms=(6,))
+    for a0 in (-7, 3):
+        window(pf, "z", 11, 12, a0, a0 + 4, 3, 8, 1, WHITE, transoms=(6,))
+
+    # перегородка между гостиной и спальней
+    pf.box((-9, 1, 4), (9, 10, 5), "Plastic", CREAM)
+    door(pf, "z", 4, 5, -2, 2, 1, 7, (176, 128, 84))
+
+    # гостиная: камин, диван, столик, ковёр, книжный шкаф, люстра
+    pf.box((6, 1, -1), (9, 2, 4), "Concrete", (120, 118, 114))
+    pf.box((7, 2, -1), (9, 7, 0), "Brick", (140, 64, 50))
+    pf.box((7, 2, 3), (9, 7, 4), "Brick", (140, 64, 50))
+    pf.box((8, 2, 0), (9, 7, 3), "Brick", (70, 40, 34))
+    pf.box((6, 7, -1), (9, 8, 4), "Wood", DARK)
+    pf.box((7, 8, 0), (9, 10, 3), "Brick", (140, 64, 50))
+    pf.box((7, 2, 1), (8, 3, 2), "Neon", (255, 140, 40))
+    pf.part((7, 2, 0), (8, 3, 1), "Neon", (255, 100, 30), "Ball")
+    pf.part((7, 2, 2), (8, 3, 3), "Neon", (255, 180, 60), "Ball")
+    pf.box((-4, 0, -3), (4, 1, 2), "Wood", (120, 56, 52))
+    SOFA = (78, 104, 140)
+    pf.box((-9, 1, -3), (-6, 3, 3), "Plastic", SOFA)
+    pf.box((-9, 3, -3), (-8, 5, 3), "Plastic", SOFA)
+    pf.box((-9, 3, -4), (-6, 4, -3), "Plastic", (66, 90, 124))
+    pf.box((-9, 3, 3), (-6, 4, 4), "Plastic", (66, 90, 124))
+    pf.box((-9, 1, -4), (-6, 3, -3), "Plastic", (66, 90, 124))
+    pf.box((-9, 1, 3), (-6, 3, 4), "Plastic", (66, 90, 124))
+    table(pf, (-4, 1, -2), (-1, 3, 2), (120, 80, 50), DARK)
+    pf.box((3, 1, -5), (8, 8, -4), "Wood", DARK)
+    for y, cs in ((1, ((190, 52, 48), (52, 92, 184), (60, 146, 82), (226, 184, 60))), (4, ((132, 72, 166), (230, 230, 220), (200, 90, 50), (60, 120, 160)))):
+        for i, c in enumerate(cs):
+            pf.box((4 + i, y + 1, -4), (5 + i, y + 3, -3), "Plastic", c)
+    for y in (4, 7):
+        pf.box((3, y, -4), (8, y + 1, -3), "Wood", DARK)
+    pf.box((3, 1, -4), (8, 2, -3), "Wood", DARK)
+    pf.lamp((-1, 9, -1), (2, 1, 2), WARM)
+
+    # спальня: двуспальная кровать с тумбочками, шкаф
+    pf.box((-3, 1, 7), (3, 3, 11), "Wood", (128, 84, 52))
+    pf.box((-3, 3, 7), (3, 4, 9), "Plastic", (196, 70, 74))
+    pf.box((-3, 3, 9), (3, 4, 10), "Plastic", (248, 246, 240))
+    pf.box((-3, 1, 10), (3, 6, 11), "Wood", DARK)
+    for x in (-5, 3):
+        pf.box((x, 1, 9), (x + 2, 3, 11), "Wood", (128, 84, 52))
+        pf.lamp((x + 1, 3, 10), color=WARM)
+    pf.box((5, 1, 9), (9, 8, 11), "Wood", (150, 110, 74))
+    pf.box((7, 1, 8), (8, 8, 9), "Wood", DARK)
+    pf.lamp((0, 9, 6), color=WARM)
+
+    # двор: дорожка из брусчатки, лужайки, живая изгородь, фонарь у дорожки, почтовый ящик
+    for z0 in range(-22, -7, 3):
+        pf.box((-2, 0, z0), (2, 1, z0 + 3), "Brick", (176, 120, 96) if (z0 // 3) % 2 else (156, 104, 84))
+    for x0, x1 in ((-14, -3), (3, 14)):
+        pf.box((x0, 0, -21), (x1, 1, -9), "Plastic", (98, 150, 70))
+        pf.box((x0, 1, -22), (x1, 2, -21), "Plastic", (60, 112, 52))
+    for x in (-9, 6):
+        pf.part((x, 1, -12), (x + 3, 4, -9), "Plastic", (70, 130, 60), "Ball")
+    pf.box((3, 1, -20), (4, 7, -19), "Metal", (40, 40, 44))
+    pf.lamp((3, 7, -20), color=WARM)
+    pf.box((-5, 1, -20), (-4, 3, -19), "Wood", DARK)
+    pf.cyl((-5, 3, -21), (-4, 4, -19), "Metal", "z", (60, 92, 160))
+
+    pf.start = (-1, 0, -27)
+    pf.targets = [("гостиная", (-4, 1, 3)), ("спальня", (5, 1, 6))]
+    return pf
+
+
+def cottage():
+    pf = Prefab("Cottage", "house", 3, "Каменный коттедж", "🏡",
+                "Двухэтажный коттедж из камня и бетона: лестница на второй этаж, балкон, терраса на крыше "
+                "кухни и турель ПВО.",
+                ["Камень и бетонные пояса", "Два этажа и лестница", "Балкон и терраса на крыше",
+                 "Турель ПВО и аптечка", "Панорамные окна"])
+    STONE = (150, 146, 136)
+    BAND = (200, 198, 190)
+    FRAME = (58, 60, 64)
+    TILE = ((168, 86, 58), (152, 76, 52))
+    WARM = (255, 224, 170)
+    WOOD = (164, 118, 76)
+    DARK = (84, 60, 42)
+    WHITE = (240, 240, 236)
+
+    # ---- основной дом 18×16, два этажа; пристройка-кухня 12×14 с террасой на крыше
+    pf.box((-15, 0, -7), (17, 1, 11), "Concrete", (126, 124, 120))                 # цоколь
+    pf.box((-13, 0, -5), (3, 1, 9), "Wood", (176, 134, 92))                       # пол гостиной
+    pf.box((4, 0, -3), (15, 1, 9), "Concrete", (214, 210, 200))                   # плитка кухни
+    walls(pf, (-14, 1, -6), (4, 20, 10), "Stone", STONE)
+    pf.box((4, 1, -4), (16, 10, -3), "Stone", STONE)
+    pf.box((4, 1, 9), (16, 10, 10), "Stone", STONE)
+    pf.box((15, 1, -3), (16, 10, 9), "Stone", STONE)
+    # перекрытие второго этажа выходит наружу поясом; крыша кухни — терраса
+    pf.box((-15, 10, -7), (5, 11, 11), "Concrete", BAND)
+    pf.box((5, 10, -5), (17, 11, 11), "Concrete", BAND)
+    pf.box((-13, 10, -5), (3, 11, 9), "Wood", (176, 134, 92))                     # пол второго этажа
+    pf.cut((-11, 10, 6), (-3, 11, 9))                                             # проём над лестницей
+
+    # ---- крыша из черепицы, конёк вдоль X; каменная труба у левого фронтона
+    chimney = ((-17, 0, 1), (-14, 30, 4))
+    top = gable_roof(pf, "x", (-16, -8), (6, 12), 20, 3, 5, TILE, mat="Brick", skip=[chimney],
+                     fill=("Stone", STONE), fill_lo=(-14, -6), fill_hi=(4, 10))
+    pf.box((-16, top, 1), (6, top + 1, 3), "Brick", (120, 58, 42))
+    pf.box((-18, 0, 0), (-14, 3, 5), "Stone", (118, 116, 110))
+    pf.box((-17, 3, 1), (-14, 28, 4), "Stone", (136, 132, 124))
+    pf.box((-18, 28, 0), (-13, 29, 5), "Concrete", (90, 90, 92))
+
+    # ---- фасад: дверь под балконом, панорамное окно, окна второго этажа и дверь на балкон
+    door(pf, "z", -6, -5, -4, 0, 1, 7, (96, 64, 42))
+    window(pf, "z", -6, -5, -13, -6, 2, 9, -1, FRAME, frame_mat="Metal", mullions=(-11, -9), sill=False)
+    window(pf, "z", -6, -5, 0, 3, 2, 9, -1, FRAME, frame_mat="Metal", sill=False)
+    window(pf, "z", -6, -5, -13, -9, 12, 18, -1, FRAME, frame_mat="Metal", transoms=(15,))
+    window(pf, "z", -6, -5, -2, 3, 12, 18, -1, FRAME, frame_mat="Metal", transoms=(15,))
+    door(pf, "z", -6, -5, -8, -4, 11, 7, (60, 62, 66))
+    # балкон на консоли со стеклянными перилами
+    pf.box((-11, 10, -10), (1, 11, -7), "Concrete", BAND)
+    pf.box((-11, 11, -10), (1, 14, -9), "Glass", (190, 226, 240))
+    for x in (-11, 0):
+        pf.box((x, 11, -9), (x + 1, 14, -7), "Glass", (190, 226, 240))
+    pf.box((-11, 14, -10), (1, 15, -9), "Metal", FRAME)
+    pf.lamp((-6, 9, -9), color=WARM)
+    # кухня: большое окно на фасаде и сбоку
+    window(pf, "z", -4, -3, 6, 14, 2, 9, -1, FRAME, frame_mat="Metal", mullions=(10,), transoms=(6,), sill=False)
+    window(pf, "x", 15, 16, 0, 6, 3, 8, 1, FRAME, frame_mat="Metal")
+    # боковые и задние окна дома
+    for y0, y1 in ((3, 8), (12, 18)):
+        window(pf, "x", -14, -13, -4, 0, y0, y1, -1, FRAME, frame_mat="Metal")
+    for a0 in (-12, -4):
+        window(pf, "z", 9, 10, a0, a0 + 4, 12, 18, 1, FRAME, frame_mat="Metal")
+    window(pf, "z", 9, 10, 8, 12, 3, 8, 1, FRAME, frame_mat="Metal")
+
+    # ---- первый этаж: проход на кухню, камин, диван, лестница
+    pf.cut((3, 1, 0), (4, 9, 6))
+    pf.box((-13, 1, 0), (-11, 2, 5), "Stone", (112, 110, 104))
+    pf.box((-13, 2, 0), (-12, 7, 5), "Stone", (96, 94, 90))
+    pf.box((-12, 2, 0), (-11, 7, 1), "Stone", (136, 132, 124))
+    pf.box((-12, 2, 4), (-11, 7, 5), "Stone", (136, 132, 124))
+    pf.box((-13, 7, 0), (-11, 8, 5), "Concrete", BAND)
+    pf.box((-13, 8, 1), (-12, 10, 4), "Stone", (136, 132, 124))
+    pf.box((-12, 2, 2), (-11, 3, 3), "Neon", (255, 140, 40))
+    pf.part((-12, 2, 1), (-11, 3, 2), "Neon", (255, 110, 30), "Ball")
+    pf.part((-12, 2, 3), (-11, 3, 4), "Neon", (255, 180, 60), "Ball")
+    SOFA = (196, 186, 166)
+    pf.box((-6, 1, 1), (-4, 3, 4), "Plastic", SOFA)
+    pf.box((-4, 1, 0), (-3, 5, 5), "Plastic", (176, 166, 146))
+    for z in (0, 4):
+        pf.box((-6, 1, z), (-4, 4, z + 1), "Plastic", (176, 166, 146))
+    pf.box((-11, 0, 0), (-6, 1, 5), "Wood", (92, 110, 128))                       # ковёр
+    table(pf, (-10, 1, 1), (-8, 3, 4), (90, 64, 44), DARK)
+    steps(pf, "x", -1, -1, 6, 9, 1, 10, "Wood", base=1, colors=(WOOD, (150, 106, 68)))
+    pf.lamp((-6, 9, 1), (2, 1, 2), WARM)
+
+    # кухня: столешницы, холодильник, остров со стульями, аптечка
+    pf.box((5, 1, 7), (15, 4, 9), "Wood", (236, 234, 228))
+    pf.box((5, 4, 7), (15, 5, 9), "Concrete", (60, 60, 64))
+    pf.box((12, 1, 3), (15, 8, 6), "Metal", (200, 204, 210))
+    pf.box((7, 1, 2), (11, 4, 4), "Wood", (236, 234, 228))
+    pf.box((7, 4, 2), (11, 5, 4), "Concrete", (60, 60, 64))
+    pf.item((7, 1, -1), (9, 2, 1), "Seat", face="+z")
+    pf.item((9, 1, -1), (11, 2, 1), "Seat", face="+z")
+    pf.item((5, 5, 7), (7, 7, 9), "Medkit")
+    pf.lamp((9, 9, 3), (2, 1, 2), WARM)
+
+    # ---- второй этаж: перила у лестницы, перегородка спальни, дверь на террасу
+    pf.box((-11, 11, 5), (-2, 13, 6), "Glass", (190, 226, 240))
+    pf.box((-11, 13, 5), (-2, 14, 6), "Wood", DARK)
+    pf.box((-3, 11, 6), (-2, 14, 9), "Wood", DARK)
+    pf.box((-13, 11, 1), (3, 20, 2), "Plastic", (232, 226, 212))
+    door(pf, "z", 1, 2, -4, 0, 11, 7, (176, 128, 84))
+    door(pf, "x", 3, 4, 4, 8, 11, 7, (60, 62, 66), at="hi")
+    # спальня: кровать, шкаф, лампа
+    pf.box((-13, 11, -4), (-9, 13, 1), "Wood", (128, 84, 52))
+    pf.box((-13, 13, -4), (-9, 14, -1), "Plastic", (110, 140, 120))
+    pf.box((-13, 13, -1), (-9, 14, 0), "Plastic", WHITE)
+    pf.box((-13, 11, 0), (-9, 16, 1), "Wood", DARK)
+    pf.box((1, 11, -3), (3, 18, 1), "Wood", (150, 110, 74))
+    pf.lamp((-5, 19, -1), (2, 1, 2), WARM)
+    # кабинет у лестницы: книжный шкаф, стол и лампа
+    pf.box((-2, 11, 8), (1, 18, 9), "Wood", DARK)
+    for i, c in enumerate(((190, 52, 48), (52, 92, 184), (226, 184, 60))):
+        pf.box((-2 + i, 13, 7), (-1 + i, 15, 8), "Plastic", c)
+    pf.lamp((0, 19, 4), color=WARM)
+
+    # ---- терраса на крыше кухни: стеклянный парапет, турель ПВО, шезлонги
+    pf.box((5, 11, -5), (17, 13, -4), "Glass", (190, 226, 240))
+    pf.box((5, 11, 10), (17, 13, 11), "Glass", (190, 226, 240))
+    pf.box((16, 11, -4), (17, 13, 10), "Glass", (190, 226, 240))
+    pf.item((11, 11, 2), (14, 13, 5), "AATurret")
+    for z in (-3, 6):
+        pf.item((6, 11, z), (8, 12, z + 2), "Seat", (230, 230, 226), face="+x")
+    pf.cyl((9, 11, 7), (10, 16, 8), "Metal", "y", FRAME)
+    pf.part((7, 16, 5), (12, 17, 10), "Plastic", (230, 90, 70), "Cylinder", rot_index(0, 90))
+    pf.lamp((15, 11, 9), color=WARM)
+
+    # ---- двор: дорожка, клумбы, дерево
+    pf.box((-4, 0, -22), (0, 1, -7), "Stone", (170, 166, 156))
+    for x0, x1 in ((-20, -6), (2, 10)):
+        pf.box((x0, 0, -20), (x1, 1, -12), "Plastic", (98, 150, 70))
+        for x in range(x0 + 8 if x0 < -6 else x0, x1, 2):
+            pf.part((x, 1, -13), (x + 1, 2, -12), "Plastic", ((230, 80, 100), (250, 210, 70), (160, 100, 220))[(x // 2) % 3], "Ball")
+    pf.cyl((-18, 1, -18), (-16, 8, -16), "Wood", "y", (104, 74, 48))
+    pf.ball((-21, 8, -21), (-13, 16, -13), "Plastic", (80, 150, 66))
+
+    pf.start = (-3, 0, -26)
+    pf.targets = [("гостиная", (-8, 1, -3)), ("кухня", (9, 1, -2)), ("второй этаж", (1, 11, 4)),
+                  ("спальня", (-4, 11, -2)), ("балкон", (-6, 11, -8)), ("терраса", (8, 11, 0))]
+    return pf
+
+
+def log_segments(a_lo, a_hi, y, holes):
+    """Отрезки бревна от a_lo до a_hi на высоте y..y+2 без проёмов holes = [(a0, a1, y0, y1)]."""
+    cuts = sorted((a0, a1) for a0, a1, y0, y1 in holes if y0 < y + 2 and y < y1)
+    out, a = [], a_lo
+    for c0, c1 in cuts:
+        if c0 > a:
+            out.append((a, c0))
+        a = max(a, c1)
+    if a < a_hi:
+        out.append((a, a_hi))
+    return out
+
+
+DESIGNS = [cabin]
 
 
 def main():

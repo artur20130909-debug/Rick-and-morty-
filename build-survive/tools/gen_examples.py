@@ -15,11 +15,12 @@ MAT = {k: i + 1 for i, k in enumerate([
     "Wood", "Plastic", "Brick", "Stone", "Concrete", "Glass", "Ice", "Neon", "Sandbag", "Rubber",
     "Metal", "ArmorGlass", "Steel", "Lead", "Titanium", "Obsidian", "Gold", "Crystal"])}
 ITEM = {k: i + 1 for i, k in enumerate([
-    "Seat", "DriverSeat", "Wheel", "Thruster", "Balloon", "Door", "Lamp", "Flag", "TNT", "Medkit", "AATurret", "Shield"])}
+    "Seat", "DriverSeat", "Wheel", "Thruster", "Balloon", "Door", "Lamp", "Flag", "TNT", "Medkit", "AATurret", "Shield",
+    "Guard"])}
 ITEM_SIZE = {
     "Seat": (2, 1, 2), "DriverSeat": (2, 1, 2), "Wheel": (2, 4, 4), "Thruster": (3, 2, 2), "Balloon": (4, 4, 4),
     "Door": (4, 7, 1), "Lamp": (1, 1, 1), "Flag": (1, 8, 1), "TNT": (2, 2, 2), "Medkit": (2, 2, 2),
-    "AATurret": (3, 2, 3), "Shield": (3, 3, 3),
+    "AATurret": (3, 2, 3), "Shield": (3, 3, 3), "Guard": (2, 5, 2),
 }
 MAT_COLOR = {
     "Wood": (161, 115, 72), "Plastic": (232, 232, 236), "Brick": (168, 84, 62), "Stone": (128, 128, 124),
@@ -32,6 +33,7 @@ ITEM_COLOR = {
     "Seat": (140, 96, 60), "DriverSeat": (46, 48, 54), "Wheel": (30, 30, 32), "Thruster": (110, 114, 122),
     "Balloon": (235, 64, 52), "Door": (120, 82, 50), "Lamp": (255, 226, 160), "Flag": (200, 200, 205),
     "TNT": (200, 40, 36), "Medkit": (240, 240, 240), "AATurret": (70, 82, 70), "Shield": (60, 70, 96),
+    "Guard": (72, 86, 60),
 }
 SHAPE = {"Block": 1, "Wedge": 2, "CornerWedge": 3, "Cylinder": 4, "Ball": 5}
 
