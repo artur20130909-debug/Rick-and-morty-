@@ -112,8 +112,6 @@ def check_catalog():
         assert mats.get(k) == i, ("материал", k, i, mats.get(k))
     items_src = src[src.index("Blocks.Items"):]
     found = {}
-    for m in re.finditer(r'\{\s*id\s*=\s*(\d+),\s*key\s*=\s*"(\w+)"(.*?)\n\t\},?|\{\s*id\s*=\s*(\d+),\s*key\s*=\s*"(\w+)"(.*?)\},', items_src, re.S):
-        pass
     for m in re.finditer(r'\{\s*id\s*=\s*(\d+),\s*key\s*=\s*"(\w+)"([^{}]*?)\},', items_src):
         found[m.group(2)] = (int(m.group(1)), m.group(3))
     for k, i in ITEM.items():
@@ -581,7 +579,7 @@ def walk_check(pf):
                     seen.add(n)
                     queue.append(n)
     for label, (tx, ty, tz) in pf.targets:
-        ok = any((tx - 1 <= x <= tx and tz - 1 <= z <= tz and y == ty) for x, z, y in [(a, c, b) for a, c, b in seen])
+        ok = any(tx - 1 <= x <= tx and tz - 1 <= z <= tz and y == ty for x, z, y in seen)
         assert ok, (pf.key, "не дойти до цели", label, (tx, ty, tz))
     # двери: перед и за дверью свободно на её ширину и DOOR_HEADROOM в высоту, под дверью пол
     for b in pf.blocks:
@@ -600,7 +598,6 @@ def walk_check(pf):
                     for y in range(lo[1], lo[1] + h):
                         assert not solid[idx(x, z, y)], (pf.key, "проход у двери занят", lo, hi, (x, y, z))
         for u in range(lo[along], hi[along]):
-            x, z = (lo[0], u) if thin == 2 else (u, lo[2])
             x, z = (u, lo[2]) if thin == 2 else (lo[0], u)
             assert solid[idx(x, z, lo[1] - 1)], (pf.key, "под дверью нет пола", lo, hi)
 

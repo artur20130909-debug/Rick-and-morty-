@@ -29,11 +29,11 @@ local function tinted(c: Color3, k: number): Color3
 	return Color3.new(math.min(c.R * k, 1), math.min(c.G * k, 1), math.min(c.B * k, 1))
 end
 
--- Декоративная деталь, приваренная к блоку. Не мешает лучам и столкновениям.
+-- Декоративная деталь без сварки (её делают decor и rigPart). Не мешает лучам и столкновениям.
 -- Tint — деталь окрашена в цвет блока с этим множителем и перекрашивается вместе с ним.
-local function decor(parent: BasePart, cf: CFrame, size: Vector3, props: { [string]: any }): BasePart
+local function detail(parent: BasePart, cf: CFrame, size: Vector3, props: { [string]: any }): BasePart
 	local d = newPart(props.className or "Part")
-	d.Name = "Decor"
+	d.Name = props.Name or "Decor"
 	d.Size = size
 	d.CFrame = parent.CFrame * cf
 	d.CanCollide = false
@@ -53,7 +53,27 @@ local function decor(parent: BasePart, cf: CFrame, size: Vector3, props: { [stri
 	d.Transparency = props.Transparency or 0
 	d.Reflectance = props.Reflectance or 0
 	d.Parent = parent
+	return d
+end
+
+-- Декоративная деталь, приваренная к блоку (или к другой детали) неподвижно
+local function decor(parent: BasePart, cf: CFrame, size: Vector3, props: { [string]: any }): BasePart
+	local d = detail(parent, cf, size, props)
 	local w = Instance.new("WeldConstraint")
+	w.Part0 = parent
+	w.Part1 = d
+	w.Parent = d
+	return d
+end
+
+-- Подвижная деталь на Weld (как полотно двери): поворачивая C0, её анимируют
+local function rigPart(parent: BasePart, name: string, weldName: string, c0: CFrame, c1: CFrame, size: Vector3, props: { [string]: any }): BasePart
+	local d = detail(parent, c0 * c1:Inverse(), size, props)
+	d.Name = name
+	local w = Instance.new("Weld")
+	w.Name = weldName
+	w.C0 = c0
+	w.C1 = c1
 	w.Part0 = parent
 	w.Part1 = d
 	w.Parent = d
@@ -142,7 +162,8 @@ local function buildDoor(part: BasePart, opts: BuildOptions)
 		{ Material = Enum.Material.Glass, Color = Color3.fromRGB(120, 170, 205), Reflectance = 0.3 })
 	-- ручка: стержень сквозь полотно, накладки и шарики с обеих сторон
 	local brass = { Material = METAL, Color = Color3.fromRGB(222, 186, 92) }
-	local hx, hy = -W / 2 + math.min(0.4, W * 0.16), -H * 0.05
+	-- ручка между краем полотна и филёнками (у узкой двери накладка не наезжает на филёнку)
+	local hx, hy = -W / 2 + math.min(0.4, W * 0.095), -H * 0.05
 	decor(leaf, CFrame.new(hx, hy, 0) * CFrame.Angles(0, math.pi / 2, 0), Vector3.new(lt + 0.36, 0.08, 0.08),
 		{ Shape = CYL, Material = METAL, Color = brass.Color })
 	for _, side in { -1, 1 } do
