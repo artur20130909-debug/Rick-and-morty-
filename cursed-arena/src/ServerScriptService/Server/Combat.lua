@@ -278,6 +278,7 @@ end)
 function Combat.burn(attacker, target, dps, dur)
 	if not Fighters.alive(target) then return end
 	local t = now()
+	if t < target.iframesEnd then return end
 	target.burnEnd = math.max(target.burnEnd, t + dur)
 	target.burnTick = target.burnTick and math.min(target.burnTick, t + 0.5) or t + 0.5
 	target.burnDmg = dps * 0.5

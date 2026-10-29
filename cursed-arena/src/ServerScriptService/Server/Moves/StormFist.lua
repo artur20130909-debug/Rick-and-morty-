@@ -34,7 +34,7 @@ local function rush(K, f, aim, def, slot, p)
 	K.anim(f, "punch_heavy")
 	local crit = false
 	local now = K.now()
-	f.recast = { slot = slot, fromT = now + 0.1, untilT = now + 0.34, cb = function() crit = true end }
+	K.recast(f, slot, now + 0.1, now + 0.34, function() crit = true end)
 	K.fx("Cue", { m = f.model, t = 0.34, d = 0.1, c = GOLD })
 	if not K.wait(f, tok, 0.3) then
 		f.recast = nil

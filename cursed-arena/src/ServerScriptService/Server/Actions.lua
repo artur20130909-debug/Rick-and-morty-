@@ -31,27 +31,33 @@ end
 local M1_FX = { fists = "punch", flame = "fire", zap = "zap", claws = "shadow", palms = "void", sword = "slash" }
 
 ---------------------------------------------------------------- M1
-function Actions.m1(f, aim, jumpHeld)
+-- jumpHeld: зажат пробел (4-й удар = апперкот); air: игрок в воздухе (4-й удар = удар вниз).
+-- Игроки показывают удары у себя сразу, поэтому для них небольшой допуск на задержку сети.
+function Actions.m1(f, aim, jumpHeld, air)
 	local now = Util.now()
 	if not Fighters.canAct(f, now) then return false end
-	if now < f.m1CdEnd then return false end
+	local slack = f.player and 0.08 or 0
+	if now < f.m1CdEnd - slack then return false end
 	local cfg = Actions.m1Config(f.charId)
-	if now - f.m1Last < cfg.Interval then return false end
-	if now - f.m1Last > cfg.ComboWindow then f.m1Index = 0 end
+	if now - f.m1Last < cfg.Interval - slack then return false end
+	if now - f.m1Last > cfg.ComboWindow + slack * 2 then f.m1Index = 0 end
 	f.m1Index = f.m1Index + 1
 	f.m1Last = now
 	local idx = f.m1Index
 	local finisher = idx >= cfg.Count
 	local variant = "n"
 	if finisher then
-		if f.hum.FloorMaterial == Enum.Material.Air then variant = "down"
-		elseif jumpHeld then variant = "up" end
+		if not f.player then air = f.hum.FloorMaterial == Enum.Material.Air end
+		if jumpHeld then variant = "up"
+		elseif air then variant = "down" end
 		f.m1CdEnd = now + cfg.EndLag
 		f.m1Index = 0
 	end
 	local dir = Kit.dir(f, aim)
 	if not f.player then Kit.face(f, dir) end
-	Fighters.busy(f, cfg.BusyTime * (finisher and 1.7 or 1), cfg.BusySpeed, not finisher)
+	-- замедление на время удара (приёмы и рывок им не блокируются)
+	f.m1BusyEnd = now + cfg.BusyTime * (finisher and 1.7 or 1)
+	f.m1Jump = not finisher
 	local style = f.def.M1Style
 	Net.fxExcept(f.player, "M1", { m = f.model, i = idx, v = variant, st = style })
 	local tok = f.moveToken
@@ -137,7 +143,7 @@ function Actions.dash(f, key, vec)
 	if not Fighters.alive(f) or f.ragdolled or now < f.stunEnd or now < f.rootEnd then return false end
 	if now < f.busyEnd or f.blocking then return false end
 	if not DASH_CD[key] then key = "F" end
-	if now < f.dashCd[key] then return false end
+	if now < f.dashCd[key] - (f.player and 0.1 or 0) then return false end
 	f.dashCd[key] = now + Config.Dash[DASH_CD[key]]
 	if key == "L" or key == "R" then f.evadeEnd = now + Config.Dash.EvadeTime end
 	if not f.player then
@@ -223,7 +229,7 @@ end
 ---------------------------------------------------------------- приём от игроков
 local rate = {}
 function Actions.init(Spawner, Bots)
-	Net.Action.OnServerEvent:Connect(function(player, kind, a, b)
+	Net.Action.OnServerEvent:Connect(function(player, kind, a, b, c)
 		if type(kind) ~= "string" then return end
 		-- защита от спама
 		local t = os.clock()
@@ -246,8 +252,16 @@ function Actions.init(Spawner, Bots)
 		end
 		local f = Fighters.ofPlayer(player)
 		if not f then return end
+		if kind == "Menu" then
+			-- игрок в меню: боты его не трогают (если он не в бою)
+			f.inMenu = a == true
+			if f.inMenu then
+				Actions.block(f, false)
+			end
+			return
+		end
 		if kind == "M1" then
-			Actions.m1(f, Kit.cleanAim(a), b == true)
+			Actions.m1(f, Kit.cleanAim(a), b == true, c == true)
 		elseif kind == "Block" then
 			Actions.block(f, a == true)
 		elseif kind == "Dash" then

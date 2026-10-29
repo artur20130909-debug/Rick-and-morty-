@@ -4368,44 +4368,207 @@ defclass("Camera", "Instance", {
 })
 
 ---------------- GUI ----------------
-local function guiAbs(self, d)
-	local cls = d.cls
-	if cls.isa.ScreenGui then
-		if d.p.IgnoreGuiInset then return 0, 0, VIEW_W, VIEW_H end
-		return 0, 58, VIEW_W, VIEW_H - 58
+-- Раскладка GUI: UIScale, UIPadding, UIListLayout, UIGridLayout, UIAspectRatioConstraint, UISizeConstraint,
+-- ScrollingFrame. Для каждого контейнера: content-прямоугольник в «локальных» координатах + отображение
+-- local -> экран (k, ox, oy).
+local function uiChild(d, clsName)
+	for _, c in ipairs(d.children or {}) do
+		if c[DATA].cls.name == clsName then return c[DATA] end
 	end
-	if cls.isa.SurfaceGui then
-		if d.p.SizingMode.Name == "PixelsPerStud" then
-			local par = d.p.Adornee or d.parent
-			if par and par[DATA].cls.isa.BasePart then
-				local s = par[DATA].p.Size
-				local f = d.p.Face.Name
-				local w, h = s.X, s.Y
-				if f == "Left" or f == "Right" then w, h = s.Z, s.Y elseif f == "Top" or f == "Bottom" then w, h = s.X, s.Z end
-				return 0, 0, w * d.p.PixelsPerStud, h * d.p.PixelsPerStud
+	return nil
+end
+local function layoutOf(d)
+	for _, c in ipairs(d.children or {}) do
+		local cn = c[DATA].cls.name
+		if cn == "UIListLayout" or cn == "UIGridLayout" then return c[DATA] end
+	end
+	return nil
+end
+local guiSpace
+-- размер детали внутри родительского контента (без учёта раскладки)
+local function guiSize(d, R)
+	local s = d.p.Size
+	local w, h = s.X.Scale * R.w + s.X.Offset, s.Y.Scale * R.h + s.Y.Offset
+	local sc = d.p.SizeConstraint and d.p.SizeConstraint.Name or "RelativeXY"
+	if sc == "RelativeXX" then h = s.Y.Scale * R.w + s.Y.Offset elseif sc == "RelativeYY" then w = s.X.Scale * R.h + s.X.Offset end
+	local ar = uiChild(d, "UIAspectRatioConstraint")
+	if ar and ar.p.AspectRatio and ar.p.AspectRatio > 0 then
+		local r = ar.p.AspectRatio
+		local at = ar.p.AspectType and ar.p.AspectType.Name or "FitWithinMaxSize"
+		if at == "ScaleWithParentSize" then
+			if (ar.p.DominantAxis and ar.p.DominantAxis.Name or "Width") == "Width" then h = w / r else w = h * r end
+		else
+			if h > 0 and w / h > r then w = h * r else h = w / r end
+		end
+	end
+	local sz = uiChild(d, "UISizeConstraint")
+	if sz then
+		w = mmax(sz.p.MinSize.X, mmin(sz.p.MaxSize.X, w))
+		h = mmax(sz.p.MinSize.Y, mmin(sz.p.MaxSize.Y, h))
+	end
+	return w, h
+end
+-- позиция в раскладке родителя (UIListLayout / UIGridLayout)
+local function layoutPos(selfInst, d, pd, L, R, w, h)
+	local items = {}
+	for i, c in ipairs(pd.children or {}) do
+		local cd = c[DATA]
+		if cd.cls.isa.GuiObject and cd.p.Visible ~= false then items[#items + 1] = { inst = c, d = cd, i = i } end
+	end
+	local byName = L.p.SortOrder and L.p.SortOrder.Name == "Name"
+	table.sort(items, function(a, b)
+		if byName then
+			if a.d.p.Name ~= b.d.p.Name then return tostring_(a.d.p.Name) < tostring_(b.d.p.Name) end
+		else
+			local la, lb = a.d.p.LayoutOrder or 0, b.d.p.LayoutOrder or 0
+			if la ~= lb then return la < lb end
+		end
+		return a.i < b.i
+	end)
+	local ha = L.p.HorizontalAlignment and L.p.HorizontalAlignment.Name or "Left"
+	local va = L.p.VerticalAlignment and L.p.VerticalAlignment.Name or "Top"
+	local horiz = L.p.FillDirection and L.p.FillDirection.Name == "Horizontal"
+	if L.cls.name == "UIGridLayout" then
+		local cs, cp = L.p.CellSize, L.p.CellPadding
+		local cw, ch = cs.X.Scale * R.w + cs.X.Offset, cs.Y.Scale * R.h + cs.Y.Offset
+		local px, py = cp.X.Scale * R.w + cp.X.Offset, cp.Y.Scale * R.h + cp.Y.Offset
+		local n = #items
+		local per
+		if horiz then per = mmax(1, math.floor((R.w + px) / (cw + px) + 1e-6)) else per = mmax(1, math.floor((R.h + py) / (ch + py) + 1e-6)) end
+		local maxc = L.p.FillDirectionMaxCells or 0
+		if maxc > 0 then per = mmin(per, maxc) end
+		local cols, rows
+		if horiz then cols = mmin(per, n); rows = math.ceil(n / per) else rows = mmin(per, n); cols = math.ceil(n / per) end
+		local tw, th = cols * cw + mmax(0, cols - 1) * px, rows * ch + mmax(0, rows - 1) * py
+		local bx = R.x + (ha == "Center" and (R.w - tw) / 2 or ha == "Right" and (R.w - tw) or 0)
+		local by = R.y + (va == "Center" and (R.h - th) / 2 or va == "Bottom" and (R.h - th) or 0)
+		for k, it in ipairs(items) do
+			if it.inst == selfInst then
+				local idx = k - 1
+				local col, row
+				if horiz then col, row = idx % per, math.floor(idx / per) else row, col = idx % per, math.floor(idx / per) end
+				return bx + col * (cw + px), by + row * (ch + py), cw, ch
 			end
 		end
-		return 0, 0, d.p.CanvasSize.X, d.p.CanvasSize.Y
+		return R.x, R.y, cw, ch
 	end
-	if cls.isa.BillboardGui then
-		local s = d.p.Size
-		return 0, 0, s.X.Offset + s.X.Scale * 100, s.Y.Offset + s.Y.Scale * 100
+	local padU = L.p.Padding or udim(0, 0)
+	local pad = padU.Scale * (horiz and R.w or R.h) + padU.Offset
+	local sizes, total, mine = {}, 0, nil
+	for k, it in ipairs(items) do
+		local iw, ih
+		if it.inst == selfInst then iw, ih = w, h; mine = k else iw, ih = guiSize(it.d, R) end
+		sizes[k] = { iw, ih }
+		total = total + (horiz and iw or ih)
 	end
-	if cls.isa.GuiObject then
-		local par = d.parent
-		local px, py, pw, ph = 0, 0, VIEW_W, VIEW_H
-		if par and par[DATA].cls.isa.GuiBase2d then px, py, pw, ph = guiAbs(par, par[DATA]) end
-		local s, pos, ap = d.p.Size, d.p.Position, d.p.AnchorPoint
-		local w, h = s.X.Scale * pw + s.X.Offset, s.Y.Scale * ph + s.Y.Offset
-		local sc = d.p.SizeConstraint.Name
-		if sc == "RelativeXX" then h = s.Y.Scale * pw + s.Y.Offset elseif sc == "RelativeYY" then w = s.X.Scale * ph + s.X.Offset end
-		local x = px + pos.X.Scale * pw + pos.X.Offset - ap.X * w
-		local y = py + pos.Y.Scale * ph + pos.Y.Offset - ap.Y * h
-		return x, y, w, h
+	total = total + mmax(0, #items - 1) * pad
+	local cursor
+	if horiz then
+		cursor = R.x + (ha == "Center" and (R.w - total) / 2 or ha == "Right" and (R.w - total) or 0)
+	else
+		cursor = R.y + (va == "Center" and (R.h - total) / 2 or va == "Bottom" and (R.h - total) or 0)
 	end
-	return 0, 0, 0, 0
+	for k = 1, #items do
+		local iw, ih = sizes[k][1], sizes[k][2]
+		if k == mine then
+			if horiz then
+				local y = R.y + (va == "Center" and (R.h - ih) / 2 or va == "Bottom" and (R.h - ih) or 0)
+				return cursor, y, iw, ih
+			else
+				local x = R.x + (ha == "Center" and (R.w - iw) / 2 or ha == "Right" and (R.w - iw) or 0)
+				return x, cursor, iw, ih
+			end
+		end
+		cursor = cursor + (horiz and iw or ih) + pad
+	end
+	return R.x, R.y, w, h
+end
+-- прямоугольник объекта в локальных координатах родителя и пространство родителя
+local function guiLocal(self, d)
+	local par = d.parent
+	local P
+	if par and par[DATA].cls.isa.GuiBase2d then P = guiSpace(par, par[DATA])
+	else P = { R = { x = 0, y = 0, w = VIEW_W, h = VIEW_H }, k = 1, ox = 0, oy = 0 } end
+	local R = P.R
+	local w, h = guiSize(d, R)
+	local x, y
+	local L = par and layoutOf(par[DATA])
+	if L then
+		x, y, w, h = layoutPos(self, d, par[DATA], L, R, w, h)
+		-- раскладка игнорирует Position и AnchorPoint
+		return x, y, w, h, P, 0, 0
+	end
+	local pos, ap = d.p.Position, d.p.AnchorPoint
+	x = R.x + pos.X.Scale * R.w + pos.X.Offset - ap.X * w
+	y = R.y + pos.Y.Scale * R.h + pos.Y.Offset - ap.Y * h
+	return x, y, w, h, P, ap.X, ap.Y
+end
+-- пространство для детей: content-прямоугольник (локальный) и отображение на экран
+guiSpace = function(self, d)
+	local cls = d.cls
+	if cls.isa.ScreenGui then
+		if d.p.IgnoreGuiInset then return { R = { x = 0, y = 0, w = VIEW_W, h = VIEW_H }, k = 1, ox = 0, oy = 0, sx = 0, sy = 0, sw = VIEW_W, sh = VIEW_H } end
+		return { R = { x = 0, y = 58, w = VIEW_W, h = VIEW_H - 58 }, k = 1, ox = 0, oy = 0, sx = 0, sy = 58, sw = VIEW_W, sh = VIEW_H - 58 }
+	end
+	if cls.isa.SurfaceGui or cls.isa.BillboardGui then
+		local w, h
+		if cls.isa.BillboardGui then
+			local s = d.p.Size
+			w, h = s.X.Offset + s.X.Scale * 100, s.Y.Offset + s.Y.Scale * 100
+		else
+			w, h = d.p.CanvasSize.X, d.p.CanvasSize.Y
+			if d.p.SizingMode.Name == "PixelsPerStud" then
+				local par = d.p.Adornee or d.parent
+				if par and par[DATA].cls.isa.BasePart then
+					local s = par[DATA].p.Size
+					local f = d.p.Face.Name
+					w, h = s.X, s.Y
+					if f == "Left" or f == "Right" then w, h = s.Z, s.Y elseif f == "Top" or f == "Bottom" then w, h = s.X, s.Z end
+					w, h = w * d.p.PixelsPerStud, h * d.p.PixelsPerStud
+				end
+			end
+		end
+		return { R = { x = 0, y = 0, w = w, h = h }, k = 1, ox = 0, oy = 0, sx = 0, sy = 0, sw = w, sh = h }
+	end
+	if not cls.isa.GuiObject then
+		return { R = { x = 0, y = 0, w = VIEW_W, h = VIEW_H }, k = 1, ox = 0, oy = 0, sx = 0, sy = 0, sw = VIEW_W, sh = VIEW_H }
+	end
+	local x, y, w, h, P, apx, apy = guiLocal(self, d)
+	local k, ox, oy = P.k, P.ox, P.oy
+	local sx, sy, sw, sh = x, y, w, h
+	local us = uiChild(d, "UIScale")
+	if us and us.p.Scale ~= 1 then
+		local s = us.p.Scale
+		local ax, ay = x + apx * w, y + apy * h
+		sx, sy, sw, sh = ax - apx * w * s, ay - apy * h * s, w * s, h * s
+		ox = ox + k * ax * (1 - s)
+		oy = oy + k * ay * (1 - s)
+		k = k * s
+	end
+	-- экранный прямоугольник самого объекта
+	local scr = { x = P.k * sx + P.ox, y = P.k * sy + P.oy, w = P.k * sw, h = P.k * sh }
+	local R = { x = x, y = y, w = w, h = h }
+	local pad = uiChild(d, "UIPadding")
+	if pad then
+		local l = pad.p.PaddingLeft.Scale * w + pad.p.PaddingLeft.Offset
+		local r = pad.p.PaddingRight.Scale * w + pad.p.PaddingRight.Offset
+		local t = pad.p.PaddingTop.Scale * h + pad.p.PaddingTop.Offset
+		local b = pad.p.PaddingBottom.Scale * h + pad.p.PaddingBottom.Offset
+		R = { x = x + l, y = y + t, w = mmax(0, w - l - r), h = mmax(0, h - t - b) }
+	end
+	if cls.isa.ScrollingFrame then
+		local cs, cp = d.p.CanvasSize, d.p.CanvasPosition
+		R = { x = R.x - cp.X, y = R.y - cp.Y, w = cs.X.Scale * R.w + cs.X.Offset, h = cs.Y.Scale * R.h + cs.Y.Offset }
+		if R.w <= 0 then R.w = w end
+	end
+	return { R = R, k = k, ox = ox, oy = oy, sx = scr.x, sy = scr.y, sw = scr.w, sh = scr.h }
+end
+local function guiAbs(self, d)
+	local sp = guiSpace(self, d)
+	return sp.sx, sp.sy, sp.sw, sp.sh
 end
 I.guiAbs = guiAbs
+I.guiSpace = guiSpace
 local function textBounds(d)
 	local text = tostring_(d.p.Text or "")
 	if d.p.RichText then text = sgsub(text, "<[^>]+>", "") end

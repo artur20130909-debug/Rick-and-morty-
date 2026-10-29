@@ -185,7 +185,8 @@ function FX.emit(pos, opts)
 	e.Size = opts.size or NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 0) })
 	e.Transparency = opts.transp or NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
 	e.Lifetime = NumberRange.new(opts.life or 0.4, (opts.life or 0.4) * 1.6)
-	e.Speed = NumberRange.new(opts.speed or 12, (opts.speed or 12) * 1.8)
+	local sp = opts.speed or 12
+	e.Speed = NumberRange.new(math.min(sp, sp * 1.8), math.max(sp, sp * 1.8))
 	e.SpreadAngle = Vector2.new(opts.spread or 180, opts.spread or 180)
 	e.Drag = opts.drag or 3
 	e.Acceleration = opts.accel or Vector3.zero

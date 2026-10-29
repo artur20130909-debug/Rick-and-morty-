@@ -29,7 +29,7 @@ function Fighters.new(model, kind, player, charId)
 		stunEnd = 0, busyEnd = 0, busySpeed = nil, busyJump = false, ragdollEnd = 0, ragdolled = false,
 		iframesEnd = now + (kind == "dummy" and 0 or Config.SpawnProtection), evadeEnd = 0, armorEnd = 0,
 		blocking = false, blockStart = 0, blockHp = Config.Block.MaxDurability, blockLockEnd = 0,
-		m1Index = 0, m1Last = -100, m1CdEnd = 0,
+		m1Index = 0, m1Last = -100, m1CdEnd = 0, m1BusyEnd = 0, m1Jump = true,
 		cds = { 0, 0, 0, 0 }, dashCd = { F = 0, B = 0, L = 0, R = 0 },
 		moveToken = 0, moveId = nil, cleanup = {},
 		lastHitBy = nil, lastHitTime = -100, lastDamageTime = -100, lastDealtTime = -100,
@@ -169,6 +169,9 @@ function Fighters.step(dt)
 			elseif busy then
 				speed = f.busySpeed or Config.BusySpeed
 				jump = f.busyJump and Config.JumpHeight or 0
+			elseif now < f.m1BusyEnd then
+				speed = Config.M1.BusySpeed
+				jump = f.m1Jump and Config.JumpHeight or 0
 			else
 				speed, jump = Config.WalkSpeed, Config.JumpHeight
 			end

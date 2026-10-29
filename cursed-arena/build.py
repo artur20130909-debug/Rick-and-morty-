@@ -113,10 +113,11 @@ def build_place():
     remotes = Inst('Folder', 'Remotes')
     for nm in ('Action', 'FX', 'Private'):
         remotes.add(Inst('RemoteEvent', nm))
-    remotes.add(Inst('UnreliableRemoteEvent', 'Aim'))
     rs.add(remotes)
     for c in src_children('ReplicatedStorage', manifest):
         rs.add(c)
+    # копия рига для 3D-превью в меню (ViewportFrame)
+    rs.add(rig.build_r6('PreviewRig'))
 
     # ---- ServerScriptService ----
     sss = Inst('ServerScriptService', 'ServerScriptService')

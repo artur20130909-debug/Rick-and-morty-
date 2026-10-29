@@ -1,4 +1,14 @@
 {
+ "ReplicatedStorage.Client.Animator": "src/ReplicatedStorage/Client/Animator.lua",
+ "ReplicatedStorage.Client.CameraFX": "src/ReplicatedStorage/Client/CameraFX.lua",
+ "ReplicatedStorage.Client.Controller": "src/ReplicatedStorage/Client/Controller.lua",
+ "ReplicatedStorage.Client.Effects": "src/ReplicatedStorage/Client/Effects.lua",
+ "ReplicatedStorage.Client.FX": "src/ReplicatedStorage/Client/FX.lua",
+ "ReplicatedStorage.Client.Hud": "src/ReplicatedStorage/Client/Hud.lua",
+ "ReplicatedStorage.Client.Menu": "src/ReplicatedStorage/Client/Menu.lua",
+ "ReplicatedStorage.Client.SoundFX": "src/ReplicatedStorage/Client/SoundFX.lua",
+ "ReplicatedStorage.Client.Theme": "src/ReplicatedStorage/Client/Theme.lua",
+ "ReplicatedStorage.Client.Touch": "src/ReplicatedStorage/Client/Touch.lua",
  "ReplicatedStorage.Shared.Characters": "src/ReplicatedStorage/Shared/Characters.lua",
  "ReplicatedStorage.Shared.Config": "src/ReplicatedStorage/Shared/Config.lua",
  "ReplicatedStorage.Shared.Costumes": "src/ReplicatedStorage/Shared/Costumes.lua",
@@ -25,5 +35,6 @@
  "ServerScriptService.Server.Ragdoll": "src/ServerScriptService/Server/Ragdoll.lua",
  "ServerScriptService.Server.Spawner": "src/ServerScriptService/Server/Spawner.lua",
  "StarterPlayer.StarterCharacterScripts.Animate": "src/StarterPlayer/StarterCharacterScripts/Animate.client.lua",
- "StarterPlayer.StarterCharacterScripts.Health": "src/StarterPlayer/StarterCharacterScripts/Health.server.lua"
+ "StarterPlayer.StarterCharacterScripts.Health": "src/StarterPlayer/StarterCharacterScripts/Health.server.lua",
+ "StarterPlayer.StarterPlayerScripts.ClientMain": "src/StarterPlayer/StarterPlayerScripts/ClientMain.client.lua"
 }

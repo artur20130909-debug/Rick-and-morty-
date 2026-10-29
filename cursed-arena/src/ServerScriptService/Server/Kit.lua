@@ -50,6 +50,12 @@ function Kit.finish(f, tok)
 	end
 end
 
+-- окно повторного нажатия той же клавиши (Резонанс, выход из тени); игроку — подсказка на панели
+function Kit.recast(f, slot, fromT, untilT, cb, miss)
+	f.recast = { slot = slot, fromT = fromT, untilT = untilT, cb = cb, miss = miss }
+	if f.player then Net.to(f.player, "Recast", { slot = slot, from = fromT, to = untilT }) end
+end
+
 -- продлить «занятость» приёма
 function Kit.busy(f, t, speed, canJump)
 	Fighters.busy(f, t, speed, canJump)
@@ -300,6 +306,9 @@ end
 -- держать цель перед собой (захват) на время t; offset — CFrame относительно атакующего
 function Kit.hold(f, target, offset, t, tok)
 	target.rootEnd = math.max(target.rootEnd, Util.now() + t)
+	-- игрока на время захвата двигает сервер (иначе его клиент «перетягивает» позицию)
+	local owned = target.player ~= nil
+	if owned then pcall(function() target.root:SetNetworkOwner(nil) end) end
 	local t0 = os.clock()
 	while os.clock() - t0 < t do
 		RunService.Heartbeat:Wait()
@@ -310,6 +319,9 @@ function Kit.hold(f, target, offset, t, tok)
 		target.root.AssemblyLinearVelocity = Vector3.zero
 	end
 	target.rootEnd = 0
+	if owned and target.root.Parent and target.player.Parent then
+		pcall(function() target.root:SetNetworkOwner(target.player) end)
+	end
 end
 
 ---------------------------------------------------------------- снаряды

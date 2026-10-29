@@ -107,6 +107,9 @@ function Bots.configure(count, level)
 	if type(level) == "number" then Bots.level = math.clamp(math.floor(level), 1, #Config.Bots.Difficulty) end
 	while #Bots.list > Bots.count do removeBot(Bots.list[#Bots.list]) end
 	while #Bots.list < Bots.count do addBot(#Bots.list + 1) end
+	-- текущие настройки видны всем клиентам (меню при входе)
+	ReplicatedStorage:SetAttribute("BotCount", Bots.count)
+	ReplicatedStorage:SetAttribute("BotLevel", Bots.level)
 	Net.fx("BotsConfig", { n = Bots.count, l = Bots.level })
 	return Bots.count, Bots.level
 end
@@ -115,8 +118,10 @@ end
 local function chooseTarget(b)
 	local f = b.f
 	local best, bestS
+	local now = Util.now()
 	for _, o in ipairs(Fighters.list) do
-		if o ~= f and Fighters.alive(o) and o.kind ~= "dummy" then
+		local resting = (o.inMenu and now - math.max(o.lastDamageTime, o.lastDealtTime) > Config.InCombatTime) or now < o.iframesEnd - 0.5
+		if o ~= f and Fighters.alive(o) and o.kind ~= "dummy" and not resting then
 			local d = (o.root.Position - f.root.Position).Magnitude
 			local s = d * (o.kind == "player" and 0.75 or 1)
 			if not bestS or s < bestS then best, bestS = o, s end
@@ -156,7 +161,7 @@ local function think(b, now)
 		if now > b.blockUntil or dist > 12 then Actions.block(f, false) end
 		return
 	end
-	local tAttacking = now < t.busyEnd and dist < 10
+	local tAttacking = (now < t.busyEnd or now < t.m1BusyEnd) and dist < 10
 	if tAttacking and rng:NextNumber() < lvl.Block then
 		hum:MoveTo(myPos)
 		Actions.block(f, true)

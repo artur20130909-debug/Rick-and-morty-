@@ -139,7 +139,7 @@ function M.ShadowDive(K, f, aim, def, slot)
 		end, {})
 		K.after(0.45, function() K.finish(f, tok) end)
 	end
-	f.recast = { slot = slot, fromT = now + 0.25, untilT = now + 1.45, cb = emerge }
+	K.recast(f, slot, now + 0.25, now + 1.45, emerge)
 	-- бот сам плывёт к цели
 	if not f.player then
 		local t = K.target(f, aim, 40, -1)

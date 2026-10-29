@@ -1196,6 +1196,9 @@ service("UserInputService", "Instance", {
 			local s = curInput()
 			return s ~= nil and s.buttons[uit.Name] == true
 		end,
+		IsGamepadButtonDown = function(self, gp, kc) return false end,
+		GetConnectedGamepads = function() return {} end,
+		GetGamepadConnected = function() return false end,
 		GetMouseLocation = function()
 			local s = curInput()
 			return s and s.mouse or v2(0, 0)
@@ -2522,7 +2525,7 @@ local function physicsStep(dt)
 						elseif mode == "Line" then
 							f.vel = cd.p.LineDirection.Unit * cd.p.LineVelocity
 						else
-							f.planeVel = cd.p.PlaneVelocity
+							f.planeVel = { v = cd.p.PlaneVelocity, a = cd.p.PrimaryTangentAxis or v3(1, 0, 0), b = cd.p.SecondaryTangentAxis or v3(0, 0, 1) }
 						end
 					end
 				elseif cls == "BodyVelocity" then
@@ -2589,6 +2592,10 @@ local function physicsStep(dt)
 			elseif f and f.bv then
 				local bv = f.bv
 				vel = v3(bv.x and bv.v.X or vel.X, bv.y and bv.v.Y or vel.Y, bv.z and bv.v.Z or vel.Z)
+			elseif f and f.planeVel then
+				local pv = f.planeVel
+				local hv = pv.a * pv.v.X + pv.b * pv.v.Y
+				vel = v3(hv.X, vel.Y, hv.Z)
 			else
 				if dir and hd.p.WalkSpeed > 0 then
 					horiz = dir * hd.p.WalkSpeed
@@ -2662,7 +2669,7 @@ local function physicsStep(dt)
 			end
 			local ncf
 			local hdir = v3(nvel.X, 0, nvel.Z)
-			if alive and not physicsState and dir and hd.p.AutoRotate and hdir.Magnitude > 0.1 and not (f and f.vel) then
+			if alive and not physicsState and dir and hd.p.AutoRotate and hdir.Magnitude > 0.1 and not (f and (f.vel or f.planeVel)) then
 				ncf = CFrame.lookAt(np, np + dir)
 			else
 				ncf = cfnew(np.X, np.Y, np.Z, c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9])
@@ -2844,9 +2851,10 @@ function mock.dumpGui(plr)
 				end
 			elseif cls.isa.GuiObject then
 				if xd.p.Visible ~= false then
-					local ax, ay, aw, ah = I.guiAbs(x, xd)
+					local sp = I.guiSpace(x, xd)
+					local ax, ay, aw, ah = sp.sx, sp.sy, sp.sw, sp.sh
 					order = order + 1
-					local e = { cls = cls.name, name = xd.p.Name, x = ax, y = ay, w = aw, h = ah, z = xd.p.ZIndex or 1, layer = layer,
+					local e = { cls = cls.name, name = xd.p.Name, x = ax, y = ay, w = aw, h = ah, z = xd.p.ZIndex or 1, layer = layer, scale = sp.k,
 						depth = depth, order = order, bg = colorOf(xd.p.BackgroundColor3), bgT = xd.p.BackgroundTransparency, rot = xd.p.Rotation or 0,
 						clip = clip }
 					if xd.p.Text ~= nil then
