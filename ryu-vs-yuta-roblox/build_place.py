@@ -1,5 +1,6 @@
-"""Собирает RyuVsYuta.rbxlx: пустое место с площадкой появления
-и LocalScript RyuVsYuta в StarterPlayer → StarterPlayerScripts.
+"""Склеивает src/*.lua в RyuVsYuta.client.lua и собирает RyuVsYuta.rbxlx:
+пустое место с площадкой появления и LocalScript RyuVsYuta
+в StarterPlayer → StarterPlayerScripts.
 
 Запуск: python3 build_place.py
 """
@@ -43,8 +44,15 @@ def part(cls, ref, name, pos, size, rgb, extra=""):
 		</Item>"""
 
 
+def combine():
+    parts = sorted((HERE / "src").glob("*.lua"))
+    text = "\n".join(p.read_text(encoding="utf-8").rstrip("\n") + "\n" for p in parts)
+    SOURCE.write_text(text, encoding="utf-8")
+    return text
+
+
 def main():
-    src = SOURCE.read_text(encoding="utf-8")
+    src = combine()
     if "]]>" in src:
         raise SystemExit("в скрипте есть ']]>' — CDATA сломается")
     spawn_extra = '<bool name="Neutral">true</bool><int name="Duration">0</int>'
