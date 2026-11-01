@@ -554,6 +554,86 @@ def s_chair():
     scrape = band(noise(d), 300, 2500) * adsr(d, 0.05, 0.3, 0.5, 0.2) * 0.4
     return fade(band(creak, 100, 3000) + scrape)
 
+def s_tentacle():
+    d = 2.0
+    t = t_(d)
+    n = noise(d)
+    out = np.zeros_like(t)
+    seg = 0.05
+    for i in range(int(d / seg)):
+        a = int(i * seg * SR); b = min(len(t), a + int(seg * SR) + 300)
+        fc = 350 + 250 * np.sin(2 * np.pi * 3.3 * i * seg) + 150 * np.sin(2 * np.pi * 7.1 * i * seg)
+        out[a:b] += band(n[a:b], fc * 0.6, fc * 1.6) * np.hanning(b - a)
+    growl = np.sin(2 * np.pi * np.cumsum(55 + 12 * np.sin(2 * np.pi * 5 * t)) / SR) * 0.35
+    for k in range(7):
+        mix_at(out, band(noise(0.12), 200, 1200) * env_exp(0.12, 0.04) * 1.2, rng.uniform(0.1, 1.8))
+    return fade((out + growl) * adsr(d, 0.15, 0.4, 0.8, 0.4), 0.01, 0.2)
+def s_pull():
+    d = 2.0
+    t = t_(d)
+    k = (t / d) ** 2
+    rise = np.sin(2 * np.pi * np.cumsum(80 + 1400 * k) / SR) * (0.2 + 0.6 * k)
+    n = noise(d)
+    wh = np.zeros_like(t)
+    seg = 0.08
+    for i in range(int(d / seg)):
+        a = int(i * seg * SR); b = min(len(t), a + int(seg * SR) + 400)
+        fc = 300 * (20 ** (i * seg / d))
+        wh[a:b] += band(n[a:b], fc * 0.6, fc * 1.7) * np.hanning(b - a)
+    return fade(rise + wh * (0.3 + 0.7 * k), 0.02, 0.05)
+def crush(x, levels=6):
+    return np.round(x * levels) / levels
+def s_land():
+    d = 0.8
+    sq = np.sign(sweep(220, 50, d)) * env_exp(d, 0.18) * 0.6
+    cr = crush(band(noise(d), 200, 3000) * env_exp(d, 0.08), 4) * 0.6
+    return fade(sq + cr)
+def s_flicker():
+    d = 0.6
+    t = t_(d)
+    buzz = np.sign(np.sin(2 * np.pi * 120 * t)) * 0.4 + band(noise(d), 2000, 8000) * 0.3
+    gate = (rng.uniform(0, 1, int(d * 40)) > 0.45).astype(float)
+    gate = np.repeat(gate, int(SR / 40) + 1)[:len(t)]
+    return fade(buzz * gate)
+def s_laser():
+    d = 0.6
+    t = t_(d)
+    f = 2600 * np.exp(-t / 0.09) + 260
+    z = np.sin(2 * np.pi * np.cumsum(f) / SR + 2.0 * np.sin(2 * np.pi * 80 * t)) * env_exp(d, 0.16)
+    return fade(z * 0.8 + band(noise(d), 3000, 10000) * env_exp(d, 0.02) * 0.4)
+def s_pixelburst():
+    d = 0.8
+    n = crush(noise(d), 3) * env_exp(d, 0.2)
+    hold = np.repeat(n[::6], 6)[:len(n)]
+    arp = np.zeros(len(n))
+    for i, f in enumerate((880, 660, 440, 330, 220)):
+        mix_at(arp, np.sign(sine(f, 0.08)) * 0.3, i * 0.08)
+    return fade(hold * 0.7 + arp)
+def s_burp():
+    d = 1.2
+    t = t_(d)
+    f0 = 85 + 25 * np.sin(2 * np.pi * 1.3 * t) + 10 * rng.standard_normal(len(t)).cumsum() / np.sqrt(len(t)) * 0
+    src = np.sign(np.sin(2 * np.pi * np.cumsum(f0) / SR)) * (0.6 + 0.4 * np.sin(2 * np.pi * 23 * t))
+    voice = band(src, 250, 900) * 1.5 + band(src, 1100, 1800) * 0.4
+    return fade(voice * adsr(d, 0.06, 0.3, 0.8, 0.35), 0.01, 0.2)
+def s_pixelamb(d):
+    out = np.zeros(int(d * SR))
+    drone = np.sin(2 * np.pi * 55 * t_(d)) * 0.25 + np.sign(np.sin(2 * np.pi * 110 * t_(d))) * 0.03
+    out += drone
+    notes = ['A3', 'C4', 'E4', 'G#3', 'A3', 'D4', 'F4', 'E4']
+    step = 0.25
+    i = 0
+    tt = 0.0
+    while tt < d:
+        m = note_m(notes[(i // 4) % len(notes)]) + [0, 12, 7, 12][i % 4]
+        x = np.sign(np.sin(2 * np.pi * midi_f(m) * t_(0.2))) * env_exp(0.2, 0.06) * 0.12
+        mix_at(out, x, tt)
+        tt += step
+        i += 1
+    for k in range(int(d / 3)):
+        mix_at(out, crush(band(noise(0.2), 1000, 6000), 3) * env_exp(0.2, 0.05) * 0.15, rng.uniform(0, d - 0.3))
+    return out
+
 ATLAS = [
     ('Alarm', 0.0, 1.6, lambda: loop_render(s_alarm, 1.6)),
     ('Click', 2.0, 2.15, s_click), ('Hover', 2.4, 2.5, s_hover),
@@ -569,10 +649,13 @@ ATLAS = [
     ('Sting', 40.2, 42.6, s_sting), ('Birds', 43.0, 55.0, lambda: loop_render(s_birds, 12.0)),
     ('Thought', 55.5, 56.1, s_thought), ('Locked', 56.5, 57.0, s_locked), ('Paper', 57.4, 58.0, s_paper),
     ('Chair', 58.4, 59.2, s_chair),
+    ('Tentacle', 60.0, 62.0, s_tentacle), ('Pull', 62.5, 64.5, s_pull), ('Land', 65.0, 65.8, s_land),
+    ('Flicker', 66.2, 66.8, s_flicker), ('Laser', 67.2, 67.8, s_laser), ('PixelBurst', 68.2, 69.0, s_pixelburst),
+    ('Burp', 69.4, 70.6, s_burp), ('PixelAmb', 71.0, 87.0, lambda: loop_render(s_pixelamb, 16.0)),
 ]
 
 def build_atlas():
-    total = 60.0
+    total = 88.0
     out = np.zeros(int(total * SR))
     lines = []
     for name, a, b, fn in ATLAS:

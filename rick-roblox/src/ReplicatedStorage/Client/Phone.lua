@@ -143,6 +143,8 @@ function Phone:clear()
 	for _, c in ipairs(self.canvas:GetChildren()) do c:Destroy() end
 end
 function Phone:destroy()
+	if self.dead then return end
+	self.dead = true
 	if self.bind then RunService:UnbindFromRenderStep(self.bind) end
 	Audio.stop("tiktok")
 	self.model:Destroy()
@@ -482,6 +484,46 @@ function Phone:glitch(duration)
 		nos.TextTransparency = math.random() < 0.15 and 0.8 or 0
 		for _, d in ipairs(dots) do d.Position = UDim2.fromOffset(math.random(0, W), math.random(0, H)) end
 	end)
+end
+
+-- экран снова оживает: зелёный вихрь на весь экран, крутится всё быстрее
+function Phone:swirl()
+	self.anims = {}
+	self:clear()
+	local bg = frame(self.canvas, 0, 0, W, H, "#06140A", { Name = "Swirl" })
+	local rings = {}
+	for i = 1, 5 do
+		local s = H * 1.6 * (1 - (i - 1) * 0.18)
+		local c = frame(bg, W / 2, H / 2, s, s, "#7CFF4A", { AnchorPoint = Vector2.new(0.5, 0.5) })
+		round(c, UDim.new(0.5, 0))
+		local g = Instance.new("UIGradient")
+		local a = (i % 2 == 0) and Color3.fromRGB(40, 160, 50) or Color3.fromRGB(120, 235, 70)
+		local b = (i % 2 == 0) and Color3.fromRGB(200, 255, 140) or Color3.fromRGB(30, 120, 40)
+		g.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, a), ColorSequenceKeypoint.new(0.25, b), ColorSequenceKeypoint.new(0.5, a),
+			ColorSequenceKeypoint.new(0.75, b), ColorSequenceKeypoint.new(1, a) })
+		g.Parent = c
+		table.insert(rings, { g = g, sp = (i % 2 == 0 and -1 or 1) * (120 + i * 60) })
+	end
+	local eye = frame(bg, W / 2, H / 2, 40, 40, "#EFFFD0", { AnchorPoint = Vector2.new(0.5, 0.5) })
+	round(eye, UDim.new(0.5, 0))
+	local speed = 1
+	table.insert(self.anims, function(dt, t)
+		speed = speed + dt * 1.5
+		for _, r in ipairs(rings) do r.g.Rotation = (r.g.Rotation + r.sp * speed * dt) % 360 end
+		local s = 40 + math.sin(t * 9) * 8 + speed * 12
+		eye.Size = UDim2.fromOffset(s, s)
+	end)
+end
+
+-- подтянуть телефон к лицу (когда затягивает внутрь)
+function Phone:pullToFace()
+	self.target = CFrame.new(0, -0.02, -0.5) * CFrame.Angles(0, 0, math.rad(4))
+end
+
+-- точка на экране телефона в мире (для щупалец): u, v от -0.5 до 0.5
+function Phone:screenPoint(u, v)
+	local s = self.screen
+	return s.CFrame * CFrame.new(u * s.Size.X, v * s.Size.Y, -0.02)
 end
 
 return Phone

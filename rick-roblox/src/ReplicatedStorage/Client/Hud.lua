@@ -464,6 +464,23 @@ function Hud.gameplay(on)
 	if Hud.pauseBtn then Hud.pauseBtn.Visible = on end
 end
 
+-- «ретро-экран» в пиксельном мире: строки развёртки и тёмная рамка по краям
+local retro
+function Hud.retro(on)
+	if retro then retro:Destroy(); retro = nil end
+	if not on then return end
+	retro = G.frame(overRoot, { Name = "Retro", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 2 })
+	for y = 0, 1440, 4 do
+		G.frame(retro, { Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Color3.new(0, 0, 0),
+			BackgroundTransparency = 0.82, ZIndex = 2 })
+	end
+	for _, side in ipairs({ { 0, 0, 1, 0.16, 90 }, { 0, 0.84, 1, 0.16, -90 }, { 0, 0, 0.12, 1, 0 }, { 0.88, 0, 0.12, 1, 180 } }) do
+		local f = G.frame(retro, { Position = UDim2.fromScale(side[1], side[2]), Size = UDim2.fromScale(side[3], side[4]),
+			BackgroundColor3 = Color3.fromRGB(6, 0, 14), ZIndex = 2 })
+		G.gradient(f, { Color3.new(0, 0, 0), Color3.new(0, 0, 0) }, side[5], NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) }))
+	end
+end
+
 function Hud.root() return root end
 function Hud.overlay() return overRoot end
 

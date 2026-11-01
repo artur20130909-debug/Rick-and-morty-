@@ -517,11 +517,47 @@ local function kitchen()
 	local _5 = tbl
 	-- миска с фруктами
 	local fb, Fb = item("FruitBowl", CFrame.new(45.6, y + 3.2, 26.2))
-	Fb.vcyl("Bowl", 0.5, 1.6, 0, 0.25, 0, "#E8E2D6")
-	Fb.ball("Apple", 0.6, -0.3, 0.6, 0.1, "#D23B3B")
-	Fb.ball("Apple", 0.6, 0.3, 0.6, -0.15, "#7CC46A")
-	Fb.ball("Orange", 0.65, 0.05, 0.85, 0.25, "#F09A2A")
-	Fb("Banana", 1.2, 0.3, 0.35, 0, 0.75, -0.4, "#F2D85A", nil, nil, CFrame.Angles(0, 0, math.rad(15)))
+	-- деревянная полая ваза: кольцо наклонных дощечек + дно
+	for i = 0, 15 do
+		local a = i / 16 * math.pi * 2
+		Fb("Stave", 0.42, 0.6, 0.08, 0, 0, 0, i % 2 == 0 and "#A86F41" or "#B97E4D", nil, nil,
+			CFrame.Angles(0, a, 0) * CFrame.new(0, 0.32, -0.88) * CFrame.Angles(math.rad(-22), 0, 0))
+	end
+	Fb.vcyl("Base", 0.12, 1.5, 0, 0.08, 0, "#8C5733")
+	Fb.vcyl("Fill", 0.3, 1.5, 0, 0.25, 0, "#7A4A2A")
+	-- фрукт: шар, приплюснутый через SpecialMesh, с хвостиком и листиком
+	local function fruit(name, d, x, yy, z, color, squash, leaf)
+		local p = Fb.ball(name, d, x, yy, z, color)
+		local mesh = Instance.new("SpecialMesh")
+		mesh.MeshType = Enum.MeshType.Sphere
+		mesh.Scale = Vector3.new(1, squash or 0.92, 1)
+		mesh.Parent = p
+		Fb("Stem", 0.05, 0.18, 0.05, x, yy + d * 0.48, z, "#5A3A1E", nil, nil, CFrame.Angles(0, 0, math.rad(12)))
+		if leaf then Fb.wedge("Leaf", 0.04, 0.12, 0.2, x + 0.07, yy + d * 0.5, z, "#4FA03A", nil, nil, CFrame.Angles(math.rad(30), 0, math.rad(-20))) end
+		return p
+	end
+	fruit("Apple", 0.62, -0.32, 0.62, 0.15, "#D23B3B", 0.9, true)
+	fruit("Apple", 0.6, 0.12, 0.66, -0.35, "#C9302C", 0.9, false)
+	fruit("Apple", 0.6, 0.3, 0.6, 0.3, "#8CCB4E", 0.9, true)
+	local orange = Fb.ball("Orange", 0.68, -0.15, 0.95, -0.1, "#F28C1E", Enum.Material.Sand)
+	local _o = orange
+	Fb("OrangeTop", 0.1, 0.03, 0.1, -0.15, 1.29, -0.1, "#4F7A2A")
+	-- связка бананов: каждый — дуга из коротких цилиндров
+	for k = 0, 2 do
+		local base = CFrame.new(0.15, 1.0 + k * 0.05, 0.05) * CFrame.Angles(0, math.rad(-30 + k * 22), 0)
+		for j = 0, 5 do
+			local a = math.rad(-40 + j * 16)
+			local cf = base * CFrame.new(math.sin(a) * 0.7, (1 - math.cos(a)) * 0.7, 0) * CFrame.Angles(0, 0, a)
+			Fb.cyl("Banana", 0.2, 0.2 - math.abs(j - 2.5) * 0.015, 0, 0, 0, (j == 0 or j == 5) and "#6B4A2A" or "#F5D547", nil, nil, cf)
+		end
+	end
+	-- виноград
+	for k = 1, 10 do
+		local a = k * 2.4
+		local r = 0.12 + (k % 3) * 0.04
+		Fb.ball("Grape", 0.19, 0.55 + math.cos(a) * r, 0.62 + (k % 4) * 0.08, 0.05 + math.sin(a) * r, k % 2 == 0 and "#6B2E7A" or "#7D3A8E")
+	end
+	Fb("GrapeStem", 0.04, 0.25, 0.04, 0.55, 1.0, 0.05, "#5A3A1E")
 	local _6 = fb
 	-- стулья: место Морти — с запада, лицом на восток (к окну)
 	chair("ChairMorty", CFrame.new(39.6, y, 27) * CFrame.Angles(0, math.rad(-90), 0), "#B3784A")

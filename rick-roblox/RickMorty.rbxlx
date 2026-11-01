@@ -4,7 +4,7 @@
 <Item class="Workspace" referent="RBX00000001"><Properties><string name="Name">Workspace</string><bool name="StreamingEnabled">false</bool></Properties></Item>
 <Item class="Lighting" referent="RBX00000002"><Properties><string name="Name">Lighting</string><token name="Technology">4</token><token name="LightingStyle">0</token><bool name="PrioritizeLightingQuality">true</bool><bool name="GlobalShadows">true</bool><float name="ShadowSoftness">0.22</float><float name="EnvironmentDiffuseScale">0.55</float><float name="EnvironmentSpecularScale">0.25</float><float name="Brightness">3.1</float><float name="ClockTime">7.45</float><float name="GeographicLatitude">30</float><Color3 name="Ambient"><R>0.44</R><G>0.44</G><B>0.49</B></Color3><Color3 name="OutdoorAmbient"><R>0.55</R><G>0.54</G><B>0.59</B></Color3><float name="ExposureCompensation">0.12</float></Properties></Item>
 <Item class="Players" referent="RBX00000003"><Properties><string name="Name">Players</string><int name="MaxPlayers">6</int><bool name="CharacterAutoLoads">true</bool></Properties></Item>
-<Item class="ReplicatedStorage" referent="RBX00000018"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="Folder" referent="RBX00000014"><Properties><string name="Name">Client</string></Properties><Item class="ModuleScript" referent="RBX00000004"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[-- Клиент целиком: загрузка → главное меню → глава → снова меню. Пауза (P / кнопка II).
+<Item class="ReplicatedStorage" referent="RBX0000001B"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="Folder" referent="RBX00000017"><Properties><string name="Name">Client</string></Properties><Item class="ModuleScript" referent="RBX00000004"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[-- Клиент целиком: загрузка → главное меню → глава → снова меню. Пауза (P / кнопка II).
 local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 local ContentProvider = game:GetService("ContentProvider")
@@ -382,26 +382,60 @@ function Breakfast.new(markers)
 	local bowlCF = markers:WaitForChild("BowlSpot").CFrame
 	local boxCF = markers:WaitForChild("BoxSpot").CFrame
 	local milkCF = markers:WaitForChild("MilkSpot").CFrame
-	self.bowlTop = bowlCF.Position + Vector3.new(0, 0.55, 0)
+	self.bowlTop = bowlCF.Position + Vector3.new(0, 0.62, 0)
 
-	-- миска
+	-- миска: настоящая полая (кольцо из наклонных стенок + дно), голубая каёмка
 	local bowl = B.model(m, "Bowl")
 	B.outline(bowl)
-	B.vcyl(bowl, "Outer", 0.5, 1.5, bowlCF * CFrame.new(0, 0.25, 0), "#FFFFFF")
-	B.vcyl(bowl, "Foot", 0.1, 0.9, bowlCF * CFrame.new(0, 0.05, 0), "#E8F0FF")
-	B.vcyl(bowl, "Band", 0.12, 1.53, bowlCF * CFrame.new(0, 0.36, 0), "#5A86E0")
-	self.cereal = B.vcyl(m, "Cereal", 0.02, 1.26, bowlCF * CFrame.new(0, 0.5, 0), "#E3A646")
-	self.milk = B.vcyl(m, "Milk", 0.02, 1.3, bowlCF * CFrame.new(0, 0.49, 0), "#FFFFFF")
+	local SEG, R0, R1, BH = 24, 0.6, 0.8, 0.55
+	local wallLen = math.sqrt((R1 - R0) ^ 2 + BH ^ 2)
+	local tilt = math.atan2(R1 - R0, BH)
+	for i = 0, SEG - 1 do
+		local a = i / SEG * math.pi * 2
+		local rm = (R0 + R1) / 2
+		local arc = 2 * math.pi * R1 / SEG * 1.15
+		local cf = bowlCF * CFrame.Angles(0, a, 0) * CFrame.new(0, 0.08 + BH / 2, -rm) * CFrame.Angles(-tilt, 0, 0)
+		B.part(bowl, "Wall", Vector3.new(arc, wallLen, 0.07), cf, "#FFFFFF")
+		B.part(bowl, "Rim", Vector3.new(arc, 0.07, 0.1), bowlCF * CFrame.Angles(0, a, 0) * CFrame.new(0, 0.08 + BH, -R1), "#5A86E0")
+	end
+	B.vcyl(bowl, "Bottom", 0.1, R0 * 2 + 0.05, bowlCF * CFrame.new(0, 0.1, 0), "#F2F5FA")
+	B.vcyl(bowl, "Foot", 0.08, 0.95, bowlCF * CFrame.new(0, 0.04, 0), "#DCE6F2")
+	self.R0, self.R1, self.BH = R0, R1, BH
+	-- содержимое: горка хлопьев, молоко и колечки «Хрусти-О» на поверхности
+	self.cereal = B.vcyl(m, "Cereal", 0.02, 1.2, bowlCF * CFrame.new(0, 0.2, 0), "#D99A3E")
+	self.milk = B.vcyl(m, "Milk", 0.02, 1.25, bowlCF * CFrame.new(0, 0.2, 0), "#FBFBF7")
 	self.cereal.Transparency = 1
 	self.milk.Transparency = 1
 	self.bits = {}
-	for i = 1, 9 do
-		local a = i / 9 * math.pi * 2
-		local r = (i % 3) * 0.17 + 0.12
-		local bit = B.ball(m, "Bit", 0.2, bowlCF * CFrame.new(math.cos(a) * r, 0.52, math.sin(a) * r), (i % 2 == 0) and "#D98A2B" or "#F2C14E")
-		bit.Transparency = 1
-		table.insert(self.bits, { p = bit, off = Vector3.new(math.cos(a) * r, 0, math.sin(a) * r) })
+	local rnd = Random.new(7)
+	local GOLD = { "#E8A93E", "#D98A2B", "#F2C14E", "#C9792A", "#EDB650" }
+	for i = 1, 28 do
+		local a = rnd:NextNumber(0, math.pi * 2)
+		local r = math.sqrt(rnd:NextNumber()) * 0.85
+		local ring = B.vcyl(m, "Ring", 0.07, 0.22, CFrame.new(), GOLD[rnd:NextInteger(1, #GOLD)])
+		local hole = B.vcyl(m, "Hole", 0.075, 0.08, CFrame.new(), "#7A4A1C")
+		ring.Transparency = 1
+		hole.Transparency = 1
+		table.insert(self.bits, { p = ring, h = hole, a = a, r = r, tx = rnd:NextNumber(-0.4, 0.4), tz = rnd:NextNumber(-0.4, 0.4),
+			dy = rnd:NextNumber(0, 0.05), spin = rnd:NextNumber(0, 6.28) })
 	end
+	-- салфетка-подложка под миской и рассыпанные колечки у коробки
+	local mat = B.part(m, "Placemat", Vector3.new(2.4, 0.03, 3.4), bowlCF * CFrame.new(0, 0.015, -0.2), "#E2504A", Enum.Material.Fabric)
+	local mg0 = B.surface(mat, Enum.NormalId.Top, 40)
+	for k = 0, 5 do B.rect(mg0, 0, k / 6, 1, 1 / 12, "#F4F0E8", { BackgroundTransparency = 0.15 }) end
+	for k = 0, 3 do B.rect(mg0, k / 4, 0, 1 / 8, 1, "#F4F0E8", { BackgroundTransparency = 0.55 }) end
+	for k, off in ipairs({ { 1.3, 1.25 }, { 1.6, 1.05 }, { 1.15, 1.55 }, { 1.9, 1.4 } }) do
+		local cf = bowlCF * CFrame.new(off[1], 0.04, off[2]) * CFrame.Angles(0, k, 0)
+		B.vcyl(m, "Spilled", 0.06, 0.22, cf, GOLD[k])
+		B.vcyl(m, "SpilledHole", 0.065, 0.08, cf, "#7A4A1C")
+	end
+	-- стакан апельсинового сока
+	local juice = B.model(m, "Juice")
+	B.outline(juice)
+	local jcf = bowlCF * CFrame.new(0.55, 0, 1.55)
+	B.vcyl(juice, "Glass", 0.95, 0.5, jcf * CFrame.new(0, 0.475, 0), "#DDF2FF", Enum.Material.Glass, { Transparency = 0.6 })
+	B.vcyl(juice, "OJ", 0.7, 0.44, jcf * CFrame.new(0, 0.38, 0), "#FFA526")
+	B.vcyl(juice, "Foam", 0.04, 0.44, jcf * CFrame.new(0, 0.75, 0), "#FFD27A")
 	self.bowlCF = bowlCF
 
 	-- коробка хлопьев (лицом к Морти: Морти сидит с запада)
@@ -409,13 +443,29 @@ function Breakfast.new(markers)
 	B.outline(box)
 	local boxBase = boxCF * CFrame.Angles(0, math.rad(90), 0)
 	local body = B.part(box, "Body", Vector3.new(1.2, 1.7, 0.45), boxBase * CFrame.new(0, 0.85, 0), "#E2504A")
-	local g = B.surface(body, Enum.NormalId.Front, 120)
+	B.part(box, "Flap", Vector3.new(1.2, 0.04, 0.3), boxBase * CFrame.new(0, 1.74, -0.28) * CFrame.Angles(math.rad(-35), 0, 0), "#C83F3A")
+	B.part(box, "Side", Vector3.new(0.02, 1.6, 0.4), boxBase * CFrame.new(0.61, 0.85, 0), "#F2D85A")
+	local g = B.surface(body, Enum.NormalId.Front, 140)
 	B.rect(g, 0, 0, 1, 1, "#E2504A")
-	B.rect(g, 0, 0.62, 1, 0.38, "#F2D85A")
-	B.text(g, 0.06, 0.06, 0.88, 0.22, "ХРУСТИ-О", "#FFFFFF", Enum.Font.GothamBlack)
-	B.circle(g, 0.22, 0.32, 0.56, 0.32, "#FFFFFF")
-	B.circle(g, 0.32, 0.37, 0.36, 0.22, "#F2B33C")
-	B.text(g, 0.08, 0.72, 0.84, 0.16, "С МЁДОМ!", "#C23B3B", Enum.Font.GothamBlack)
+	B.rect(g, 0, 0, 1, 0.24, "#C83F3A")
+	B.text(g, 0.05, 0.03, 0.9, 0.18, "ХРУСТИ-О", "#FFFFFF", Enum.Font.GothamBlack, { TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(90, 20, 20) })
+	-- нарисованная миска с колечками
+	local clipBowl = B.rect(g, 0.12, 0.46, 0.76, 0.26, "#E2504A", { ClipsDescendants = true, BackgroundTransparency = 1 })
+	B.circle(clipBowl, 0, -1, 1, 2, "#FFFFFF")
+	B.rect(clipBowl, 0, 0, 1, 0.12, "#5A86E0")
+	for k, p in ipairs({ { 0.2, 0.36 }, { 0.38, 0.31 }, { 0.56, 0.33 }, { 0.3, 0.42 }, { 0.48, 0.41 }, { 0.65, 0.39 }, { 0.42, 0.27 } }) do
+		B.circle(g, p[1], p[2], 0.15, 0.1, (k % 2 == 0) and "#E8A93E" or "#F2C14E")
+		B.circle(g, p[1] + 0.052, p[2] + 0.035, 0.046, 0.03, "#8A5A22")
+	end
+	-- пчёлка-талисман и «звезда» новинки
+	B.circle(g, 0.66, 0.2, 0.22, 0.13, "#F2D85A")
+	B.rect(g, 0.71, 0.2, 0.04, 0.13, "#222222")
+	B.rect(g, 0.79, 0.2, 0.04, 0.13, "#222222")
+	B.circle(g, 0.62, 0.15, 0.12, 0.07, "#FFFFFF", { BackgroundTransparency = 0.2 })
+	B.rect(g, 0.06, 0.25, 0.22, 0.13, "#F2D85A", { Rotation = 20 })
+	B.text(g, 0.06, 0.27, 0.22, 0.09, "НОВИНКА", "#C23B3B", Enum.Font.GothamBlack, { Rotation = 20 })
+	B.rect(g, 0, 0.8, 1, 0.2, "#F2D85A")
+	B.text(g, 0.06, 0.82, 0.88, 0.16, "С МЁДОМ!", "#C23B3B", Enum.Font.GothamBlack)
 	box.PrimaryPart = body
 	self.box = rig(box, body.CFrame)
 	self.boxRest = body.CFrame
@@ -461,22 +511,37 @@ function Breakfast.new(markers)
 	return self
 end
 
-local function setFill(part, baseCF, level, maxH)
-	local h = math.max(0.02, maxH * level)
-	part.Size = Vector3.new(h, part.Size.Y, part.Size.Z)
-	part.CFrame = baseCF * CFrame.new(0, 0.46 + h / 2, 0) * CFrame.Angles(0, 0, math.rad(90))
-	part.Transparency = level <= 0.001 and 1 or 0
+-- уровень содержимого: 0..1 → высота над дном; диаметр растёт вместе с высотой (миска расширяется)
+function Breakfast:fillCyl(part, level, color)
+	local bottom, top = 0.15, 0.08 + self.BH * 0.86
+	local y = bottom + (top - bottom) * level
+	local rTop = self.R0 + (self.R1 - self.R0) * ((y - 0.08) / self.BH) - 0.06
+	local h = math.max(0.02, y - 0.1)
+	part.Size = Vector3.new(h, rTop * 2, rTop * 2)
+	part.CFrame = self.bowlCF * CFrame.new(0, 0.1 + h / 2, 0) * CFrame.Angles(0, 0, math.rad(90))
+	part.Transparency = level <= 0.01 and 1 or 0
+	return y, rTop
 end
 
 function Breakfast:updateFill()
-	setFill(self.cereal, self.bowlCF, self.level, 0.22)
-	setFill(self.milk, self.bowlCF, math.min(self.milkLevel, self.level + 0.05), 0.2)
-	self.milk.Transparency = self.milkLevel <= 0.001 and 1 or 0.05
-	local top = 0.46 + math.max(0.22 * self.level, 0.2 * math.min(self.milkLevel, self.level + 0.05)) + 0.03
+	local cy, cr = self:fillCyl(self.cereal, self.level)
+	local my = cy
+	if self.milkLevel > 0.01 then
+		my = self:fillCyl(self.milk, math.min(self.milkLevel * 0.92, self.level))
+		self.milk.Transparency = 0.04
+	else
+		self.milk.Transparency = 1
+	end
+	local surf = math.max(cy, my)
 	for i, b in ipairs(self.bits) do
-		local show = self.level > (i - 1) / #self.bits * 0.9
+		local show = self.level > 0.02 and (i / #self.bits) <= math.max(0.15, self.level)
+		local r = b.r * cr * 0.92
+		local pos = self.bowlCF * CFrame.new(math.cos(b.a) * r, surf + 0.01 + b.dy, math.sin(b.a) * r)
+		local cf = pos * CFrame.Angles(b.tx, b.spin, b.tz)
+		b.p.CFrame = cf * CFrame.Angles(0, 0, math.rad(90))
+		b.h.CFrame = cf * CFrame.new(0, 0.003, 0) * CFrame.Angles(0, 0, math.rad(90))
 		b.p.Transparency = show and 0 or 1
-		b.p.CFrame = self.bowlCF * CFrame.new(b.off.X, top, b.off.Z)
+		b.h.Transparency = show and 0 or 1
 	end
 end
 
@@ -1653,6 +1718,23 @@ function Hud.gameplay(on)
 	if Hud.pauseBtn then Hud.pauseBtn.Visible = on end
 end
 
+-- «ретро-экран» в пиксельном мире: строки развёртки и тёмная рамка по краям
+local retro
+function Hud.retro(on)
+	if retro then retro:Destroy(); retro = nil end
+	if not on then return end
+	retro = G.frame(overRoot, { Name = "Retro", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 2 })
+	for y = 0, 1440, 4 do
+		G.frame(retro, { Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Color3.new(0, 0, 0),
+			BackgroundTransparency = 0.82, ZIndex = 2 })
+	end
+	for _, side in ipairs({ { 0, 0, 1, 0.16, 90 }, { 0, 0.84, 1, 0.16, -90 }, { 0, 0, 0.12, 1, 0 }, { 0.88, 0, 0.12, 1, 180 } }) do
+		local f = G.frame(retro, { Position = UDim2.fromScale(side[1], side[2]), Size = UDim2.fromScale(side[3], side[4]),
+			BackgroundColor3 = Color3.fromRGB(6, 0, 14), ZIndex = 2 })
+		G.gradient(f, { Color3.new(0, 0, 0), Color3.new(0, 0, 0) }, side[5], NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) }))
+	end
+end
+
 function Hud.root() return root end
 function Hud.overlay() return overRoot end
 
@@ -2303,6 +2385,8 @@ function Phone:clear()
 	for _, c in ipairs(self.canvas:GetChildren()) do c:Destroy() end
 end
 function Phone:destroy()
+	if self.dead then return end
+	self.dead = true
 	if self.bind then RunService:UnbindFromRenderStep(self.bind) end
 	Audio.stop("tiktok")
 	self.model:Destroy()
@@ -2644,8 +2728,297 @@ function Phone:glitch(duration)
 	end)
 end
 
+-- экран снова оживает: зелёный вихрь на весь экран, крутится всё быстрее
+function Phone:swirl()
+	self.anims = {}
+	self:clear()
+	local bg = frame(self.canvas, 0, 0, W, H, "#06140A", { Name = "Swirl" })
+	local rings = {}
+	for i = 1, 5 do
+		local s = H * 1.6 * (1 - (i - 1) * 0.18)
+		local c = frame(bg, W / 2, H / 2, s, s, "#7CFF4A", { AnchorPoint = Vector2.new(0.5, 0.5) })
+		round(c, UDim.new(0.5, 0))
+		local g = Instance.new("UIGradient")
+		local a = (i % 2 == 0) and Color3.fromRGB(40, 160, 50) or Color3.fromRGB(120, 235, 70)
+		local b = (i % 2 == 0) and Color3.fromRGB(200, 255, 140) or Color3.fromRGB(30, 120, 40)
+		g.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, a), ColorSequenceKeypoint.new(0.25, b), ColorSequenceKeypoint.new(0.5, a),
+			ColorSequenceKeypoint.new(0.75, b), ColorSequenceKeypoint.new(1, a) })
+		g.Parent = c
+		table.insert(rings, { g = g, sp = (i % 2 == 0 and -1 or 1) * (120 + i * 60) })
+	end
+	local eye = frame(bg, W / 2, H / 2, 40, 40, "#EFFFD0", { AnchorPoint = Vector2.new(0.5, 0.5) })
+	round(eye, UDim.new(0.5, 0))
+	local speed = 1
+	table.insert(self.anims, function(dt, t)
+		speed = speed + dt * 1.5
+		for _, r in ipairs(rings) do r.g.Rotation = (r.g.Rotation + r.sp * speed * dt) % 360 end
+		local s = 40 + math.sin(t * 9) * 8 + speed * 12
+		eye.Size = UDim2.fromOffset(s, s)
+	end)
+end
+
+-- подтянуть телефон к лицу (когда затягивает внутрь)
+function Phone:pullToFace()
+	self.target = CFrame.new(0, -0.02, -0.5) * CFrame.Angles(0, 0, math.rad(4))
+end
+
+-- точка на экране телефона в мире (для щупалец): u, v от -0.5 до 0.5
+function Phone:screenPoint(u, v)
+	local s = self.screen
+	return s.CFrame * CFrame.new(u * s.Size.X, v * s.Size.Y, -0.02)
+end
+
 return Phone
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000E"><Properties><string name="Name">Portal</string><ProtectedString name="Source"><![CDATA[-- Зелёный портал Рика (меню и переходы). Без картинок: вихрь — вложенные круги с вращающимися
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000E"><Properties><string name="Name">PixelWorld</string><ProtectedString name="Source"><![CDATA[-- Пиксельный мир «внутри телефона» (только у этого игрока): зал появления, длинный тёмный
+-- коридор из кубиков, мигающие лампы, летающие пиксели, пиксельные картинки на стенах,
+-- конечный зал, где Рик открывает портал. Плюс пиксельные руки Морти перед камерой.
+local RunService = game:GetService("RunService")
+
+local PixelWorld = {}
+PixelWorld.__index = PixelWorld
+local B, U, Audio, Config
+
+PixelWorld.ORIGIN = Vector3.new(400, 300, 0)
+
+function PixelWorld.init(ctx)
+	B, U, Audio, Config = ctx.Build, ctx.Util, ctx.Audio, ctx.Config
+end
+
+-- рисунок из кубиков: rows — строки сверху вниз, символ → цвет из pal
+local function sprite(parent, cf, rows, pal, px)
+	for r, row in ipairs(rows) do
+		for c = 1, #row do
+			local ch = row:sub(c, c)
+			local col = pal[ch]
+			if col then
+				B.part(parent, "Px", Vector3.new(px, px, px * 0.6), cf * CFrame.new((c - (#row + 1) / 2) * px, -(r - (#rows + 1) / 2) * px, 0), col,
+					Enum.Material.Neon, { CastShadow = false, CanQuery = false })
+			end
+		end
+	end
+end
+
+function PixelWorld.new()
+	local self = setmetatable({}, PixelWorld)
+	local O = PixelWorld.ORIGIN
+	local m = Instance.new("Model")
+	m.Name = "RM_PixelWorld"
+	self.model = m
+	self.lamps = {}
+	self.floaters = {}
+	local function L(x, y, z) return CFrame.new(O + Vector3.new(x, y, z)) end
+	local DARK, DARK2 = "#1B1230", "#271A44"
+	local WALL = "#130C24"
+
+	-- пол «шахматкой»
+	local function floorArea(x0, x1, z0, z1, tile)
+		local nx, nz = math.floor((x1 - x0) / tile + 0.5), math.floor((z1 - z0) / tile + 0.5)
+		for i = 0, nx - 1 do
+			for j = 0, nz - 1 do
+				local col = ((i + j) % 2 == 0) and DARK or DARK2
+				B.part(m, "Tile", Vector3.new(tile, 1, tile), L(x0 + (i + 0.5) * tile, -0.5, z0 + (j + 0.5) * tile), col)
+			end
+		end
+	end
+	floorArea(-10, 10, 0, 20, 5)       -- зал появления
+	floorArea(-5, 5, 20, 120, 5)       -- коридор
+	floorArea(-10, 10, 120, 140, 5)    -- конечный зал
+
+	-- стены, потолок
+	local function wall(x0, x1, z0, z1, h)
+		B.part(m, "Wall", Vector3.new(math.max(x1 - x0, 1), h, math.max(z1 - z0, 1)), L((x0 + x1) / 2, h / 2, (z0 + z1) / 2), WALL)
+	end
+	-- зал появления (z 0..20)
+	wall(-11, 11, -1, 0, 14); wall(-11, -10, 0, 20, 14); wall(10, 11, 0, 20, 14)
+	wall(-11, -5, 20, 21, 14); wall(5, 11, 20, 21, 14)
+	B.part(m, "Ceil", Vector3.new(22, 1, 22), L(0, 14.5, 10), WALL)
+	-- коридор (z 20..120)
+	wall(-6, -5, 20, 120, 12); wall(5, 6, 20, 120, 12)
+	B.part(m, "Ceil", Vector3.new(12, 1, 100), L(0, 12.5, 70), WALL)
+	-- конечный зал (z 120..140)
+	wall(-11, -5, 119, 120, 14); wall(5, 11, 119, 120, 14)
+	wall(-11, -10, 120, 140, 14); wall(10, 11, 120, 140, 14); wall(-11, 11, 140, 141, 14)
+	B.part(m, "Ceil", Vector3.new(22, 1, 22), L(0, 14.5, 130), WALL)
+
+	-- неоновые линии вдоль пола и потолка коридора
+	for _, x in ipairs({ -4.9, 4.9 }) do
+		B.part(m, "NeonFloor", Vector3.new(0.2, 0.2, 100), L(x, 0.15, 70), "#29E6FF", Enum.Material.Neon, { CastShadow = false })
+		B.part(m, "NeonCeil", Vector3.new(0.2, 0.2, 100), L(x, 11.85, 70), "#FF3DD1", Enum.Material.Neon, { CastShadow = false })
+	end
+	-- «кирпичики»-пиксели на стенах коридора
+	local rnd = Random.new(42)
+	for z = 22, 118, 3 do
+		for _, side in ipairs({ -1, 1 }) do
+			if rnd:NextNumber() < 0.55 then
+				local y = rnd:NextInteger(1, 10)
+				local col = ({ "#2E1E55", "#3A2470", "#1F3A66", "#40205C" })[rnd:NextInteger(1, 4)]
+				B.part(m, "Brick", Vector3.new(0.3, 1, 2), L(side * 4.85, y + 0.5, z), col, nil, { CanQuery = false })
+			end
+		end
+	end
+	-- лампы (мигают)
+	for k, z in ipairs({ 30, 50, 70, 90, 110 }) do
+		local side = (k % 2 == 0) and 1 or -1
+		local lamp = B.part(m, "Lamp", Vector3.new(0.6, 1, 1), L(side * 4.6, 8, z), (k % 2 == 0) and "#29E6FF" or "#FFD23D", Enum.Material.Neon, { CastShadow = false })
+		local l = B.light(lamp, "PointLight", { Color = lamp.Color, Brightness = 1.4, Range = 20, Shadows = true })
+		table.insert(self.lamps, { part = lamp, light = l, color = lamp.Color, seed = k })
+	end
+	-- свет в зале появления и в конце
+	local top = B.part(m, "Glow", Vector3.new(2, 0.3, 2), L(0, 14, 10), "#B98CFF", Enum.Material.Neon, { CastShadow = false })
+	B.light(top, "PointLight", { Color = Color3.fromRGB(170, 120, 255), Brightness = 1.6, Range = 26, Shadows = true })
+
+	-- пиксельные картинки на стенах зала появления
+	local pal = { R = "#FF3B5C", W = "#FFFFFF", Y = "#FFD23D", O = "#FF9A2E", G = "#7CFF4A", C = "#29E6FF" }
+	sprite(m, L(-9.6, 8, 7) * CFrame.Angles(0, math.rad(90), 0), {
+		".RR.RR.", "RRWRRRR", "RRRRRRR", ".RRRRR.", "..RRR..", "...R...",
+	}, pal, 0.55)
+	sprite(m, L(9.6, 8, 13) * CFrame.Angles(0, math.rad(-90), 0), {
+		"..YYY..", ".YOOOY.", "YOYYYOY", "YOYYYOY", "YOYYYOY", ".YOOOY.", "..YYY..",
+	}, pal, 0.55)
+	sprite(m, L(0, 9, 0.4) * CFrame.Angles(0, math.rad(180), 0), {
+		"...G...", "..GGG..", ".GGGGG.", "...G...", "...G...",
+	}, pal, 0.5)
+	-- надпись «ЗАГРУЗКА МИРА…»
+	local sign = B.part(m, "Sign", Vector3.new(12, 2.2, 0.2), L(0, 11.5, 0.2), "#0B0716", nil, { CastShadow = false })
+	local _, label = B.sign(sign, Enum.NormalId.Back, "ЗАГРУЗКА МИРА… 99%", { TextColor3 = Color3.fromRGB(124, 255, 74), Font = Enum.Font.Arcade },
+		{ LightInfluence = 0, Brightness = 2 })
+	self.signLabel = label
+	-- указатель вперёд в начале коридора
+	sprite(m, L(0, 9, 20.6) * CFrame.Angles(0, math.rad(180), 0), {
+		"..C..", ".CCC.", "CCCCC", "..C..", "..C..",
+	}, pal, 0.45)
+
+	-- летающие пиксели
+	for i = 1, 36 do
+		local p = B.part(m, "Floater", Vector3.new(0.35, 0.35, 0.35), L(rnd:NextNumber(-4, 4), rnd:NextNumber(1, 10), rnd:NextNumber(2, 135)),
+			({ "#7CFF4A", "#29E6FF", "#FF3DD1", "#FFD23D" })[rnd:NextInteger(1, 4)], Enum.Material.Neon,
+			{ CanCollide = false, CanQuery = false, CastShadow = false })
+		table.insert(self.floaters, { p = p, base = p.Position, ph = rnd:NextNumber(0, 6.28) })
+	end
+
+	-- метки (в мировых координатах)
+	self.spawn = CFrame.lookAt(O + Vector3.new(0, 3, 6), O + Vector3.new(0, 3, 30))
+	self.ambushZ = O.Z + 74
+	self.rickSpot = O + Vector3.new(0, 0, 112)
+	self.portalCF = CFrame.lookAt(O + Vector3.new(0, 6, 128), O + Vector3.new(0, 6, 60))
+	self.t = 0
+	self.flicker = 0.15
+	m.Parent = workspace
+	self.conn = RunService.RenderStepped:Connect(function(dt) self:update(dt) end)
+	return self
+end
+
+function PixelWorld:update(dt)
+	if U.paused then return end
+	self.t = self.t + dt
+	for _, f in ipairs(self.floaters) do
+		f.p.CFrame = CFrame.new(f.base + Vector3.new(math.sin(self.t * 0.7 + f.ph) * 0.6, math.sin(self.t + f.ph) * 0.8, 0))
+			* CFrame.Angles(self.t + f.ph, self.t * 0.6, 0)
+	end
+	for _, l in ipairs(self.lamps) do
+		local on = math.noise(self.t * 4, l.seed) > -self.flicker * 3 + 0.1 or self.flicker < 0.05
+		if self.flicker > 0.9 then on = math.random() < 0.5 end
+		l.light.Enabled = on
+		l.part.Material = on and Enum.Material.Neon or Enum.Material.SmoothPlastic
+	end
+	if self.signLabel then
+		self.signLabel.Text = (math.floor(self.t * 2) % 7 == 0) and "З̷АГ̷Р̷УЗКА М̷ИРА… 9̷9%" or "ЗАГРУЗКА МИРА… 99%"
+	end
+end
+
+-- 0 — лампы горят ровно, 1 — сильно мигают
+function PixelWorld:setFlicker(v) self.flicker = v end
+function PixelWorld:lampsColor(c)
+	for _, l in ipairs(self.lamps) do
+		l.light.Color = c or l.color
+		l.part.Color = c or l.color
+	end
+end
+
+function PixelWorld:destroy()
+	if self.conn then self.conn:Disconnect() end
+	if self.model then self.model:Destroy() end
+end
+
+---------------------------------------------------------------------------
+-- пиксельные руки Морти перед камерой
+---------------------------------------------------------------------------
+local Hands = {}
+Hands.__index = Hands
+
+function PixelWorld.hands()
+	local self = setmetatable({}, Hands)
+	local m = Instance.new("Model")
+	m.Name = "RM_PixelHands"
+	self.model = m
+	self.cubes = {}
+	self.t = 0
+	self.raise = 0
+	self.goal = 1
+	local px = 0.052
+	local SKIN = Config.Colors.Skin
+	local SKIN2 = Color3.fromRGB(222, 176, 140)
+	local SHIRT = Config.Colors.MortyShirt
+	local SHIRT2 = Color3.fromRGB(205, 168, 34)
+	-- рисунок руки (ладонь к камере), снизу рукав
+	local rows = {
+		".f.f.f.f..",
+		".f.f.f.f..",
+		".f.f.f.f..",
+		"pppppppp..",
+		"pppppppptt",
+		"pppppppptt",
+		"pppppppp..",
+		".pppppp...",
+		"ssssssss..",
+		"ssssssss..",
+	}
+	for _, side in ipairs({ -1, 1 }) do
+		for r, row in ipairs(rows) do
+			for c = 1, #row do
+				local ch = row:sub(c, c)
+				if ch ~= "." then
+					local cc = (side == 1) and c or (#row + 1 - c)
+					local col
+					if ch == "s" then col = (r == 9) and SHIRT2 or SHIRT
+					elseif ch == "t" then col = SKIN2
+					else col = ((c + r) % 5 == 0) and SKIN2 or SKIN end
+					local p = B.part(m, "Px", Vector3.new(px, px, px), CFrame.new(), col, nil,
+						{ CanCollide = false, CanQuery = false, CanTouch = false, CastShadow = false })
+					table.insert(self.cubes, { p = p, side = side, x = (cc - 5.5) * px, y = -(r - 5.5) * px, finger = ch == "f", col = c })
+				end
+			end
+		end
+	end
+	m.Parent = workspace.CurrentCamera
+	self.bind = "RM_PixelHands" .. tostring(math.random(1, 1e6))
+	RunService:BindToRenderStep(self.bind, Enum.RenderPriority.Camera.Value + 6, function(dt) self:update(dt) end)
+	return self
+end
+
+function Hands:update(dt)
+	if not U.paused then self.t = self.t + dt end
+	self.raise = self.raise + (self.goal - self.raise) * math.min(1, dt * 3)
+	local cam = workspace.CurrentCamera.CFrame
+	local lift = (1 - self.raise) * -0.9
+	for _, c in ipairs(self.cubes) do
+		local s = c.side
+		local base = cam * CFrame.new(s * 0.36, -0.24 + lift + math.sin(self.t * 1.3 + s) * 0.015, -1.05)
+			* CFrame.Angles(math.rad(8), s * math.rad(-14) + math.sin(self.t * 0.8) * 0.12 * s, s * math.rad(-8))
+		local wig = c.finger and math.sin(self.t * 6 + c.col) * 0.03 or 0
+		c.p.CFrame = base * CFrame.new(c.x, c.y, wig)
+	end
+end
+
+function Hands:lower() self.goal = 0 end
+
+function Hands:destroy()
+	RunService:UnbindFromRenderStep(self.bind)
+	self.model:Destroy()
+end
+
+return PixelWorld
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000F"><Properties><string name="Name">Portal</string><ProtectedString name="Source"><![CDATA[-- Зелёный портал Рика (меню и переходы). Без картинок: вихрь — вложенные круги с вращающимися
 -- полосатыми градиентами на SurfaceGui, светящийся край из шариков Neon, искры, зелёный свет.
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -2820,7 +3193,7 @@ function Portal:destroy()
 end
 
 return Portal
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000F"><Properties><string name="Name">Prompts</string><ProtectedString name="Source"><![CDATA[-- Свой вид подсказок ProximityPrompt (стиль Custom): тёмная «таблетка» с клавишей и действием.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000010"><Properties><string name="Name">Prompts</string><ProtectedString name="Source"><![CDATA[-- Свой вид подсказок ProximityPrompt (стиль Custom): тёмная «таблетка» с клавишей и действием.
 -- На телефоне подсказку можно нажать пальцем. Пока идёт сценка, подсказки скрыты (Prompts.enabled).
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local UserInputService = game:GetService("UserInputService")
@@ -2938,7 +3311,169 @@ end
 
 local _u = UserInputService
 return Prompts
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000010"><Properties><string name="Name">Settings</string><ProtectedString name="Source"><![CDATA[-- Настройки игрока: громкость, мышь, поле зрения, эффекты, субтитры, подсказки.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000011"><Properties><string name="Name">Rick</string><ProtectedString name="Source"><![CDATA[-- Рик Санчез (модель из деталей, только у этого игрока): халат, голубые волосы-шипы, моноброва,
+-- портальная пушка. Умеет стоять, поворачиваться, целиться и стрелять зелёным лучом.
+local RunService = game:GetService("RunService")
+
+local Rick = {}
+Rick.__index = Rick
+local B, U, Audio, Config
+
+function Rick.init(ctx)
+	B, U, Audio, Config = ctx.Build, ctx.Util, ctx.Audio, ctx.Config
+end
+
+local SKIN = "#E9DCCB"
+local COAT = "#F4F4F0"
+local SHIRT = "#9CC9E2"
+local PANTS = "#7A5A3C"
+local HAIR = "#B4D9EC"
+local SHOES = "#4A3A30"
+
+-- cf — точка на полу между ступнями, смотрит вперёд (−Z)
+function Rick.new(cf, parent)
+	local self = setmetatable({}, Rick)
+	self.cf = cf
+	self.t = 0
+	self.aim = nil
+	local m = Instance.new("Model")
+	m.Name = "RM_Rick"
+	self.model = m
+	self.body = {}  -- { part, offset } относительно точки на полу
+	self.arm = {}   -- правая рука с пушкой: смещения относительно плеча
+	local function add(list, name, size, off, color, mat, shape)
+		local p
+		if shape == "ball" then p = B.ball(m, name, size.X, CFrame.new(), color, mat)
+		elseif shape == "wedge" then p = B.wedge(m, name, size, CFrame.new(), color, mat)
+		else p = B.part(m, name, size, CFrame.new(), color, mat) end
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		table.insert(list, { p = p, off = off })
+		return p
+	end
+	local A = CFrame.Angles
+	local r = math.rad
+	-- ноги и обувь
+	add(self.body, "LegL", Vector3.new(0.7, 2.9, 0.7), CFrame.new(-0.42, 1.65, 0), PANTS)
+	add(self.body, "LegR", Vector3.new(0.7, 2.9, 0.7), CFrame.new(0.42, 1.65, 0), PANTS)
+	add(self.body, "ShoeL", Vector3.new(0.75, 0.3, 1.1), CFrame.new(-0.42, 0.15, -0.15), SHOES)
+	add(self.body, "ShoeR", Vector3.new(0.75, 0.3, 1.1), CFrame.new(0.42, 0.15, -0.15), SHOES)
+	-- туловище: голубая кофта и белый халат
+	add(self.body, "Shirt", Vector3.new(1.8, 2.4, 0.95), CFrame.new(0, 4.25, 0), SHIRT)
+	add(self.body, "CoatBack", Vector3.new(2.1, 3.9, 0.18), CFrame.new(0, 3.6, 0.52), COAT)
+	add(self.body, "CoatL", Vector3.new(0.7, 3.9, 0.18), CFrame.new(-0.72, 3.6, -0.52), COAT)
+	add(self.body, "CoatR", Vector3.new(0.7, 3.9, 0.18), CFrame.new(0.72, 3.6, -0.52), COAT)
+	add(self.body, "CoatSideL", Vector3.new(0.18, 3.9, 1.05), CFrame.new(-1.0, 3.6, 0), COAT)
+	add(self.body, "CoatSideR", Vector3.new(0.18, 3.9, 1.05), CFrame.new(1.0, 3.6, 0), COAT)
+	add(self.body, "Collar", Vector3.new(1.9, 0.35, 1.15), CFrame.new(0, 5.45, 0), COAT)
+	-- левая рука (опущена)
+	add(self.body, "ArmL", Vector3.new(0.6, 2.3, 0.6), CFrame.new(-1.35, 4.3, 0) * A(0, 0, r(-6)), COAT)
+	add(self.body, "HandL", Vector3.new(0.5, 0.55, 0.5), CFrame.new(-1.48, 2.95, 0), SKIN)
+	-- шея и голова (вытянутая)
+	add(self.body, "Neck", Vector3.new(0.5, 0.5, 0.5), CFrame.new(0, 5.75, 0), SKIN)
+	add(self.body, "Head", Vector3.new(1.35, 1.6, 1.3), CFrame.new(0, 6.75, -0.05), SKIN)
+	add(self.body, "Chin", Vector3.new(1.1, 0.35, 1.0), CFrame.new(0, 5.95, -0.2), SKIN)
+	-- лицо
+	add(self.body, "EyeL", Vector3.new(0.42, 0.42, 0.42), CFrame.new(-0.3, 6.95, -0.66), "#FFFFFF", nil, "ball")
+	add(self.body, "EyeR", Vector3.new(0.42, 0.42, 0.42), CFrame.new(0.3, 6.95, -0.66), "#FFFFFF", nil, "ball")
+	add(self.body, "PupilL", Vector3.new(0.13, 0.13, 0.13), CFrame.new(-0.27, 6.93, -0.86), "#111111", nil, "ball")
+	add(self.body, "PupilR", Vector3.new(0.13, 0.13, 0.13), CFrame.new(0.27, 6.93, -0.86), "#111111", nil, "ball")
+	add(self.body, "Unibrow", Vector3.new(1.15, 0.16, 0.12), CFrame.new(0, 7.25, -0.68) * A(0, 0, r(-4)), "#7FA3B8")
+	add(self.body, "Nose", Vector3.new(0.18, 0.35, 0.22), CFrame.new(0, 6.65, -0.73), "#DCC9B5")
+	add(self.body, "Mouth", Vector3.new(0.7, 0.07, 0.06), CFrame.new(0.05, 6.25, -0.66) * A(0, 0, r(5)), "#6B4A40")
+	add(self.body, "Drool", Vector3.new(0.08, 0.25, 0.06), CFrame.new(0.33, 6.08, -0.66), "#BFE6F5", Enum.Material.Glass)
+	-- волосы: шипы во все стороны (назад и вверх)
+	add(self.body, "HairBase", Vector3.new(1.45, 0.5, 1.4), CFrame.new(0, 7.55, 0.05), HAIR)
+	local spikes = {
+		{ 0, 8.05, 0.1, -15, 0, 0 }, { -0.55, 7.85, 0.1, -10, 0, 35 }, { 0.55, 7.85, 0.1, -10, 0, -35 },
+		{ -0.75, 7.35, 0.2, 0, 0, 70 }, { 0.75, 7.35, 0.2, 0, 0, -70 }, { 0, 7.6, 0.65, -60, 0, 0 },
+		{ -0.45, 7.5, 0.6, -55, 25, 25 }, { 0.45, 7.5, 0.6, -55, -25, -25 },
+	}
+	for i, s in ipairs(spikes) do
+		add(self.body, "Spike" .. i, Vector3.new(0.6, 0.9, 0.7), CFrame.new(s[1], s[2], s[3]) * A(r(s[4]), r(s[5]), r(s[6])), HAIR, nil, "wedge")
+	end
+	-- правая рука с портальной пушкой (вращается в плече)
+	self.shoulder = CFrame.new(1.35, 5.2, 0)
+	add(self.arm, "ArmR", Vector3.new(0.6, 0.6, 2.2), CFrame.new(0, 0, -1.0), COAT)
+	add(self.arm, "HandR", Vector3.new(0.5, 0.55, 0.5), CFrame.new(0, 0, -2.25), SKIN)
+	add(self.arm, "GunBody", Vector3.new(0.45, 0.55, 1.1), CFrame.new(0, 0.05, -2.6), "#C9CFD6", Enum.Material.Metal)
+	add(self.arm, "GunTube", Vector3.new(0.3, 0.3, 0.6), CFrame.new(0, 0.05, -3.35), "#7CFF4A", Enum.Material.Neon)
+	add(self.arm, "GunTop", Vector3.new(0.35, 0.35, 0.35), CFrame.new(0, 0.42, -2.55), "#9CFF6A", Enum.Material.Neon, "ball")
+	self.muzzle = CFrame.new(0, 0.05, -3.7)
+	B.outline(m)
+	m.Parent = parent or workspace
+	self.conn = RunService.RenderStepped:Connect(function(dt) self:update(dt) end)
+	self:update(0)
+	return self
+end
+
+function Rick:update(dt)
+	if not U.paused then self.t = self.t + dt end
+	local bob = math.sin(self.t * 2) * 0.05
+	local root = self.cf * CFrame.new(0, bob, 0)
+	for _, e in ipairs(self.body) do e.p.CFrame = root * e.off end
+	-- рука: по умолчанию опущена вперёд-вниз, при прицеливании смотрит на цель
+	local sh = root * self.shoulder
+	local armCF
+	if self.aim then
+		armCF = CFrame.lookAt(sh.Position, self.aim)
+	else
+		armCF = sh * CFrame.Angles(math.rad(-55), 0, 0)
+	end
+	self.armCF = armCF
+	for _, e in ipairs(self.arm) do e.p.CFrame = armCF * e.off end
+end
+
+function Rick:face(pos)
+	local p = self.cf.Position
+	self.cf = CFrame.lookAt(p, Vector3.new(pos.X, p.Y, pos.Z))
+end
+
+function Rick:moveTo(pos, t)
+	local from = self.cf
+	local to = CFrame.new(pos) * (self.cf - self.cf.Position)
+	local el = 0
+	while el < t do
+		local dt = RunService.Heartbeat:Wait()
+		if not U.paused then
+			el = math.min(t, el + dt)
+			self.cf = from:Lerp(to, U.smooth(el / t))
+		end
+	end
+end
+
+-- выстрел зелёным лучом в точку
+function Rick:shoot(target)
+	self.aim = target
+	self:update(0)
+	local muzzle = (self.armCF * self.muzzle).Position
+	Audio.play("Laser", { at = self.model:FindFirstChild("GunTube"), volume = 0.9, pitchJitter = 0.08 })
+	local len = (target - muzzle).Magnitude
+	local beam = B.part(self.model, "Laser", Vector3.new(0.28, 0.28, len), CFrame.lookAt((muzzle + target) / 2, target), "#B6FF7A", Enum.Material.Neon,
+		{ CanCollide = false, CanQuery = false, CastShadow = false })
+	local flash = B.ball(self.model, "Flash", 0.9, CFrame.new(muzzle), "#E6FFC8", Enum.Material.Neon, { CanCollide = false, CanQuery = false, CastShadow = false })
+	local light = B.light(flash, "PointLight", { Color = Color3.fromRGB(150, 255, 90), Brightness = 4, Range = 18, Shadows = false })
+	local _ = light
+	task.spawn(function()
+		for i = 1, 6 do
+			RunService.Heartbeat:Wait()
+			beam.Transparency = i / 6
+			flash.Transparency = i / 6
+			beam.Size = Vector3.new(0.28 * (1 - i / 7), 0.28 * (1 - i / 7), len)
+		end
+		beam:Destroy()
+		flash:Destroy()
+	end)
+end
+
+function Rick:destroy()
+	if self.conn then self.conn:Disconnect() end
+	if self.model then self.model:Destroy() end
+end
+
+return Rick
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000012"><Properties><string name="Name">Settings</string><ProtectedString name="Source"><![CDATA[-- Настройки игрока: громкость, мышь, поле зрения, эффекты, субтитры, подсказки.
 -- Хранятся в памяти на время игры; изменение сразу применяется (событие Changed).
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -2990,7 +3525,7 @@ function Settings.apply()
 end
 
 return Settings
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000011"><Properties><string name="Name">Story</string><ProtectedString name="Source"><![CDATA[-- Сюжет главы 1 «Сбой»: пробуждение (вид от первого лица), будильник, путь на кухню,
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000013"><Properties><string name="Name">Story</string><ProtectedString name="Source"><![CDATA[-- Сюжет главы 1 «Сбой»: пробуждение (вид от первого лица), будильник, путь на кухню,
 -- завтрак, телефон с лагающим ТикТоком, мысль Морти и конец главы.
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
@@ -2999,6 +3534,7 @@ local RunService = game:GetService("RunService")
 local Story = {}
 local ctx
 local U, Config, Settings, Audio, Hud, Cine, Controls, World, Prompts, Outline, Breakfast, Phone, G, B
+local Tentacles, Rick, PixelWorld, Portal
 local player = Players.LocalPlayer
 local trove
 local thread
@@ -3275,6 +3811,236 @@ local function phoneScene()
 end
 
 ---------------------------------------------------------------------------
+-- 4б. Щупальца из телефона: Морти затягивает внутрь
+---------------------------------------------------------------------------
+local function pulledIn(phone)
+	local cam = workspace.CurrentCamera
+	phone:swirl()
+	Audio.play("Glitch", { volume = 0.5, speed = 0.8 })
+	phone:vibrate(1.2)
+	U.wait(1.0)
+	Hud.think(Config.Text.WhatIsThat, { hold = 2.4 })
+	-- щупальца вылезают из экрана и тянутся к лицу
+	Audio.play("Tentacle", { volume = 0.9 })
+	local tents = {}
+	local spots = { { -0.25, 0.3, -0.9, 0.55 }, { 0.25, 0.25, 0.95, 0.5 }, { 0, -0.3, 0.2, -0.75 }, { -0.2, -0.1, -1.1, -0.35 } }
+	for i, sp in ipairs(spots) do
+		local tn = Tentacles.new(workspace, function() return phone:screenPoint(sp[1], sp[2]) end,
+			function()
+				local c = cam.CFrame
+				return (c * CFrame.new(sp[3] + math.sin(os.clock() * 2 + i) * 0.1, sp[4], -0.35)).Position
+			end, { segments = 16, radius = 0.09, color = "#3B1F5C", tip = "#7CFF4A", seed = i, wiggle = 0.35 })
+		tn:grow(0.35, 0.8)
+		table.insert(tents, tn)
+		trove:add(function() tn:destroy() end)
+		U.wait(0.25)
+	end
+	Cine.shake(0.4, 1.6)
+	U.wait(1.2)
+	for _, tn in ipairs(tents) do tn:grow(1, 1.4) end
+	Hud.say("МОРТИ", Config.Text.Scream, { hold = 2.2, speed = 0.02 })
+	Audio.play("Pull", { volume = 1 })
+	U.wait(0.8)
+	-- затягивает: телефон к лицу, камера «проваливается» в экран
+	phone:pullToFace()
+	Cine.shake(0.9, 1.6)
+	Cine.move(cam.CFrame * CFrame.new(0, -0.05, -0.6), 1.3, "in", 110)
+	Hud.fade(1, 0.9, Color3.fromRGB(190, 255, 150))
+	U.wait(1.0)
+	for _, tn in ipairs(tents) do tn:destroy() end
+	phone:destroy()
+	Hud.fadeSet(1, Color3.new(1, 1, 1))
+	Audio.muffle(false)
+	Audio.stopMusic(0.5)
+	Audio.stop("birds")
+	Audio.stop("garage")
+	U.wait(0.6)
+end
+
+---------------------------------------------------------------------------
+-- 4в. Пиксельный мир: руки, тёмный коридор, засада, Рик, портал
+---------------------------------------------------------------------------
+local function pixelWorld()
+	local world = PixelWorld.new()
+	trove:add(function() world:destroy() end)
+	World.apply("pixel", 0)
+	Hud.retro(true)
+	trove:add(function() Hud.retro(false) end)
+	-- встаём со стула и переносимся в пиксельный мир
+	local _, hum = Controls.character()
+	if hum then
+		hum.Sit = false
+		hum.PlatformStand = false
+	end
+	Controls.place(world.spawn, true)
+	setBodyHidden(true)
+	local eyeH = Controls.eyeOffset()
+	local eye = world.spawn.Position + Vector3.new(0, eyeH, 0)
+	local look = CFrame.lookAt(eye, eye + world.spawn.LookVector * 3 + Vector3.new(0, -1.6, 0))
+	Cine.take(look, 70)
+	Cine.breathe(1)
+	Audio.play("Land", { volume = 0.9 })
+	Audio.loop("pixel", "PixelAmb", { volume = 0.5 })
+	trove:add(function() Audio.stop("pixel") end)
+	Hud.fade(0, 0.9, Color3.new(1, 1, 1))
+	Cine.shake(0.5, 0.6)
+	U.wait(1.0)
+	-- смотрит на свои руки — они пиксельные!
+	local hands = PixelWorld.hands()
+	trove:add(function() hands:destroy() end)
+	U.wait(1.2)
+	Hud.say("МОРТИ", Config.Text.MyHands, { hold = 2.6 })
+	U.wait(2.8)
+	Cine.move(CFrame.lookAt(eye, eye + world.spawn.LookVector * 5 + Vector3.new(0, 0.2, 0)), 1.6, "inout")
+	hands:lower()
+	Hud.say("МОРТИ", Config.Text.WhereAmI, { hold = 3 })
+	U.wait(2.6)
+	hands:destroy()
+	-- свободная ходьба по коридору
+	Controls.place(world.spawn, false)
+	Cine.release()
+	workspace.CurrentCamera.CFrame = CFrame.lookAt(eye, eye + world.spawn.LookVector * 5)
+	setBodyHidden(false)
+	Controls.setActive(true)
+	Controls.freeze(false)
+	Hud.gameplay(true)
+	state = "roam"
+	Hud.objective(Config.Text.FindExit)
+	local t0 = os.clock()
+	local hinted, creepy = false, false
+	while true do
+		U.wait(0.2)
+		local _, _, root = Controls.character()
+		if root then
+			if root.Position.Z > world.ambushZ then break end
+			if not creepy and root.Position.Z > world.ambushZ - 30 then
+				creepy = true
+				world:setFlicker(0.5)
+				Audio.play("Flicker", { volume = 0.6 })
+				Hud.think(Config.Text.Creepy)
+			end
+			-- если провалился или ушёл не туда — вернуть в начало
+			if root.Position.Y < PixelWorld.ORIGIN.Y - 20 then Controls.place(world.spawn, false) end
+		end
+		if not hinted and os.clock() - t0 > 25 and Settings.get("Hints") then
+			hinted = true
+			Hud.toast(Config.Text.CorridorHint, 4)
+		end
+	end
+	Hud.objectiveDone()
+	-- засада: свет мигает, из стен и пола лезут щупальца
+	state = "scene"
+	Controls.freeze(true)
+	Controls.setActive(false)
+	Hud.gameplay(false)
+	Prompts.setEnabled(false)
+	local cam = workspace.CurrentCamera
+	local _, _, root = Controls.character()
+	local here = root and root.Position or (PixelWorld.ORIGIN + Vector3.new(0, 3, world.ambushZ - PixelWorld.ORIGIN.Z))
+	local camPos = here + Vector3.new(0, eyeH, 0)
+	Cine.take(CFrame.lookAt(camPos, camPos + Vector3.new(0, 0, 10)), 70)
+	Controls.place(CFrame.lookAt(here, here + Vector3.new(0, 0, 10)), true)
+	setBodyHidden(true)
+	world:setFlicker(1)
+	world:lampsColor(Color3.fromRGB(255, 60, 90))
+	Audio.play("Flicker", { volume = 0.9 })
+	Audio.play("Sting", { volume = 0.6, speed = 1.2 })
+	local tents = {}
+	local bases = {
+		{ Vector3.new(-4.6, 2, 6), Vector3.new(1, 0.3, -0.3) }, { Vector3.new(4.6, 5, 4), Vector3.new(-1, 0, -0.2) },
+		{ Vector3.new(-2, 0.2, 9), Vector3.new(0, 1, -0.6) }, { Vector3.new(4.6, 1.5, 9), Vector3.new(-1, 0.4, -0.5) },
+		{ Vector3.new(-4.6, 7, 3), Vector3.new(1, -0.4, 0) },
+	}
+	for i, b in ipairs(bases) do
+		local bp = here + b[1]
+		local bcf = CFrame.lookAt(bp, bp + b[2])
+		local tn = Tentacles.new(world.model, function() return bcf end,
+			function() return camPos + Vector3.new((i % 2 == 0 and 1 or -1) * (1.6 + (i % 3) * 0.5), math.cos(i * 1.7) * 1.2, 1.2) end,
+			{ segments = 22, radius = 0.26, color = "#2A1748", tip = "#FF3DD1", seed = i + 10, pixel = true, wiggle = 0.8 })
+		tn:grow(0.55, 0.6)
+		table.insert(tents, tn)
+		trove:add(function() tn:destroy() end)
+		Audio.play("Tentacle", { at = tn.parts[1], volume = 0.8, pitchJitter = 0.15 })
+		U.wait(0.3)
+	end
+	Cine.breathe(1.6)
+	Cine.move(CFrame.lookAt(camPos, camPos + Vector3.new(-0.4, 0.1, 10)), 1.0, "inout", 64)
+	Hud.say("МОРТИ", Config.Text.NoNoNo, { hold = 2.4 })
+	for _, tn in ipairs(tents) do tn:grow(0.82, 0.7) end
+	Cine.shake(0.5, 2.2)
+	U.wait(2.2)
+	-- открывается портал, выходит Рик и отстреливает щупальца
+	-- портал открывается недалеко впереди, Рик выходит и встаёт перед Морти
+	local O = PixelWorld.ORIGIN
+	local portalPos = Vector3.new(O.X, O.Y + 6, math.min(here.Z + 24, O.Z + 130))
+	local portalCF = CFrame.lookAt(portalPos, here + Vector3.new(0, 3, 0))
+	local rickSpot = Vector3.new(O.X + 0.6, O.Y, here.Z + 12)
+	local portal = Portal.new(portalCF, 7, world.model)
+	trove:add(function() portal:destroy() end)
+	portal:open(0.8)
+	U.wait(0.6)
+	local rick = Rick.new(CFrame.lookAt(portalPos - Vector3.new(0, 6, 0), Vector3.new(here.X, O.Y, here.Z)), world.model)
+	trove:add(function() rick:destroy() end)
+	Outline.add(rick.model)
+	rick:moveTo(rickSpot, 1.4)
+	rick:face(here)
+	Cine.move(CFrame.lookAt(camPos, rick.cf.Position + Vector3.new(0, 6, 0)), 0.7, "out", 66)
+	Hud.say("РИК", Config.Text.RickArrive, { hold = 3 })
+	Audio.play("Burp", { volume = 0.8 })
+	U.wait(0.6)
+	for _, tn in ipairs(tents) do
+		rick:shoot(tn:tip())
+		Cine.shake(0.25, 0.3)
+		tn:burst()
+		U.wait(0.38)
+	end
+	rick.aim = nil
+	world:setFlicker(0.1)
+	world:lampsColor(nil)
+	Cine.breathe(0.6)
+	U.wait(0.8)
+	Hud.say("МОРТИ", Config.Text.MortyRick, { hold = 2.4 })
+	U.wait(2.4)
+	Hud.say("РИК", Config.Text.Rick1, { hold = 4.4 })
+	U.wait(4.4)
+	Hud.say("РИК", Config.Text.Rick2, { hold = 3.4 })
+	Audio.play("Burp", { volume = 0.6, speed = 1.15 })
+	U.wait(1.6)
+	-- Рик уходит в портал, Морти — за ним
+	rick:face(portalPos)
+	task.spawn(function()
+		rick:moveTo(portalPos - Vector3.new(0, 6, 0), 1.4)
+		rick:destroy()
+	end)
+	Cine.release()
+	workspace.CurrentCamera.CFrame = CFrame.lookAt(camPos, portalPos)
+	Controls.place(CFrame.lookAt(here, Vector3.new(portalPos.X, here.Y, portalPos.Z)), false)
+	setBodyHidden(false)
+	Controls.setActive(true)
+	Controls.freeze(false)
+	Hud.gameplay(true)
+	state = "roam"
+	Hud.objective(Config.Text.PortalObjective)
+	Hud.marker(portal.panel)
+	while true do
+		U.wait(0.15)
+		local _, _, r = Controls.character()
+		if r then
+			local d = r.Position - portalPos
+			if Vector3.new(d.X, 0, d.Z).Magnitude < 4.5 then break end
+		end
+	end
+	Hud.marker(nil)
+	Hud.objectiveDone()
+	state = "scene"
+	Controls.freeze(true)
+	Audio.play("Whoosh", { volume = 1 })
+	Hud.fadeWait(1, 0.5, Color3.fromRGB(190, 255, 150))
+	Audio.stop("pixel", 0.5)
+	Hud.retro(false)
+end
+
+---------------------------------------------------------------------------
 -- 5. Конец главы
 ---------------------------------------------------------------------------
 local function ending(onMenu)
@@ -3326,6 +4092,7 @@ function Story.init(c)
 	ctx = c
 	U, Config, Settings, Audio, Hud, Cine, Controls, World, Prompts, Outline, Breakfast, Phone, G, B =
 		c.Util, c.Config, c.Settings, c.Audio, c.Hud, c.Cine, c.Controls, c.World, c.Prompts, c.Outline, c.Breakfast, c.Phone, c.Gui, c.Build
+	Tentacles, Rick, PixelWorld, Portal = c.Tentacles, c.Rick, c.PixelWorld, c.Portal
 	markers = workspace:WaitForChild("House"):WaitForChild("Markers")
 	trove = U.trove()
 	-- мысли у предметов (подсказки с атрибутом Thought)
@@ -3365,7 +4132,9 @@ function Story.start(onMenu)
 		local food = Breakfast.new(markers)
 		trove:add(function() food:destroy() end)
 		breakfast(food)
-		phoneScene()
+		local phone = phoneScene()
+		pulledIn(phone)
+		pixelWorld()
 		ending(onMenu)
 	end)
 end
@@ -3401,7 +4170,148 @@ function Story.hideBody(on) setBodyHidden(on) end
 function Story.inGame() return state == "roam" or state == "scene" or state == "intro" end
 
 return Story
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000012"><Properties><string name="Name">Util</string><ProtectedString name="Source"><![CDATA[-- Общие помощники клиента: математика, сглаживание, твины, «уборщик» (Trove) и пауза.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000014"><Properties><string name="Name">Tentacles</string><ProtectedString name="Source"><![CDATA[-- Щупальца из «цифрового измерения»: цепочка шаров от основания к цели, извиваются,
+-- вырастают, хватают, а от выстрела Рика рассыпаются на пиксели. Только у этого игрока.
+local RunService = game:GetService("RunService")
+
+local Tentacles = {}
+Tentacles.__index = Tentacles
+local B, U, Audio
+
+function Tentacles.init(ctx)
+	B, U, Audio = ctx.Build, ctx.Util, ctx.Audio
+end
+
+-- baseFn() -> CFrame основания (LookVector — куда растёт), targetFn() -> Vector3 цели
+-- opts: segments, radius, color, tip, pixel (кубики вместо шаров), seed
+function Tentacles.new(parent, baseFn, targetFn, opts)
+	opts = opts or {}
+	local self = setmetatable({}, Tentacles)
+	self.baseFn, self.targetFn = baseFn, targetFn
+	self.n = opts.segments or 18
+	self.r = opts.radius or 0.35
+	self.len = 0          -- 0..1 — насколько вытянулось
+	self.goal = 0
+	self.speed = 1
+	self.t = (opts.seed or 1) * 1.7
+	self.wiggle = opts.wiggle or 1
+	self.pixel = opts.pixel == true
+	self.parts = {}
+	self.model = Instance.new("Model")
+	self.model.Name = "RM_Tentacle"
+	local col = B.color(opts.color or "#3B1F5C")
+	local tip = B.color(opts.tip or "#7CFF4A")
+	for i = 1, self.n do
+		local k = 1 - (i - 1) / self.n
+		local d = self.r * 2 * (0.35 + 0.65 * k)
+		local c = col:Lerp(tip, (i / self.n) ^ 3)
+		local p
+		if opts.pixel then
+			p = B.part(self.model, "Seg", Vector3.new(d, d, d), CFrame.new(), c, (i > self.n - 2) and Enum.Material.Neon or Enum.Material.SmoothPlastic)
+		else
+			p = B.ball(self.model, "Seg", d, CFrame.new(), c, (i > self.n - 2) and Enum.Material.Neon or Enum.Material.SmoothPlastic)
+		end
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = i % 2 == 0
+		p.Transparency = 1
+		self.parts[i] = p
+	end
+	-- присоски: маленькие светлые точки на каждом третьем сегменте
+	self.model.Parent = parent or workspace
+	self.conn = RunService.RenderStepped:Connect(function(dt) self:update(dt) end)
+	return self
+end
+
+function Tentacles:grow(to, speed)
+	self.goal = to
+	self.speed = speed or 1
+end
+
+function Tentacles:update(dt)
+	if U.paused then return end
+	self.t = self.t + dt
+	self.len = self.len + (self.goal - self.len) * math.min(1, dt * 2.2 * self.speed)
+	local base = self.baseFn()
+	local target = self.targetFn()
+	local p0 = base.Position
+	local toT = target - p0
+	local dist = toT.Magnitude
+	if dist < 0.01 then return end
+	local dir = toT / dist
+	-- две оси, перпендикулярные направлению, для извивания
+	local side = dir:Cross(Vector3.yAxis)
+	if side.Magnitude < 0.1 then side = dir:Cross(Vector3.xAxis) end
+	side = side.Unit
+	local up = side:Cross(dir).Unit
+	local reach = dist * self.len
+	-- первая часть растёт из основания вдоль его направления, потом поворачивает к цели
+	local look = base.LookVector
+	for i, p in ipairs(self.parts) do
+		local a = (i - 1) / (self.n - 1)
+		local s = a * reach
+		local bend = math.min(1, a * 2.2)
+		local path = p0 + (look * s):Lerp(dir * s, bend)
+		local amp = math.sin(a * math.pi) * 0.9 * self.wiggle * math.min(1, reach / 3)
+		local w1 = math.sin(self.t * 3.1 - a * 7) * amp
+		local w2 = math.cos(self.t * 2.3 - a * 5) * amp * 0.7
+		local pos = path + side * w1 + up * w2
+		if self.pixel then
+			-- кубики выстроены вдоль щупальца (аккуратная «пиксельная змейка»)
+			local prev = self.prevPos and self.prevPos[i - 1]
+			if prev and (pos - prev).Magnitude > 1e-3 then p.CFrame = CFrame.lookAt(pos, prev) else p.CFrame = CFrame.new(pos) end
+		else
+			p.CFrame = CFrame.new(pos) * CFrame.Angles(self.t * 0.5 + i, i * 0.7, 0)
+		end
+		self.prevPos = self.prevPos or {}
+		self.prevPos[i] = pos
+		p.Transparency = (self.len < 0.02) and 1 or 0
+	end
+end
+
+-- точка кончика (куда стрелять)
+function Tentacles:tip()
+	return self.parts[self.n].Position
+end
+
+-- рассыпаться на пиксели (кубики разлетаются и гаснут)
+function Tentacles:burst()
+	if self.conn then self.conn:Disconnect(); self.conn = nil end
+	Audio.play("PixelBurst", { at = self.parts[math.floor(self.n / 2)], volume = 0.9, pitchJitter = 0.1 })
+	local bits = {}
+	for i, p in ipairs(self.parts) do
+		if i % 2 == 1 then
+			for k = 1, 2 do
+				local c = B.part(self.model, "Pixel", Vector3.new(0.3, 0.3, 0.3), p.CFrame, p.Color, Enum.Material.Neon,
+					{ CanCollide = false, CanQuery = false, CanTouch = false, CastShadow = false })
+				table.insert(bits, { p = c, v = Vector3.new(math.random() - 0.5, math.random() * 0.8, math.random() - 0.5) * 18 })
+			end
+		end
+		p.Transparency = 1
+	end
+	task.spawn(function()
+		local t = 0
+		while t < 0.9 do
+			local dt = RunService.Heartbeat:Wait()
+			t = t + dt
+			for _, b in ipairs(bits) do
+				b.v = b.v + Vector3.new(0, -30 * dt, 0)
+				b.p.CFrame = b.p.CFrame + b.v * dt
+				b.p.Transparency = t / 0.9
+			end
+		end
+		self:destroy()
+	end)
+end
+
+function Tentacles:destroy()
+	if self.conn then self.conn:Disconnect(); self.conn = nil end
+	if self.model then self.model:Destroy() end
+end
+
+return Tentacles
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000015"><Properties><string name="Name">Util</string><ProtectedString name="Source"><![CDATA[-- Общие помощники клиента: математика, сглаживание, твины, «уборщик» (Trove) и пауза.
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
@@ -3540,7 +4450,7 @@ function U.upper(s)
 end
 
 return U
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000013"><Properties><string name="Name">World</string><ProtectedString name="Source"><![CDATA[-- Свет и атмосфера (стиль «мульт + свет»): пресеты «ночь» (меню) и «утро» (игра),
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000016"><Properties><string name="Name">World</string><ProtectedString name="Source"><![CDATA[-- Свет и атмосфера (стиль «мульт + свет»): пресеты «ночь» (меню) и «утро» (игра),
 -- цветокоррекция, свечение, лучи солнца из окон (Beam) с пылинками, включение ламп по комнатам.
 -- Качество эффектов берётся из настроек (Effects 1..3).
 local Lighting = game:GetService("Lighting")
@@ -3554,6 +4464,17 @@ local beamsFolder
 local preset = nil
 
 local PRESETS = {
+	-- «цифровое измерение»: темно, насыщенно, сильное свечение неона
+	pixel = {
+		ClockTime = 0, Brightness = 0.3, Ambient = Color3.fromRGB(26, 16, 46), OutdoorAmbient = Color3.fromRGB(20, 12, 34),
+		EnvironmentDiffuseScale = 0.2, EnvironmentSpecularScale = 0.1, ExposureCompensation = 0.35,
+		cc = { Saturation = 0.35, Contrast = 0.22, Brightness = 0, TintColor = Color3.fromRGB(226, 210, 255) },
+		bloom = { Intensity = 1.3, Size = 26, Threshold = 0.85 },
+		rays = { Intensity = 0, Spread = 0.5 },
+		atmos = { Density = 0.4, Offset = 0, Color = Color3.fromRGB(40, 24, 70), Decay = Color3.fromRGB(20, 10, 40), Glare = 0, Haze = 2.2 },
+		lamps = {},
+		beams = false,
+	},
 	night = {
 		ClockTime = 0.3, Brightness = 1.2, Ambient = Color3.fromRGB(34, 38, 62), OutdoorAmbient = Color3.fromRGB(38, 44, 78),
 		EnvironmentDiffuseScale = 0.35, EnvironmentSpecularScale = 0.2, ExposureCompensation = 0.25,
@@ -3772,7 +4693,7 @@ function World.lamps(list) setLamps(list) end
 
 local _u = U
 return World
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX00000017"><Properties><string name="Name">Shared</string></Properties><Item class="ModuleScript" referent="RBX00000015"><Properties><string name="Name">Build</string><ProtectedString name="Source"><![CDATA[-- Помощники постройки (сервер и клиент): детали, клинья, цилиндры, шары, стены с проёмами,
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX0000001A"><Properties><string name="Name">Shared</string></Properties><Item class="ModuleScript" referent="RBX00000018"><Properties><string name="Name">Build</string><ProtectedString name="Source"><![CDATA[-- Помощники постройки (сервер и клиент): детали, клинья, цилиндры, шары, стены с проёмами,
 -- свет, подсказки ProximityPrompt, надписи. Все детали по умолчанию закреплены (Anchored)
 -- и сделаны из SmoothPlastic — это основа «мультяшного» стиля.
 local B = {}
@@ -4062,7 +4983,7 @@ function B.at(x, y, z, yawDeg)
 end
 
 return B
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000016"><Properties><string name="Name">Config</string><ProtectedString name="Source"><![CDATA[-- Общие настройки игры: цвета, размеры дома, звуки, тексты сюжета, настройки по умолчанию.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000019"><Properties><string name="Name">Config</string><ProtectedString name="Source"><![CDATA[-- Общие настройки игры: цвета, размеры дома, звуки, тексты сюжета, настройки по умолчанию.
 -- Тексты и ID звуков удобно править здесь — остальной код берёт их отсюда.
 local Config = {}
 
@@ -4135,6 +5056,15 @@ Config.Sfx = {
 	Locked = { 56.5, 57.0 },
 	Paper = { 57.4, 58.0 },
 	Chair = { 58.4, 59.2 },
+	-- продолжение главы
+	Tentacle = { 60.0, 62.0 },
+	Pull = { 62.5, 64.5 },
+	Land = { 65.0, 65.8 },
+	Flicker = { 66.2, 66.8 },
+	Laser = { 67.2, 67.8 },
+	PixelBurst = { 68.2, 69.0 },
+	Burp = { 69.4, 70.6 },
+	PixelAmb = { 71.0, 87.0 },
 }
 
 -- Настройки по умолчанию (меню «Настройки»)
@@ -4176,6 +5106,20 @@ Config.Text = {
 	ToBeContinued = "ПРОДОЛЖЕНИЕ СЛЕДУЕТ…",
 	ChapterEnd = "КОНЕЦ ГЛАВЫ 1",
 	Thanks = "Спасибо, что поиграли!",
+	-- продолжение: щупальца, пиксельный мир, Рик
+	WhatIsThat = "Ч-что это такое?!",
+	Scream = "А-а-а-а-а!",
+	MyHands = "Ч-что со мной?!",
+	WhereAmI = "Г-где я? Это что… внутри игры?",
+	FindExit = "Найди выход",
+	CorridorHint = "Иди вперёд по коридору",
+	Creepy = "Т-тут как-то жутко…",
+	NoNoNo = "Н-нет-нет-нет! Отстаньте!",
+	RickArrive = "Морти! *бурп* А ну отошли от моего внука, байты-переростки!",
+	MortyRick = "Р-Рик?! Т-ты как здесь оказался?",
+	Rick1 = "Это цифровые паразиты, Морти. Залипнешь в телефон — и они утащат тебя к себе в сервер.",
+	Rick2 = "Потом объясню. Давай в портал, пока они не *бурп* перезагрузились!",
+	PortalObjective = "Беги в портал",
 	-- случайные мысли у предметов
 	SummerDoor = "Саммер меня убьёт, если я зайду.",
 	ParentsDoor = "Мама с папой уже ушли на работу.",
@@ -4203,7 +5147,7 @@ Config.HintDelay = 35       -- через сколько секунд без п�
 
 return Config
 ]]></ProtectedString></Properties></Item></Item></Item>
-<Item class="ServerScriptService" referent="RBX00000020"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="Script" referent="RBX00000019"><Properties><string name="Name">Main</string><ProtectedString name="Source"><![CDATA[-- Запуск сервера: строим дом Смитов, двери и улицу, настраиваем персонажей (все — Морти).
+<Item class="ServerScriptService" referent="RBX00000023"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="Script" referent="RBX0000001C"><Properties><string name="Name">Main</string><ProtectedString name="Source"><![CDATA[-- Запуск сервера: строим дом Смитов, двери и улицу, настраиваем персонажей (все — Морти).
 -- Сюжет, меню и камера работают на клиенте (StarterPlayerScripts/Client).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -4249,7 +5193,7 @@ spawn.Parent = root
 
 root.Parent = workspace
 root:SetAttribute("Ready", true)
-]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX0000001F"><Properties><string name="Name">Server</string></Properties><Item class="ModuleScript" referent="RBX0000001A"><Properties><string name="Name">Characters</string><ProtectedString name="Source"><![CDATA[-- Персонаж: каждый игрок — Морти (жёлтая футболка, синие штаны, каштановые волосы).
+]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX00000022"><Properties><string name="Name">Server</string></Properties><Item class="ModuleScript" referent="RBX0000001D"><Properties><string name="Name">Characters</string><ProtectedString name="Source"><![CDATA[-- Персонаж: каждый игрок — Морти (жёлтая футболка, синие штаны, каштановые волосы).
 -- Игроки не толкают друг друга (группа столкновений Players).
 local Characters = {}
 
@@ -4361,7 +5305,7 @@ function Characters.init(ctx)
 end
 
 return Characters
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000001B"><Properties><string name="Name">Doors</string><ProtectedString name="Source"><![CDATA[-- Двери: полотно на петлях, открытие по E (ProximityPrompt), часть дверей заперта.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000001E"><Properties><string name="Name">Doors</string><ProtectedString name="Source"><![CDATA[-- Двери: полотно на петлях, открытие по E (ProximityPrompt), часть дверей заперта.
 -- Состояние двери общее для всех игроков (сервер), мысль Морти у запертой двери показывает клиент
 -- (атрибут Thought на подсказке).
 local Doors = {}
@@ -4503,7 +5447,7 @@ function Doors.build(ctx, root)
 end
 
 return Doors
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000001C"><Properties><string name="Name">Exterior</string><ProtectedString name="Source"><![CDATA[-- Улица вокруг дома: газон, дорожки, подъездная дорога, улица, соседние дома, деревья, забор.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000001F"><Properties><string name="Name">Exterior</string><ProtectedString name="Source"><![CDATA[-- Улица вокруг дома: газон, дорожки, подъездная дорога, улица, соседние дома, деревья, забор.
 -- Внутрь соседних домов не попасть — это декорации для вида из окон.
 local Exterior = {}
 
@@ -4646,7 +5590,7 @@ function Exterior.build(ctx, root)
 end
 
 return Exterior
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000001D"><Properties><string name="Name">House</string><ProtectedString name="Source"><![CDATA[-- Дом Смитов: каркас (полы, потолки, стены с проёмами, окна, лестница, крыша, гараж, крыльцо).
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000020"><Properties><string name="Name">House</string><ProtectedString name="Source"><![CDATA[-- Дом Смитов: каркас (полы, потолки, стены с проёмами, окна, лестница, крыша, гараж, крыльцо).
 -- Мебель расставляет Rooms.lua, двери — Doors.lua, улицу — Exterior.lua.
 --
 -- План (вид сверху, x — вправо, z — вниз; улица со стороны z < 0):
@@ -5074,7 +6018,7 @@ function House.opening(id)
 end
 
 return House
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000001E"><Properties><string name="Name">Rooms</string><ProtectedString name="Source"><![CDATA[-- Мебель и мелочи по комнатам. Предметы — Model с атрибутом Outline (контур как в мультике).
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000021"><Properties><string name="Name">Rooms</string><ProtectedString name="Source"><![CDATA[-- Мебель и мелочи по комнатам. Предметы — Model с атрибутом Outline (контур как в мультике).
 -- Подсказки «Осмотреть» с атрибутом Thought показывают мысль Морти (текст — Config.Text[Thought]).
 -- Метки для сюжета (камера в кровати, стул на кухне и т.д.) — в папке House.Markers.
 local Rooms = {}
@@ -5593,11 +6537,47 @@ local function kitchen()
 	local _5 = tbl
 	-- миска с фруктами
 	local fb, Fb = item("FruitBowl", CFrame.new(45.6, y + 3.2, 26.2))
-	Fb.vcyl("Bowl", 0.5, 1.6, 0, 0.25, 0, "#E8E2D6")
-	Fb.ball("Apple", 0.6, -0.3, 0.6, 0.1, "#D23B3B")
-	Fb.ball("Apple", 0.6, 0.3, 0.6, -0.15, "#7CC46A")
-	Fb.ball("Orange", 0.65, 0.05, 0.85, 0.25, "#F09A2A")
-	Fb("Banana", 1.2, 0.3, 0.35, 0, 0.75, -0.4, "#F2D85A", nil, nil, CFrame.Angles(0, 0, math.rad(15)))
+	-- деревянная полая ваза: кольцо наклонных дощечек + дно
+	for i = 0, 15 do
+		local a = i / 16 * math.pi * 2
+		Fb("Stave", 0.42, 0.6, 0.08, 0, 0, 0, i % 2 == 0 and "#A86F41" or "#B97E4D", nil, nil,
+			CFrame.Angles(0, a, 0) * CFrame.new(0, 0.32, -0.88) * CFrame.Angles(math.rad(-22), 0, 0))
+	end
+	Fb.vcyl("Base", 0.12, 1.5, 0, 0.08, 0, "#8C5733")
+	Fb.vcyl("Fill", 0.3, 1.5, 0, 0.25, 0, "#7A4A2A")
+	-- фрукт: шар, приплюснутый через SpecialMesh, с хвостиком и листиком
+	local function fruit(name, d, x, yy, z, color, squash, leaf)
+		local p = Fb.ball(name, d, x, yy, z, color)
+		local mesh = Instance.new("SpecialMesh")
+		mesh.MeshType = Enum.MeshType.Sphere
+		mesh.Scale = Vector3.new(1, squash or 0.92, 1)
+		mesh.Parent = p
+		Fb("Stem", 0.05, 0.18, 0.05, x, yy + d * 0.48, z, "#5A3A1E", nil, nil, CFrame.Angles(0, 0, math.rad(12)))
+		if leaf then Fb.wedge("Leaf", 0.04, 0.12, 0.2, x + 0.07, yy + d * 0.5, z, "#4FA03A", nil, nil, CFrame.Angles(math.rad(30), 0, math.rad(-20))) end
+		return p
+	end
+	fruit("Apple", 0.62, -0.32, 0.62, 0.15, "#D23B3B", 0.9, true)
+	fruit("Apple", 0.6, 0.12, 0.66, -0.35, "#C9302C", 0.9, false)
+	fruit("Apple", 0.6, 0.3, 0.6, 0.3, "#8CCB4E", 0.9, true)
+	local orange = Fb.ball("Orange", 0.68, -0.15, 0.95, -0.1, "#F28C1E", Enum.Material.Sand)
+	local _o = orange
+	Fb("OrangeTop", 0.1, 0.03, 0.1, -0.15, 1.29, -0.1, "#4F7A2A")
+	-- связка бананов: каждый — дуга из коротких цилиндров
+	for k = 0, 2 do
+		local base = CFrame.new(0.15, 1.0 + k * 0.05, 0.05) * CFrame.Angles(0, math.rad(-30 + k * 22), 0)
+		for j = 0, 5 do
+			local a = math.rad(-40 + j * 16)
+			local cf = base * CFrame.new(math.sin(a) * 0.7, (1 - math.cos(a)) * 0.7, 0) * CFrame.Angles(0, 0, a)
+			Fb.cyl("Banana", 0.2, 0.2 - math.abs(j - 2.5) * 0.015, 0, 0, 0, (j == 0 or j == 5) and "#6B4A2A" or "#F5D547", nil, nil, cf)
+		end
+	end
+	-- виноград
+	for k = 1, 10 do
+		local a = k * 2.4
+		local r = 0.12 + (k % 3) * 0.04
+		Fb.ball("Grape", 0.19, 0.55 + math.cos(a) * r, 0.62 + (k % 4) * 0.08, 0.05 + math.sin(a) * r, k % 2 == 0 and "#6B2E7A" or "#7D3A8E")
+	end
+	Fb("GrapeStem", 0.04, 0.25, 0.04, 0.55, 1.0, 0.05, "#5A3A1E")
 	local _6 = fb
 	-- стулья: место Морти — с запада, лицом на восток (к окну)
 	chair("ChairMorty", CFrame.new(39.6, y, 27) * CFrame.Angles(0, math.rad(-90), 0), "#B3784A")
@@ -5753,7 +6733,7 @@ end
 
 return Rooms
 ]]></ProtectedString></Properties></Item></Item></Item>
-<Item class="StarterPlayer" referent="RBX00000023"><Properties><string name="Name">StarterPlayer</string><float name="CameraMaxZoomDistance">0.5</float><float name="CameraMinZoomDistance">0.5</float><float name="CharacterWalkSpeed">12</float><float name="CharacterJumpHeight">4</float><bool name="EnableMouseLockOption">false</bool></Properties><Item class="StarterPlayerScripts" referent="RBX00000022"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX00000021"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Запуск клиента: подключаем модули и передаём управление App (меню → глава 1).
+<Item class="StarterPlayer" referent="RBX00000026"><Properties><string name="Name">StarterPlayer</string><float name="CameraMaxZoomDistance">0.5</float><float name="CameraMinZoomDistance">0.5</float><float name="CharacterWalkSpeed">12</float><float name="CharacterJumpHeight">4</float><bool name="EnableMouseLockOption">false</bool></Properties><Item class="StarterPlayerScripts" referent="RBX00000025"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX00000024"><Properties><string name="Name">Client</string><ProtectedString name="Source"><![CDATA[-- Запуск клиента: подключаем модули и передаём управление App (меню → глава 1).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -5764,18 +6744,18 @@ local ctx = {
 	Config = require(Shared:WaitForChild("Config")),
 }
 local names = { "Util", "Settings", "Audio", "Gui", "Hud", "Prompts", "Cine", "Controls", "World", "Outline",
-	"Portal", "Menu", "Breakfast", "Phone", "Story", "App" }
+	"Portal", "Menu", "Breakfast", "Phone", "Tentacles", "Rick", "PixelWorld", "Story", "App" }
 for _, n in ipairs(names) do
 	ctx[n] = require(Client:WaitForChild(n))
 end
 
 -- порядок важен: настройки → звук → интерфейс → камера и управление
-for _, n in ipairs({ "Settings", "Audio", "Gui", "Hud", "Prompts", "Cine", "Controls", "Portal", "Menu", "Breakfast", "Phone" }) do
+for _, n in ipairs({ "Settings", "Audio", "Gui", "Hud", "Prompts", "Cine", "Controls", "Portal", "Menu", "Breakfast", "Phone", "Tentacles", "Rick", "PixelWorld" }) do
 	local ok, err = pcall(function() ctx[n].init(ctx) end)
 	if not ok then warn("[RM] init " .. n .. ": " .. tostring(err)) end
 end
 
 ctx.App.start(ctx)
 ]]></ProtectedString></Properties></Item></Item></Item>
-<Item class="SoundService" referent="RBX00000024"><Properties><string name="Name">SoundService</string><bool name="RespectFilteringEnabled">true</bool></Properties></Item>
+<Item class="SoundService" referent="RBX00000027"><Properties><string name="Name">SoundService</string><bool name="RespectFilteringEnabled">true</bool></Properties></Item>
 </roblox>

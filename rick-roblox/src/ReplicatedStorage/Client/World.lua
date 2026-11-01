@@ -12,6 +12,17 @@ local beamsFolder
 local preset = nil
 
 local PRESETS = {
+	-- «цифровое измерение»: темно, насыщенно, сильное свечение неона
+	pixel = {
+		ClockTime = 0, Brightness = 0.3, Ambient = Color3.fromRGB(26, 16, 46), OutdoorAmbient = Color3.fromRGB(20, 12, 34),
+		EnvironmentDiffuseScale = 0.2, EnvironmentSpecularScale = 0.1, ExposureCompensation = 0.35,
+		cc = { Saturation = 0.35, Contrast = 0.22, Brightness = 0, TintColor = Color3.fromRGB(226, 210, 255) },
+		bloom = { Intensity = 1.3, Size = 26, Threshold = 0.85 },
+		rays = { Intensity = 0, Spread = 0.5 },
+		atmos = { Density = 0.4, Offset = 0, Color = Color3.fromRGB(40, 24, 70), Decay = Color3.fromRGB(20, 10, 40), Glare = 0, Haze = 2.2 },
+		lamps = {},
+		beams = false,
+	},
 	night = {
 		ClockTime = 0.3, Brightness = 1.2, Ambient = Color3.fromRGB(34, 38, 62), OutdoorAmbient = Color3.fromRGB(38, 44, 78),
 		EnvironmentDiffuseScale = 0.35, EnvironmentSpecularScale = 0.2, ExposureCompensation = 0.25,

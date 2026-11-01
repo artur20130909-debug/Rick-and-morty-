@@ -54,26 +54,60 @@ function Breakfast.new(markers)
 	local bowlCF = markers:WaitForChild("BowlSpot").CFrame
 	local boxCF = markers:WaitForChild("BoxSpot").CFrame
 	local milkCF = markers:WaitForChild("MilkSpot").CFrame
-	self.bowlTop = bowlCF.Position + Vector3.new(0, 0.55, 0)
+	self.bowlTop = bowlCF.Position + Vector3.new(0, 0.62, 0)
 
-	-- миска
+	-- миска: настоящая полая (кольцо из наклонных стенок + дно), голубая каёмка
 	local bowl = B.model(m, "Bowl")
 	B.outline(bowl)
-	B.vcyl(bowl, "Outer", 0.5, 1.5, bowlCF * CFrame.new(0, 0.25, 0), "#FFFFFF")
-	B.vcyl(bowl, "Foot", 0.1, 0.9, bowlCF * CFrame.new(0, 0.05, 0), "#E8F0FF")
-	B.vcyl(bowl, "Band", 0.12, 1.53, bowlCF * CFrame.new(0, 0.36, 0), "#5A86E0")
-	self.cereal = B.vcyl(m, "Cereal", 0.02, 1.26, bowlCF * CFrame.new(0, 0.5, 0), "#E3A646")
-	self.milk = B.vcyl(m, "Milk", 0.02, 1.3, bowlCF * CFrame.new(0, 0.49, 0), "#FFFFFF")
+	local SEG, R0, R1, BH = 24, 0.6, 0.8, 0.55
+	local wallLen = math.sqrt((R1 - R0) ^ 2 + BH ^ 2)
+	local tilt = math.atan2(R1 - R0, BH)
+	for i = 0, SEG - 1 do
+		local a = i / SEG * math.pi * 2
+		local rm = (R0 + R1) / 2
+		local arc = 2 * math.pi * R1 / SEG * 1.15
+		local cf = bowlCF * CFrame.Angles(0, a, 0) * CFrame.new(0, 0.08 + BH / 2, -rm) * CFrame.Angles(-tilt, 0, 0)
+		B.part(bowl, "Wall", Vector3.new(arc, wallLen, 0.07), cf, "#FFFFFF")
+		B.part(bowl, "Rim", Vector3.new(arc, 0.07, 0.1), bowlCF * CFrame.Angles(0, a, 0) * CFrame.new(0, 0.08 + BH, -R1), "#5A86E0")
+	end
+	B.vcyl(bowl, "Bottom", 0.1, R0 * 2 + 0.05, bowlCF * CFrame.new(0, 0.1, 0), "#F2F5FA")
+	B.vcyl(bowl, "Foot", 0.08, 0.95, bowlCF * CFrame.new(0, 0.04, 0), "#DCE6F2")
+	self.R0, self.R1, self.BH = R0, R1, BH
+	-- содержимое: горка хлопьев, молоко и колечки «Хрусти-О» на поверхности
+	self.cereal = B.vcyl(m, "Cereal", 0.02, 1.2, bowlCF * CFrame.new(0, 0.2, 0), "#D99A3E")
+	self.milk = B.vcyl(m, "Milk", 0.02, 1.25, bowlCF * CFrame.new(0, 0.2, 0), "#FBFBF7")
 	self.cereal.Transparency = 1
 	self.milk.Transparency = 1
 	self.bits = {}
-	for i = 1, 9 do
-		local a = i / 9 * math.pi * 2
-		local r = (i % 3) * 0.17 + 0.12
-		local bit = B.ball(m, "Bit", 0.2, bowlCF * CFrame.new(math.cos(a) * r, 0.52, math.sin(a) * r), (i % 2 == 0) and "#D98A2B" or "#F2C14E")
-		bit.Transparency = 1
-		table.insert(self.bits, { p = bit, off = Vector3.new(math.cos(a) * r, 0, math.sin(a) * r) })
+	local rnd = Random.new(7)
+	local GOLD = { "#E8A93E", "#D98A2B", "#F2C14E", "#C9792A", "#EDB650" }
+	for i = 1, 28 do
+		local a = rnd:NextNumber(0, math.pi * 2)
+		local r = math.sqrt(rnd:NextNumber()) * 0.85
+		local ring = B.vcyl(m, "Ring", 0.07, 0.22, CFrame.new(), GOLD[rnd:NextInteger(1, #GOLD)])
+		local hole = B.vcyl(m, "Hole", 0.075, 0.08, CFrame.new(), "#7A4A1C")
+		ring.Transparency = 1
+		hole.Transparency = 1
+		table.insert(self.bits, { p = ring, h = hole, a = a, r = r, tx = rnd:NextNumber(-0.4, 0.4), tz = rnd:NextNumber(-0.4, 0.4),
+			dy = rnd:NextNumber(0, 0.05), spin = rnd:NextNumber(0, 6.28) })
 	end
+	-- салфетка-подложка под миской и рассыпанные колечки у коробки
+	local mat = B.part(m, "Placemat", Vector3.new(2.4, 0.03, 3.4), bowlCF * CFrame.new(0, 0.015, -0.2), "#E2504A", Enum.Material.Fabric)
+	local mg0 = B.surface(mat, Enum.NormalId.Top, 40)
+	for k = 0, 5 do B.rect(mg0, 0, k / 6, 1, 1 / 12, "#F4F0E8", { BackgroundTransparency = 0.15 }) end
+	for k = 0, 3 do B.rect(mg0, k / 4, 0, 1 / 8, 1, "#F4F0E8", { BackgroundTransparency = 0.55 }) end
+	for k, off in ipairs({ { 1.3, 1.25 }, { 1.6, 1.05 }, { 1.15, 1.55 }, { 1.9, 1.4 } }) do
+		local cf = bowlCF * CFrame.new(off[1], 0.04, off[2]) * CFrame.Angles(0, k, 0)
+		B.vcyl(m, "Spilled", 0.06, 0.22, cf, GOLD[k])
+		B.vcyl(m, "SpilledHole", 0.065, 0.08, cf, "#7A4A1C")
+	end
+	-- стакан апельсинового сока
+	local juice = B.model(m, "Juice")
+	B.outline(juice)
+	local jcf = bowlCF * CFrame.new(0.55, 0, 1.55)
+	B.vcyl(juice, "Glass", 0.95, 0.5, jcf * CFrame.new(0, 0.475, 0), "#DDF2FF", Enum.Material.Glass, { Transparency = 0.6 })
+	B.vcyl(juice, "OJ", 0.7, 0.44, jcf * CFrame.new(0, 0.38, 0), "#FFA526")
+	B.vcyl(juice, "Foam", 0.04, 0.44, jcf * CFrame.new(0, 0.75, 0), "#FFD27A")
 	self.bowlCF = bowlCF
 
 	-- коробка хлопьев (лицом к Морти: Морти сидит с запада)
@@ -81,13 +115,29 @@ function Breakfast.new(markers)
 	B.outline(box)
 	local boxBase = boxCF * CFrame.Angles(0, math.rad(90), 0)
 	local body = B.part(box, "Body", Vector3.new(1.2, 1.7, 0.45), boxBase * CFrame.new(0, 0.85, 0), "#E2504A")
-	local g = B.surface(body, Enum.NormalId.Front, 120)
+	B.part(box, "Flap", Vector3.new(1.2, 0.04, 0.3), boxBase * CFrame.new(0, 1.74, -0.28) * CFrame.Angles(math.rad(-35), 0, 0), "#C83F3A")
+	B.part(box, "Side", Vector3.new(0.02, 1.6, 0.4), boxBase * CFrame.new(0.61, 0.85, 0), "#F2D85A")
+	local g = B.surface(body, Enum.NormalId.Front, 140)
 	B.rect(g, 0, 0, 1, 1, "#E2504A")
-	B.rect(g, 0, 0.62, 1, 0.38, "#F2D85A")
-	B.text(g, 0.06, 0.06, 0.88, 0.22, "ХРУСТИ-О", "#FFFFFF", Enum.Font.GothamBlack)
-	B.circle(g, 0.22, 0.32, 0.56, 0.32, "#FFFFFF")
-	B.circle(g, 0.32, 0.37, 0.36, 0.22, "#F2B33C")
-	B.text(g, 0.08, 0.72, 0.84, 0.16, "С МЁДОМ!", "#C23B3B", Enum.Font.GothamBlack)
+	B.rect(g, 0, 0, 1, 0.24, "#C83F3A")
+	B.text(g, 0.05, 0.03, 0.9, 0.18, "ХРУСТИ-О", "#FFFFFF", Enum.Font.GothamBlack, { TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(90, 20, 20) })
+	-- нарисованная миска с колечками
+	local clipBowl = B.rect(g, 0.12, 0.46, 0.76, 0.26, "#E2504A", { ClipsDescendants = true, BackgroundTransparency = 1 })
+	B.circle(clipBowl, 0, -1, 1, 2, "#FFFFFF")
+	B.rect(clipBowl, 0, 0, 1, 0.12, "#5A86E0")
+	for k, p in ipairs({ { 0.2, 0.36 }, { 0.38, 0.31 }, { 0.56, 0.33 }, { 0.3, 0.42 }, { 0.48, 0.41 }, { 0.65, 0.39 }, { 0.42, 0.27 } }) do
+		B.circle(g, p[1], p[2], 0.15, 0.1, (k % 2 == 0) and "#E8A93E" or "#F2C14E")
+		B.circle(g, p[1] + 0.052, p[2] + 0.035, 0.046, 0.03, "#8A5A22")
+	end
+	-- пчёлка-талисман и «звезда» новинки
+	B.circle(g, 0.66, 0.2, 0.22, 0.13, "#F2D85A")
+	B.rect(g, 0.71, 0.2, 0.04, 0.13, "#222222")
+	B.rect(g, 0.79, 0.2, 0.04, 0.13, "#222222")
+	B.circle(g, 0.62, 0.15, 0.12, 0.07, "#FFFFFF", { BackgroundTransparency = 0.2 })
+	B.rect(g, 0.06, 0.25, 0.22, 0.13, "#F2D85A", { Rotation = 20 })
+	B.text(g, 0.06, 0.27, 0.22, 0.09, "НОВИНКА", "#C23B3B", Enum.Font.GothamBlack, { Rotation = 20 })
+	B.rect(g, 0, 0.8, 1, 0.2, "#F2D85A")
+	B.text(g, 0.06, 0.82, 0.88, 0.16, "С МЁДОМ!", "#C23B3B", Enum.Font.GothamBlack)
 	box.PrimaryPart = body
 	self.box = rig(box, body.CFrame)
 	self.boxRest = body.CFrame
@@ -133,22 +183,37 @@ function Breakfast.new(markers)
 	return self
 end
 
-local function setFill(part, baseCF, level, maxH)
-	local h = math.max(0.02, maxH * level)
-	part.Size = Vector3.new(h, part.Size.Y, part.Size.Z)
-	part.CFrame = baseCF * CFrame.new(0, 0.46 + h / 2, 0) * CFrame.Angles(0, 0, math.rad(90))
-	part.Transparency = level <= 0.001 and 1 or 0
+-- уровень содержимого: 0..1 → высота над дном; диаметр растёт вместе с высотой (миска расширяется)
+function Breakfast:fillCyl(part, level, color)
+	local bottom, top = 0.15, 0.08 + self.BH * 0.86
+	local y = bottom + (top - bottom) * level
+	local rTop = self.R0 + (self.R1 - self.R0) * ((y - 0.08) / self.BH) - 0.06
+	local h = math.max(0.02, y - 0.1)
+	part.Size = Vector3.new(h, rTop * 2, rTop * 2)
+	part.CFrame = self.bowlCF * CFrame.new(0, 0.1 + h / 2, 0) * CFrame.Angles(0, 0, math.rad(90))
+	part.Transparency = level <= 0.01 and 1 or 0
+	return y, rTop
 end
 
 function Breakfast:updateFill()
-	setFill(self.cereal, self.bowlCF, self.level, 0.22)
-	setFill(self.milk, self.bowlCF, math.min(self.milkLevel, self.level + 0.05), 0.2)
-	self.milk.Transparency = self.milkLevel <= 0.001 and 1 or 0.05
-	local top = 0.46 + math.max(0.22 * self.level, 0.2 * math.min(self.milkLevel, self.level + 0.05)) + 0.03
+	local cy, cr = self:fillCyl(self.cereal, self.level)
+	local my = cy
+	if self.milkLevel > 0.01 then
+		my = self:fillCyl(self.milk, math.min(self.milkLevel * 0.92, self.level))
+		self.milk.Transparency = 0.04
+	else
+		self.milk.Transparency = 1
+	end
+	local surf = math.max(cy, my)
 	for i, b in ipairs(self.bits) do
-		local show = self.level > (i - 1) / #self.bits * 0.9
+		local show = self.level > 0.02 and (i / #self.bits) <= math.max(0.15, self.level)
+		local r = b.r * cr * 0.92
+		local pos = self.bowlCF * CFrame.new(math.cos(b.a) * r, surf + 0.01 + b.dy, math.sin(b.a) * r)
+		local cf = pos * CFrame.Angles(b.tx, b.spin, b.tz)
+		b.p.CFrame = cf * CFrame.Angles(0, 0, math.rad(90))
+		b.h.CFrame = cf * CFrame.new(0, 0.003, 0) * CFrame.Angles(0, 0, math.rad(90))
 		b.p.Transparency = show and 0 or 1
-		b.p.CFrame = self.bowlCF * CFrame.new(b.off.X, top, b.off.Z)
+		b.h.Transparency = show and 0 or 1
 	end
 end
 
