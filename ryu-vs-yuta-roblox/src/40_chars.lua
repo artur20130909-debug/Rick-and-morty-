@@ -147,7 +147,7 @@ local function buildRyu(parent, faceOpt)
 	showVariant(tags, "mouth_", (faceOpt and faceOpt.mouth) or "smirk")
 	-- помпадур
 	local h = C.hairRyu
-	rig:add("neck", V3(1.4, 0.64, 1.4), h, CF(0, 1.25, 0.05), { shape = "ball" })
+	rig:add("neck", V3(1.4, 0.64, 1.28), h, CF(0, 1.25, 0.08), { shape = "ball" })
 	rig:add("neck", V3(1.34, 0.5, 1.32), h, CF(0, 1.18, 0.06))
 	rig:add("neck", V3(1.15, 0.8, 1.85), h, CF(0, 1.66, -0.42) * ANG(rad(18), 0, 0), { shape = "ball" })
 	rig:add("neck", V3(1.0, 0.58, 0.62), h, CF(0, 1.86, -1.16) * ANG(rad(-20), 0, 0), { shape = "ball" })

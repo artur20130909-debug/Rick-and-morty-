@@ -9,10 +9,18 @@ local RAINBOW = { C.pink, C.cyan, C.yellow, C.orange, C.blue, C.white, C.pinkHot
 local function rainbowBurst(P, cam0, scale)
 	local rays = FX.rays(P, 40, RAINBOW, 18 * scale, 70 * scale, 2.4 * scale, { brightness = 2.5, colorStart = true, start = 5 })
 	local core = FX.glow(P, 13 * scale, RGB(255, 225, 245), 0.16, 3)
-	FX.smoke(P, V3(30, 30, 30) * scale, CS({ { 0, C.pinkHot }, { 0.5, RGB(120, 80, 255) }, { 1, C.cyan } }), 26, 40 * scale, 1.4, 16 * scale,
-		{ emission = 0.5, brightness = 1.6, burst = 24, spread = 180, alpha = NS({ { 0, 0.6 }, { 0.4, 0.55 }, { 1, 1 } }) })
-	FX.sparks(P, { C.yellow, C.pinkHot }, 160, 80 * scale, 0.7 * scale)
+	FX.smoke(P, V3(36, 36, 36) * scale, CS({ { 0, C.pinkHot }, { 0.5, RGB(120, 80, 255) }, { 1, C.cyan } }), 14, 30 * scale, 1.4, 18 * scale,
+		{ emission = 0.25, brightness = 1.2, burst = 10, spread = 180, alpha = NS({ { 0, 0.75 }, { 0.4, 0.7 }, { 1, 1 } }) })
+	FX.sparks(P, { C.yellow, C.pinkHot }, 100, 80 * scale, 0.7 * scale)
 	local bolts = { FX.bolt(C.cyan, 0.15), FX.bolt(C.pinkHot, 0.15), FX.bolt(C.yellow, 0.12) }
+	-- цветные мягкие подсветки вокруг: кадр заполнен цветом, а не белым пятном
+	local fills = {}
+	local fillCols = { C.pink, C.cyan, C.blue, C.yellow, C.magenta, C.cyanDeep }
+	for i = 1, 6 do
+		local a = (i / 6) * math.pi * 2
+		local off = (cam0.RightVector * cos(a) + cam0.UpVector * sin(a)) * rr(10, 18) * scale
+		fills[i] = { g = FX.glow(P + off, rr(30, 46) * scale, fillCols[i], 0.05, 1.6), off = off, ph = rr(0, 6) }
+	end
 	local toCam = (cam0.Position - P).Unit
 	local obj = { rays = rays, core = core }
 	local acc, tb = 0, 0
@@ -22,6 +30,9 @@ local function rainbowBurst(P, cam0, scale)
 			rays.reroll(0.3)
 		end
 		core.set(nil, 13 * scale * (1 + 0.12 * sin(u * 30)))
+		for _, fl in ipairs(fills) do
+			fl.g.set(P + fl.off * (1 + 0.15 * sin(u * 3 + fl.ph)))
+		end
 		tb = tb - dt
 		if tb <= 0 then
 			tb = 0.06
@@ -175,7 +186,8 @@ function P2.zoom()
 	FX.backdrop(CF(S0 + V3(0, 0, -200)), 900, 600, { RGB(60, 30, 110), RGB(20, 20, 60) }, 90)
 	local core = FX.glow(S0, 8, RGB(255, 240, 200), 0.16, 3)
 	local zrays = FX.rays(S0, 34, RAINBOW, 30, 90, 3, { brightness = 2.5, colorStart = true, start = 6 })
-	FX.smoke(S0, V3(40, 40, 40), CS({ { 0, C.pinkHot }, { 0.5, C.cyan }, { 1, C.yellow } }), 30, 60, 1.2, 20, { emission = 0.7, brightness = 2.5, burst = 30, spread = 180 })
+	FX.smoke(S0, V3(50, 50, 40), CS({ { 0, C.pinkHot }, { 0.5, C.cyan }, { 1, C.yellow } }), 16, 36, 1.2, 22,
+		{ emission = 0.3, brightness = 1.4, burst = 12, spread = 180, alpha = NS({ { 0, 0.75 }, { 0.4, 0.7 }, { 1, 1 } }) })
 	Shot.update = function(u, dt)
 		camCF = cam0 * CF(0, 0, -50 * easeIn(u / (T2.IMPACT1 - T2.ZOOM))) * ANG(0, 0, rad(u * 25))
 		camFOV = lerp(80, 95, u / 0.65)

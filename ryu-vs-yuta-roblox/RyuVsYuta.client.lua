@@ -873,7 +873,7 @@ local function buildRyu(parent, faceOpt)
 	showVariant(tags, "mouth_", (faceOpt and faceOpt.mouth) or "smirk")
 	-- помпадур
 	local h = C.hairRyu
-	rig:add("neck", V3(1.4, 0.64, 1.4), h, CF(0, 1.25, 0.05), { shape = "ball" })
+	rig:add("neck", V3(1.4, 0.64, 1.28), h, CF(0, 1.25, 0.08), { shape = "ball" })
 	rig:add("neck", V3(1.34, 0.5, 1.32), h, CF(0, 1.18, 0.06))
 	rig:add("neck", V3(1.15, 0.8, 1.85), h, CF(0, 1.66, -0.42) * ANG(rad(18), 0, 0), { shape = "ball" })
 	rig:add("neck", V3(1.0, 0.58, 0.62), h, CF(0, 1.86, -1.16) * ANG(rad(-20), 0, 0), { shape = "ball" })
@@ -1276,7 +1276,33 @@ function FX.energyBeam(color, width)
 	return obj
 end
 
--- мягкое круглое свечение (12 вложенных кругов в BillboardGui)
+-- Мягкое круглое свечение без «ступенек»: 28 тонких кругов, прозрачность каждого
+-- подобрана так, что вместе они дают плавный спад яркости от центра к краю.
+local GLOW_RINGS = 28
+local function glowAlphas(A)
+	if A > 0.97 then
+		A = 0.97
+	end
+	local out = {}
+	local prevT = 1
+	for i = 1, GLOW_RINGS do
+		local r = 1 - (i - 1) / GLOW_RINGS
+		local T = 1 - A * (1 - r) ^ 2 -- пропускание внутри круга i
+		if T < 0.03 then
+			T = 0.03
+		end
+		local a = 1 - T / prevT
+		if a < 0 then
+			a = 0
+		end
+		out[i] = a
+		prevT = T
+	end
+	-- самый внешний круг почти невидим, чтобы край был мягким
+	out[1] = math.min(out[1], 0.01)
+	return out
+end
+
 function FX.glow(pos, size, color, strength, brightness)
 	local holder = newPart(Shot.folder, V3(0.2, 0.2, 0.2), C.white, CF(pos), { alpha = 1 })
 	local bb = Instance.new("BillboardGui")
@@ -1286,16 +1312,18 @@ function FX.glow(pos, size, color, strength, brightness)
 	bb.AlwaysOnTop = false
 	bb.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	bb.Parent = holder
+	-- strength как раньше (прозрачность одного из 12 кругов) → яркость центра
+	local A = 1 - (1 - (strength or 0.14)) ^ 12
+	local alphas = glowAlphas(A)
 	local rings = {}
-	local base = strength or 0.14
-	for i = 1, 12 do
-		local f = 1 - (i - 1) / 12
+	for i = 1, GLOW_RINGS do
+		local f = 1 - (i - 1) / GLOW_RINGS
 		local r = uiFrame(bb, {
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
 			Size = UDim2.fromScale(f, f),
-			BackgroundColor3 = color:Lerp(C.white, (1 - f) ^ 1.4),
-			BackgroundTransparency = 1 - base,
+			BackgroundColor3 = color:Lerp(C.white, (1 - f) ^ 1.6),
+			BackgroundTransparency = 1 - alphas[i],
 			ZIndex = i,
 		})
 		corner(r, 0.5)
@@ -1310,8 +1338,9 @@ function FX.glow(pos, size, color, strength, brightness)
 			bb.Size = UDim2.fromScale(s, s)
 		end
 		if k then
-			for _, r in ipairs(rings) do
-				r.BackgroundTransparency = 1 - base * k
+			local al = glowAlphas(math.min(0.97, A * k))
+			for i, r in ipairs(rings) do
+				r.BackgroundTransparency = 1 - al[i]
 			end
 		end
 	end
@@ -1970,8 +1999,8 @@ local POSE = {
 		shR = { 30, 0, 30 }, elR = { 40, 0, 0 },
 	},
 	yutaCast = {
-		root = { -4, 0, 0 }, neck = { -8, 52, 0 },
-		lArm = { 122, 0, 6 }, rArm = { -28, 0, 16 }, rLeg = { 10, 0, 0 }, lLeg = { -12, 0, 0 },
+		root = { -4, 0, 0 }, neck = { -8, 50, 0 },
+		rArm = { 124, 0, -8 }, lArm = { -24, 0, -14 }, rLeg = { 10, 0, 0 }, lLeg = { -12, 0, 0 },
 	},
 	yutaOrb = {
 		root = { -6, 0, 0 }, neck = { -6, 50, 0 },
@@ -2239,7 +2268,7 @@ function P1.city()
 	FX.smoke(P - right * 16 + up * 18, V3(26, 30, 14), pinkCS, 40, 48, 1.6, 12, { emission = 0.6, brightness = 2, burst = 30, alpha = NS({ { 0, 0.5 }, { 0.5, 0.35 }, { 1, 1 } }), spread = 80 })
 	FX.smoke(P + right * 16 + up * 18, V3(26, 30, 14), cyanCS, 40, 48, 1.6, 12, { emission = 0.6, brightness = 2, burst = 30, alpha = NS({ { 0, 0.5 }, { 0.5, 0.35 }, { 1, 1 } }), spread = 80 })
 	FX.smoke(P + up * 40, V3(14, 20, 14), ColorSequence.new(RGB(215, 190, 250)), 16, 40, 2, 22, { emission = 0.4, burst = 10, spread = 20 })
-	local core = FX.glow(P + up * 8, 46, RGB(255, 235, 255), 0.16, 3)
+	local core = FX.glow(P + up * 8, 28, RGB(255, 235, 255), 0.12, 3)
 	FX.glow(P - right * 14 + up * 22, 70, C.pink, 0.08, 2)
 	FX.glow(P + right * 14 + up * 22, 70, C.cyan, 0.08, 2)
 	FX.emitter(P + up * 20, V3(40, 40, 10), {
@@ -2264,7 +2293,7 @@ function P1.city()
 		local k = u / (T1.YUTA - T1.CITY)
 		camCF = cam0:Lerp(cam1, smooth(k))
 		shake = 0.22
-		core.set(nil, 46 * (1 + 0.1 * sin(u * 20)))
+		core.set(nil, 28 * (1 + 0.1 * sin(u * 20)))
 		tStreak = tStreak - dt
 		if tStreak <= 0 then
 			tStreak = 0.05
@@ -2295,8 +2324,8 @@ function P1.yuta()
 	yuta:update(songT)
 	rika:update(songT)
 
-	local hand = yuta:point("lArm", V3(0, -1.6, 0))
-	local armDir = (hand - yuta:point("lArm", V3(0, 0, 0))).Unit
+	local hand = yuta:point("rArm", V3(0, -1.6, 0))
+	local armDir = (hand - yuta:point("rArm", V3(0, 0, 0))).Unit
 	local hit = hand + armDir * 2.2
 	local glow = FX.glow(hit, 4.5, C.pink, 0.16, 3)
 	local rays = FX.rays(hit, 16, { C.pinkHot, C.white, C.pink }, 2, 8, 0.45, { bias = (armDir + V3(-0.3, 0.3, 0)) * 0.7 })
@@ -2343,14 +2372,14 @@ function P1.ryu()
 		sat = 0.35, contrast = 0.16, bright = 0.02, bloom = 1.1, dof = { 8.4, 5, 0.3 } })
 	ui.flash.BackgroundTransparency = 0.3
 	local base = STAGE.ryu1
-	local cam0 = CFrame.lookAt(base, base + V3(0, 0.12, -1)) * ANG(0, 0, rad(6))
-	local cam1 = cam0 * CF(0.2, 0.1, -0.7)
+	local cam0 = CFrame.lookAt(base, base + V3(0, 0.02, -1)) * ANG(0, 0, rad(6))
+	local cam1 = cam0 * CF(0.2, 0.08, -0.7)
 	camCF, camFOV = cam0, 56
 	FX.backdrop(cam0 * CF(0, 0, -240) * ANG(0, math.pi, 0), 900, 600, { RGB(40, 90, 190), RGB(14, 36, 100), RGB(8, 18, 60) }, 70)
 
 	ryu:show(true)
 	showVariant(ryu.tags, "mouth_", "grin")
-	ryu:place(cam0 * CF(-1.0, -3.7, -8.4) * ANG(0, rad(164), 0))
+	ryu:place(cam0 * CF(-1.0, -4.3, -8.4) * ANG(0, rad(164), 0))
 	ryu:pose(POSE.ryuHit, 0)
 	ryu:update(songT)
 	ryu:pose({ root = { 16, -8, -8 }, neck = { 12, 12, 10 }, rArm = { 46, 0, 82 }, lArm = { 86, 0, -36 }, rLeg = { -18, 0, 4 }, lLeg = { 16, 0, -4 } }, 1.17, songT)
@@ -2412,10 +2441,18 @@ local RAINBOW = { C.pink, C.cyan, C.yellow, C.orange, C.blue, C.white, C.pinkHot
 local function rainbowBurst(P, cam0, scale)
 	local rays = FX.rays(P, 40, RAINBOW, 18 * scale, 70 * scale, 2.4 * scale, { brightness = 2.5, colorStart = true, start = 5 })
 	local core = FX.glow(P, 13 * scale, RGB(255, 225, 245), 0.16, 3)
-	FX.smoke(P, V3(30, 30, 30) * scale, CS({ { 0, C.pinkHot }, { 0.5, RGB(120, 80, 255) }, { 1, C.cyan } }), 26, 40 * scale, 1.4, 16 * scale,
-		{ emission = 0.5, brightness = 1.6, burst = 24, spread = 180, alpha = NS({ { 0, 0.6 }, { 0.4, 0.55 }, { 1, 1 } }) })
-	FX.sparks(P, { C.yellow, C.pinkHot }, 160, 80 * scale, 0.7 * scale)
+	FX.smoke(P, V3(36, 36, 36) * scale, CS({ { 0, C.pinkHot }, { 0.5, RGB(120, 80, 255) }, { 1, C.cyan } }), 14, 30 * scale, 1.4, 18 * scale,
+		{ emission = 0.25, brightness = 1.2, burst = 10, spread = 180, alpha = NS({ { 0, 0.75 }, { 0.4, 0.7 }, { 1, 1 } }) })
+	FX.sparks(P, { C.yellow, C.pinkHot }, 100, 80 * scale, 0.7 * scale)
 	local bolts = { FX.bolt(C.cyan, 0.15), FX.bolt(C.pinkHot, 0.15), FX.bolt(C.yellow, 0.12) }
+	-- цветные мягкие подсветки вокруг: кадр заполнен цветом, а не белым пятном
+	local fills = {}
+	local fillCols = { C.pink, C.cyan, C.blue, C.yellow, C.magenta, C.cyanDeep }
+	for i = 1, 6 do
+		local a = (i / 6) * math.pi * 2
+		local off = (cam0.RightVector * cos(a) + cam0.UpVector * sin(a)) * rr(10, 18) * scale
+		fills[i] = { g = FX.glow(P + off, rr(30, 46) * scale, fillCols[i], 0.05, 1.6), off = off, ph = rr(0, 6) }
+	end
 	local toCam = (cam0.Position - P).Unit
 	local obj = { rays = rays, core = core }
 	local acc, tb = 0, 0
@@ -2425,6 +2462,9 @@ local function rainbowBurst(P, cam0, scale)
 			rays.reroll(0.3)
 		end
 		core.set(nil, 13 * scale * (1 + 0.12 * sin(u * 30)))
+		for _, fl in ipairs(fills) do
+			fl.g.set(P + fl.off * (1 + 0.15 * sin(u * 3 + fl.ph)))
+		end
 		tb = tb - dt
 		if tb <= 0 then
 			tb = 0.06
@@ -2578,7 +2618,8 @@ function P2.zoom()
 	FX.backdrop(CF(S0 + V3(0, 0, -200)), 900, 600, { RGB(60, 30, 110), RGB(20, 20, 60) }, 90)
 	local core = FX.glow(S0, 8, RGB(255, 240, 200), 0.16, 3)
 	local zrays = FX.rays(S0, 34, RAINBOW, 30, 90, 3, { brightness = 2.5, colorStart = true, start = 6 })
-	FX.smoke(S0, V3(40, 40, 40), CS({ { 0, C.pinkHot }, { 0.5, C.cyan }, { 1, C.yellow } }), 30, 60, 1.2, 20, { emission = 0.7, brightness = 2.5, burst = 30, spread = 180 })
+	FX.smoke(S0, V3(50, 50, 40), CS({ { 0, C.pinkHot }, { 0.5, C.cyan }, { 1, C.yellow } }), 16, 36, 1.2, 22,
+		{ emission = 0.3, brightness = 1.4, burst = 12, spread = 180, alpha = NS({ { 0, 0.75 }, { 0.4, 0.7 }, { 1, 1 } }) })
 	Shot.update = function(u, dt)
 		camCF = cam0 * CF(0, 0, -50 * easeIn(u / (T2.IMPACT1 - T2.ZOOM))) * ANG(0, 0, rad(u * 25))
 		camFOV = lerp(80, 95, u / 0.65)

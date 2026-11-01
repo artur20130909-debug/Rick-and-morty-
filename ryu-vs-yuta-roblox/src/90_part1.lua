@@ -166,7 +166,7 @@ function P1.city()
 	FX.smoke(P - right * 16 + up * 18, V3(26, 30, 14), pinkCS, 40, 48, 1.6, 12, { emission = 0.6, brightness = 2, burst = 30, alpha = NS({ { 0, 0.5 }, { 0.5, 0.35 }, { 1, 1 } }), spread = 80 })
 	FX.smoke(P + right * 16 + up * 18, V3(26, 30, 14), cyanCS, 40, 48, 1.6, 12, { emission = 0.6, brightness = 2, burst = 30, alpha = NS({ { 0, 0.5 }, { 0.5, 0.35 }, { 1, 1 } }), spread = 80 })
 	FX.smoke(P + up * 40, V3(14, 20, 14), ColorSequence.new(RGB(215, 190, 250)), 16, 40, 2, 22, { emission = 0.4, burst = 10, spread = 20 })
-	local core = FX.glow(P + up * 8, 46, RGB(255, 235, 255), 0.16, 3)
+	local core = FX.glow(P + up * 8, 28, RGB(255, 235, 255), 0.12, 3)
 	FX.glow(P - right * 14 + up * 22, 70, C.pink, 0.08, 2)
 	FX.glow(P + right * 14 + up * 22, 70, C.cyan, 0.08, 2)
 	FX.emitter(P + up * 20, V3(40, 40, 10), {
@@ -191,7 +191,7 @@ function P1.city()
 		local k = u / (T1.YUTA - T1.CITY)
 		camCF = cam0:Lerp(cam1, smooth(k))
 		shake = 0.22
-		core.set(nil, 46 * (1 + 0.1 * sin(u * 20)))
+		core.set(nil, 28 * (1 + 0.1 * sin(u * 20)))
 		tStreak = tStreak - dt
 		if tStreak <= 0 then
 			tStreak = 0.05
@@ -222,8 +222,8 @@ function P1.yuta()
 	yuta:update(songT)
 	rika:update(songT)
 
-	local hand = yuta:point("lArm", V3(0, -1.6, 0))
-	local armDir = (hand - yuta:point("lArm", V3(0, 0, 0))).Unit
+	local hand = yuta:point("rArm", V3(0, -1.6, 0))
+	local armDir = (hand - yuta:point("rArm", V3(0, 0, 0))).Unit
 	local hit = hand + armDir * 2.2
 	local glow = FX.glow(hit, 4.5, C.pink, 0.16, 3)
 	local rays = FX.rays(hit, 16, { C.pinkHot, C.white, C.pink }, 2, 8, 0.45, { bias = (armDir + V3(-0.3, 0.3, 0)) * 0.7 })
@@ -270,14 +270,14 @@ function P1.ryu()
 		sat = 0.35, contrast = 0.16, bright = 0.02, bloom = 1.1, dof = { 8.4, 5, 0.3 } })
 	ui.flash.BackgroundTransparency = 0.3
 	local base = STAGE.ryu1
-	local cam0 = CFrame.lookAt(base, base + V3(0, 0.12, -1)) * ANG(0, 0, rad(6))
-	local cam1 = cam0 * CF(0.2, 0.1, -0.7)
+	local cam0 = CFrame.lookAt(base, base + V3(0, 0.02, -1)) * ANG(0, 0, rad(6))
+	local cam1 = cam0 * CF(0.2, 0.08, -0.7)
 	camCF, camFOV = cam0, 56
 	FX.backdrop(cam0 * CF(0, 0, -240) * ANG(0, math.pi, 0), 900, 600, { RGB(40, 90, 190), RGB(14, 36, 100), RGB(8, 18, 60) }, 70)
 
 	ryu:show(true)
 	showVariant(ryu.tags, "mouth_", "grin")
-	ryu:place(cam0 * CF(-1.0, -3.7, -8.4) * ANG(0, rad(164), 0))
+	ryu:place(cam0 * CF(-1.0, -4.3, -8.4) * ANG(0, rad(164), 0))
 	ryu:pose(POSE.ryuHit, 0)
 	ryu:update(songT)
 	ryu:pose({ root = { 16, -8, -8 }, neck = { 12, 12, 10 }, rArm = { 46, 0, 82 }, lArm = { 86, 0, -36 }, rLeg = { -18, 0, 4 }, lLeg = { 16, 0, -4 } }, 1.17, songT)

@@ -113,7 +113,33 @@ function FX.energyBeam(color, width)
 	return obj
 end
 
--- мягкое круглое свечение (12 вложенных кругов в BillboardGui)
+-- Мягкое круглое свечение без «ступенек»: 28 тонких кругов, прозрачность каждого
+-- подобрана так, что вместе они дают плавный спад яркости от центра к краю.
+local GLOW_RINGS = 28
+local function glowAlphas(A)
+	if A > 0.97 then
+		A = 0.97
+	end
+	local out = {}
+	local prevT = 1
+	for i = 1, GLOW_RINGS do
+		local r = 1 - (i - 1) / GLOW_RINGS
+		local T = 1 - A * (1 - r) ^ 2 -- пропускание внутри круга i
+		if T < 0.03 then
+			T = 0.03
+		end
+		local a = 1 - T / prevT
+		if a < 0 then
+			a = 0
+		end
+		out[i] = a
+		prevT = T
+	end
+	-- самый внешний круг почти невидим, чтобы край был мягким
+	out[1] = math.min(out[1], 0.01)
+	return out
+end
+
 function FX.glow(pos, size, color, strength, brightness)
 	local holder = newPart(Shot.folder, V3(0.2, 0.2, 0.2), C.white, CF(pos), { alpha = 1 })
 	local bb = Instance.new("BillboardGui")
@@ -123,16 +149,18 @@ function FX.glow(pos, size, color, strength, brightness)
 	bb.AlwaysOnTop = false
 	bb.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	bb.Parent = holder
+	-- strength как раньше (прозрачность одного из 12 кругов) → яркость центра
+	local A = 1 - (1 - (strength or 0.14)) ^ 12
+	local alphas = glowAlphas(A)
 	local rings = {}
-	local base = strength or 0.14
-	for i = 1, 12 do
-		local f = 1 - (i - 1) / 12
+	for i = 1, GLOW_RINGS do
+		local f = 1 - (i - 1) / GLOW_RINGS
 		local r = uiFrame(bb, {
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
 			Size = UDim2.fromScale(f, f),
-			BackgroundColor3 = color:Lerp(C.white, (1 - f) ^ 1.4),
-			BackgroundTransparency = 1 - base,
+			BackgroundColor3 = color:Lerp(C.white, (1 - f) ^ 1.6),
+			BackgroundTransparency = 1 - alphas[i],
 			ZIndex = i,
 		})
 		corner(r, 0.5)
@@ -147,8 +175,9 @@ function FX.glow(pos, size, color, strength, brightness)
 			bb.Size = UDim2.fromScale(s, s)
 		end
 		if k then
-			for _, r in ipairs(rings) do
-				r.BackgroundTransparency = 1 - base * k
+			local al = glowAlphas(math.min(0.97, A * k))
+			for i, r in ipairs(rings) do
+				r.BackgroundTransparency = 1 - al[i]
 			end
 		end
 	end
