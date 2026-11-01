@@ -108,17 +108,20 @@ function Canvas:ellipse(x, y, rx, ry, color, layer, rot, o)
 	o = o or {}
 	local cf = self.frame * CF(-x * self.k, y * self.k, -(layer or 0) * self.d) * ANG(0, 0, -(rot or 0))
 	return self.maker(V3(2 * rx * self.k, 2 * ry * self.k, self.d * 0.6), color, cf,
-		{ shape = "ball", neon = o.neon, alpha = o.alpha, tag = o.tag })
+		{ shape = "ball", neon = o.neon, alpha = o.alpha, tag = o.tag or self.tag })
 end
 
 function Canvas:rect(x, y, w, h, color, layer, rot, o)
 	o = o or {}
 	local cf = self.frame * CF(-x * self.k, y * self.k, -(layer or 0) * self.d) * ANG(0, 0, -(rot or 0))
-	return self.maker(V3(w * self.k, h * self.k, self.d * 0.6), color, cf, { neon = o.neon, alpha = o.alpha, tag = o.tag })
+	return self.maker(V3(w * self.k, h * self.k, self.d * 0.6), color, cf, { neon = o.neon, alpha = o.alpha, tag = o.tag or self.tag })
 end
 
 function Canvas:tri(a, b, c, color, layer, o)
 	local frame, maker = self.frame, self.maker
+	if self.tag and not (o and o.tag) then
+		o = { tag = self.tag, neon = o and o.neon, alpha = o and o.alpha }
+	end
 	makeTri(function(size, col, cf, opts)
 		return maker(size, col, frame * cf, opts)
 	end, self:local3(a, layer), self:local3(b, layer), self:local3(c, layer), color, self.d * 0.6, o)

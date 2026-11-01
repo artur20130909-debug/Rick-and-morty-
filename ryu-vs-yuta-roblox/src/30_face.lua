@@ -27,18 +27,24 @@ local function drawEye(cv, spec, side, skin, look, lookY, lidDrop)
 	end
 	local cx, cy = spec.c[1] * (side > 0 and -1 or 1), spec.c[2]
 	local rot = spec.rot * (side > 0 and -1 or 1)
+	local S = side > 0 and "R" or "L"
 	-- белок
+	cv.tag = "eye" .. S
 	cv:ellipse(cx, cy, spec.rx, spec.ry, C.white, 1, rad(rot))
 	-- радужка: одинаковый сдвиг взгляда для обоих глаз
 	local I = spec.iris
 	local ix, iy = cx + (look or 0), cy + (I.dy or 0) + (lookY or 0)
+	cv.tag = "iris" .. S
 	cv:ellipse(ix, iy, I.rx, I.ry, I.shade, 2)
 	cv:ellipse(ix, iy - I.ry * 0.12, I.rx * 0.86, I.ry * 0.8, I.color, 2.5)
 	cv:ellipse(ix, iy - I.ry * 0.42, I.rx * 0.62, I.ry * 0.36, I.color:Lerp(C.white, 0.35), 3)
+	cv.tag = "pupil" .. S
 	cv:ellipse(ix, iy + I.ry * 0.04, I.rx * 0.4, I.ry * 0.42, I.pupil, 3.5)
+	cv.tag = "hi" .. S
 	cv:ellipse(ix - I.rx * 0.32, iy + I.ry * 0.36, I.rx * 0.26, I.ry * 0.21, C.white, 4)
 	cv:ellipse(ix + I.rx * 0.34, iy - I.ry * 0.3, I.rx * 0.12, I.ry * 0.1, C.white, 4)
 	-- маски кожей: прячут белок и радужку за веками
+	cv.tag = "lid" .. S
 	local lid = drop(M(spec.lid))
 	cv:band(lid, cy + 0.2, skin, 5)
 	local low = { M(spec.lid)[1] }
@@ -46,23 +52,28 @@ local function drawEye(cv, spec, side, skin, look, lookY, lidDrop)
 		low[#low + 1] = p
 	end
 	low[#low + 1] = M(spec.lid)[#spec.lid]
-	cv:band(low, cy - 0.16, skin, 5)
 	-- линии век, ресницы, мешки под глазами
 	cv:stroke(lid, spec.lidW, spec.lidColor or C.ink, 6)
 	if spec.flick then
 		cv:stroke(M(spec.flick), spec.flickW, spec.lidColor or C.ink, 6)
 	end
+	cv.tag = "low" .. S
+	cv:band(low, cy - 0.16, skin, 5)
 	cv:stroke(M(spec.lower), spec.lowerW, spec.lowerColor, 6)
+	cv.tag = "bag" .. S
 	for _, bag in ipairs(spec.bags or {}) do
 		cv:stroke(M(bag[1]), bag[2], bag[3], 6)
 	end
+	cv.tag = nil
 end
 
 local function drawBrow(cv, pts, widths, color, side)
 	if side > 0 then
 		pts = mirror(pts)
 	end
+	cv.tag = "brow" .. (side > 0 and "R" or "L")
 	cv:stroke(pts, widths, color, 6.5)
+	cv.tag = nil
 end
 
 local YUTA_EYE = {
@@ -108,6 +119,16 @@ function Face.yuta(cv, skin, opt)
 	end
 	local line = skin:Lerp(RGB(150, 80, 70), 0.45)
 	cv:stroke({ { 0.005, -0.095 }, { 0.022, -0.15 }, { 0.006, -0.168 } }, { 0.003, 0.011, 0.004 }, line, 1)
+	if opt.stress then
+		-- капля пота и штрихи напряжения (появляются перед выстрелом)
+		cv.tag = "stress"
+		cv:ellipse(0.53, 0.12, 0.028, 0.045, RGB(170, 215, 255), 7, 0, { alpha = 1 })
+		cv:ellipse(0.524, 0.132, 0.009, 0.014, C.white, 7.5, 0, { alpha = 1 })
+		for i = 0, 2 do
+			cv:stroke({ { -0.42 + i * 0.05, -0.17 }, { -0.4 + i * 0.05, -0.2 } }, { 0.008, 0.002 }, RGB(170, 110, 105), 7, { alpha = 1 })
+		end
+		cv.tag = nil
+	end
 	if opt.mouth == "grit" then
 		cv:poly({ { -0.085, -0.322 }, { 0.085, -0.322 }, { 0.062, -0.348 }, { -0.062, -0.348 } }, RGB(70, 22, 28), 1)
 		cv:poly({ { -0.07, -0.323 }, { 0.07, -0.323 }, { 0.064, -0.333 }, { -0.064, -0.333 } }, C.tooth, 2)
@@ -156,6 +177,19 @@ function Face.ryu(cv, skin, opt)
 		end
 	end
 	cv:stroke({ { 0, 0.12 }, { 0.003, 0.18 }, { 0, 0.24 } }, { 0.002, 0.009, 0.002 }, line, 2)
+	if opt.stress then
+		-- вздутая вена и лишние складки (появляются перед выстрелом)
+		cv.tag = "stress"
+		local vein = RGB(170, 40, 50)
+		for _, q in ipairs({ { 1, 1 }, { -1, 1 }, { 1, -1 }, { -1, -1 } }) do
+			cv:stroke({ { 0.33 + q[1] * 0.012, 0.215 + q[2] * 0.012 }, { 0.33 + q[1] * 0.032, 0.215 + q[2] * 0.02 }, { 0.33 + q[1] * 0.045, 0.215 + q[2] * 0.042 } },
+				{ 0.012, 0.01, 0.003 }, vein, 7, { alpha = 1 })
+		end
+		for _, x in ipairs({ -0.07, 0.07 }) do
+			cv:stroke({ { x, 0.1 }, { x * 1.2, 0.17 }, { x, 0.25 } }, { 0.002, 0.011, 0.002 }, line, 7, { alpha = 1 })
+		end
+		cv.tag = nil
+	end
 	cv:stroke({ { -0.055, 0.065 }, { 0, 0.075 }, { 0.055, 0.065 } }, { 0.002, 0.01, 0.002 }, line, 2)
 	if not opt.closeup then
 		cv:stroke({ { -0.3, 0.33 }, { -0.1, 0.345 }, { 0.1, 0.345 }, { 0.3, 0.33 } }, { 0.002, 0.01, 0.01, 0.002 }, line, 2)

@@ -3,7 +3,7 @@
 ----------------------------------------------------------------------
 
 local savedCharCF = nil
-local currentPart = 1
+local currentPart = 0
 
 local function parkCharacter()
 	local char = player.Character
@@ -42,7 +42,7 @@ local function waitUntil(t)
 	end
 end
 
-local function finish(part)
+local function finish(which)
 	ui.black.BackgroundTransparency = 0
 	playing = false
 	Shot.update = nil
@@ -56,18 +56,23 @@ local function finish(part)
 	end
 	fx.blur.Size = 0
 	ui.speed.Visible = false
-	ui.endText.Text = "Часть " .. part .. " — конец"
+	if which == 0 then
+		ui.endText.Text = "Конец"
+	else
+		ui.endText.Text = "Часть " .. which .. " — конец"
+	end
 	ui.endScreen.Visible = true
 	camera.CameraType = Enum.CameraType.Custom
 	releaseCharacter()
 	setCoreUI(true)
 end
 
-local function play(part)
+-- which: 0 — все части подряд, 1..3 — одна часть
+local function play(which)
 	if playing then
 		return
 	end
-	currentPart = part
+	currentPart = which
 	ui.start.Visible = false
 	ui.endScreen.Visible = false
 	ui.black.BackgroundTransparency = 1
@@ -75,19 +80,25 @@ local function play(part)
 	parkCharacter()
 	songT = 0
 	playing = true
-	local list = P1
-	if part == 2 then
-		list = P2
+	local all = { P1, P2, P3 }
+	local list = all
+	if which ~= 0 then
+		list = { all[which] }
 	end
-	for _, s in ipairs(list.shots) do
-		waitUntil(s[1])
-		if not playing then
-			return
+	local offset = 0
+	for _, part in ipairs(list) do
+		partOffset = offset
+		for _, s in ipairs(part.shots) do
+			waitUntil(offset + s[1])
+			if not playing then
+				return
+			end
+			s[2]()
 		end
-		s[2]()
+		offset = offset + part.fin
 	end
-	waitUntil(list.fin)
-	finish(part)
+	waitUntil(offset)
+	finish(which)
 end
 
 local function onFrame(dt)
@@ -157,8 +168,7 @@ local function setup()
 	setLook({})
 
 	buildUI()
-	buildCity(world)
-	buildField(world)
+	buildBattlefield(world)
 	buildEyes(world)
 	yuta = buildYuta(world, { angry = 1.0, mouth = "grit", blood = true, look = 0.02, lidDrop = 0.035 })
 	ryu = buildRyu(world, { mouth = "smirk" })
@@ -174,17 +184,23 @@ local function setup()
 			task.spawn(play, part)
 		end
 	end
+	ui.btnAll.Activated:Connect(function()
+		start(0)
+	end)
 	ui.btn1.Activated:Connect(function()
 		start(1)
 	end)
 	ui.btn2.Activated:Connect(function()
 		start(2)
 	end)
+	ui.btn3.Activated:Connect(function()
+		start(3)
+	end)
 	ui.again.Activated:Connect(function()
 		start(currentPart)
 	end)
 	ui.other.Activated:Connect(function()
-		start(3 - currentPart)
+		start(0)
 	end)
 	UserInputService.InputBegan:Connect(function(input)
 		if UserInputService:GetFocusedTextBox() then
@@ -194,11 +210,15 @@ local function setup()
 			start(1)
 		elseif input.KeyCode == Enum.KeyCode.Two then
 			start(2)
-		elseif input.KeyCode == Enum.KeyCode.R or input.KeyCode == Enum.KeyCode.Space then
+		elseif input.KeyCode == Enum.KeyCode.Three then
+			start(3)
+		elseif input.KeyCode == Enum.KeyCode.Space then
+			start(0)
+		elseif input.KeyCode == Enum.KeyCode.R then
 			start(currentPart)
 		end
 	end)
-	if CONFIG.PART == 1 or CONFIG.PART == 2 then
+	if CONFIG.PART == 1 or CONFIG.PART == 2 or CONFIG.PART == 3 then
 		currentPart = CONFIG.PART
 	end
 	if CONFIG.AUTO_START then

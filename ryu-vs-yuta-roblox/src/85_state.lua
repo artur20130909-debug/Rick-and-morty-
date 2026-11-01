@@ -8,9 +8,7 @@ world.Parent = workspace
 
 local yuta, ryu, rika
 local rigs = {}
-local songT = 0
 local playing = false
-local camCF, camFOV, shake = CF(0, 2000, 0), 70, 0
 local fx = {}
 
 -- позы: {x, y, z} в градусах. Руки и хвост висят вниз: x+ — вперёд.
@@ -55,6 +53,21 @@ local POSE = {
 		root = { -4, 0, 0 }, neck = { -2, 0, 0 },
 		rArm = { 25, 0, 8 }, lArm = { 18, 0, -10 }, rLeg = { -12, 0, 6 }, lLeg = { 14, 0, -6 },
 	},
+	ryuBack = {
+		rArm = { 8, 0, 12 }, lArm = { 8, 0, -12 }, rLeg = { 0, 0, 8 }, lLeg = { 0, 0, -8 },
+	},
+	ryuArmsWide = {
+		root = { 6, 0, 0 }, neck = { 10, -10, 0 }, rArm = { 20, 0, 75 }, lArm = { 20, 0, -75 }, rLeg = { 0, 0, 6 }, lLeg = { 0, 0, -6 },
+	},
+	ryuHeadBack = {
+		root = { 10, 0, 0 }, neck = { 22, -10, 6 }, rArm = { 30, 0, 80 }, lArm = { 30, 0, -80 }, rLeg = { 0, 0, 6 }, lLeg = { 0, 0, -6 },
+	},
+	ryuReach = {
+		root = { -12, 0, 0 }, neck = { -5, 0, 0 }, rArm = { 85, 0, -10 }, lArm = { -20, 0, -20 }, rLeg = { -20, 0, 0 }, lLeg = { 20, 0, 0 },
+	},
+	ryuSide = {
+		root = { -8, 0, 0 }, neck = { -4, 0, 0 }, rArm = { 80, 0, 10 }, lArm = { -30, 0, -10 }, rLeg = { -15, 0, 0 }, lLeg = { 15, 0, 0 },
+	},
 	ryuLow = {
 		root = { 8, 0, 0 }, neck = { 10, -20, 6 },
 		rArm = { 10, 0, 12 }, lArm = { 15, 0, -15 },
@@ -97,6 +110,8 @@ local function placeBoneAt(rig, boneName, want)
 	rig:update(songT)
 end
 
+local partOffset = 0 -- начало текущей части на общем таймлайне
+
 local function beginShot(t0)
 	updaters = {}
 	if Shot.folder then
@@ -111,12 +126,16 @@ local function beginShot(t0)
 	Shot.debris.Name = "Debris"
 	Shot.debris.Parent = f
 	outline(Shot.debris, nil, 1)
-	Shot.t0 = t0
+	Shot.clouds = Instance.new("Model")
+	Shot.clouds.Name = "Clouds"
+	Shot.clouds.Parent = f
+	outline(Shot.clouds, nil, 1, RGB(70, 95, 150))
+	Shot.t0 = t0 + partOffset
 	Shot.update = nil
 	shake = 0
 	for _, r in ipairs(rigs) do
 		r:show(false)
-		for _, name in ipairs({ "root", "neck", "coat" }) do
+		for _, name in ipairs({ "root", "neck", "coat", "rArm", "lArm", "rLeg", "lLeg" }) do
 			if r.bones[name] and r ~= rika then
 				r.bones[name].wob = nil
 			end
@@ -131,7 +150,7 @@ local function beginShot(t0)
 	ui.washBottom.BackgroundTransparency = 1
 	ui.impact1.Visible = false
 	ui.impact2.Visible = false
-	ui.vignette.Visible = true
+	ui.vignette.Visible = false
 	ui.speed.Visible = false
 	Shot.blur = 0
 	return f

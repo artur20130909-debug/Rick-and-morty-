@@ -82,106 +82,300 @@ function FX.beam(a0, a1, color, w0, w1, o)
 	return b
 end
 
--- энергетический луч: белое ядро, цвет, мягкий ореол и бегущие искры
+
+-- энергетический луч: белое ядро, цвет, ореол; по нему бегут яркие штрихи
 function FX.energyBeam(color, width)
 	local a0, a1 = FX.att(), FX.att()
 	local spec = {
 		{ C.white, 0.3, 0, 8 },
 		{ color:Lerp(C.white, 0.55), 0.62, 0.05, 5 },
-		{ color, 1.25, 0.35, 3 },
-		{ color, 2.4, 0.76, 2 },
-		{ color, 4.4, 0.91, 1.5 },
+		{ color, 1.25, 0.3, 3 },
+		{ color, 2.3, 0.72, 2 },
 	}
 	local layers = {}
-	for i, s in ipairs(spec) do
-		layers[i] = { b = FX.beam(a0, a1, s[1], 1, 1, { alpha = NumberSequence.new(s[3]), brightness = s[4] }), k = s[2] }
+	for i, sp in ipairs(spec) do
+		layers[i] = { b = FX.beam(a0, a1, sp[1], 1, 1, { alpha = NumberSequence.new(sp[3]), brightness = sp[4] }), k = sp[2] }
 	end
-	layers[#layers + 1] = {
-		b = FX.beam(a0, a1, color:Lerp(C.white, 0.7), 1, 1, { alpha = NumberSequence.new(0.3), brightness = 4, texture = TEX.spark, texLen = 5, texSpeed = 7 }),
-		k = 1.1,
-	}
-	local obj = { width = width }
+	local obj = { width = width, from = V3(), to = V3() }
 	function obj.set(from, to, w)
 		a0.Position = from
 		a1.Position = to
+		obj.from, obj.to = from, to
 		w = w or obj.width
 		for _, L in ipairs(layers) do
 			L.b.Width0 = w * L.k
 			L.b.Width1 = w * L.k
 		end
 	end
+	local acc = 0
+	addUpdater(function(dt)
+		acc = acc + dt * 22
+		local d = obj.to - obj.from
+		local L = d.Magnitude
+		if L < 1 then
+			return true
+		end
+		local dir = d / L
+		while acc >= 1 do
+			acc = acc - 1
+			local side = dir:Cross(V3(0, 1, 0))
+			if side.Magnitude < 0.1 then
+				side = V3(1, 0, 0)
+			end
+			local off = side.Unit * rr(-0.35, 0.35) * obj.width + V3(0, rr(-0.35, 0.35) * obj.width, 0)
+			FX.streak(obj.from + dir * rr(0, L * 0.3) + off, dir, rr(4, 9), rr(70, 120), L / 95, color:Lerp(C.white, 0.8), obj.width * rr(0.12, 0.25), 6)
+		end
+		return true
+	end)
 	return obj
 end
 
--- Мягкое круглое свечение без «ступенек»: 28 тонких кругов, прозрачность каждого
--- подобрана так, что вместе они дают плавный спад яркости от центра к краю.
-local GLOW_RINGS = 28
-local function glowAlphas(A)
-	if A > 0.97 then
-		A = 0.97
-	end
-	local out = {}
-	local prevT = 1
-	for i = 1, GLOW_RINGS do
-		local r = 1 - (i - 1) / GLOW_RINGS
-		local T = 1 - A * (1 - r) ^ 2 -- пропускание внутри круга i
-		if T < 0.03 then
-			T = 0.03
+-- Аниме-вспышка: колючая звезда из широких сужающихся лучей (без кругов).
+-- Лучи смотрят в камеру, плавно дышат и медленно вращаются.
+function FX.flare(pos, radius, color, o)
+	o = o or {}
+	local c0 = FX.att(pos)
+	local spikes = {}
+	local function layer(n, k, col, br, alpha)
+		for i = 1, n do
+			local a1 = FX.att(pos)
+			local b = FX.beam(c0, a1, ColorSequence.new(C.white, col), 1, 0,
+				{ brightness = br, alpha = NS({ { 0, alpha }, { 0.7, alpha + 0.15 }, { 1, 1 } }) })
+			spikes[#spikes + 1] = { a = a1, b = b, ang = (i / n) * math.pi * 2 + rr(-0.2, 0.2), len = rr(0.75, 1.3) * k,
+				w = rr(0.55, 0.85) * k, ph = rr(0, 6.28), sp = rr(2, 5), k = k }
 		end
-		local a = 1 - T / prevT
-		if a < 0 then
-			a = 0
-		end
-		out[i] = a
-		prevT = T
 	end
-	-- самый внешний круг почти невидим, чтобы край был мягким
-	out[1] = math.min(out[1], 0.01)
-	return out
-end
-
-function FX.glow(pos, size, color, strength, brightness)
-	local holder = newPart(Shot.folder, V3(0.2, 0.2, 0.2), C.white, CF(pos), { alpha = 1 })
-	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.fromScale(size, size)
-	bb.LightInfluence = 0
-	bb.Brightness = brightness or 2
-	bb.AlwaysOnTop = false
-	bb.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	bb.Parent = holder
-	-- strength как раньше (прозрачность одного из 12 кругов) → яркость центра
-	local A = 1 - (1 - (strength or 0.14)) ^ 12
-	local alphas = glowAlphas(A)
-	local rings = {}
-	for i = 1, GLOW_RINGS do
-		local f = 1 - (i - 1) / GLOW_RINGS
-		local r = uiFrame(bb, {
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.fromScale(f, f),
-			BackgroundColor3 = color:Lerp(C.white, (1 - f) ^ 1.6),
-			BackgroundTransparency = 1 - alphas[i],
-			ZIndex = i,
-		})
-		corner(r, 0.5)
-		rings[i] = r
-	end
-	local obj = { holder = holder, bb = bb }
-	function obj.set(p, s, k)
+	layer(o.points or 9, 1.0, color, 3, o.alpha or 0.1)
+	layer(7, 0.55, color:Lerp(C.white, 0.6), 5, 0)
+	local obj = { pos = pos, radius = radius, spin = o.spin or 0.4, visible = 1 }
+	function obj.set(p, r, k)
 		if p then
-			holder.CFrame = CF(p)
+			obj.pos = p
 		end
-		if s then
-			bb.Size = UDim2.fromScale(s, s)
+		if r then
+			obj.radius = r
 		end
 		if k then
-			local al = glowAlphas(math.min(0.97, A * k))
-			for i, r in ipairs(rings) do
-				r.BackgroundTransparency = 1 - al[i]
-			end
+			obj.visible = k
 		end
 	end
+	addUpdater(function()
+		if not c0.Parent then
+			return false
+		end
+		local t = songT
+		local cp = camCF.Position
+		local look = (obj.pos - cp)
+		if look.Magnitude < 0.01 then
+			return true
+		end
+		look = look.Unit
+		local right = look:Cross(V3(0, 1, 0))
+		if right.Magnitude < 0.05 then
+			right = V3(1, 0, 0)
+		end
+		right = right.Unit
+		local up = right:Cross(look).Unit
+		c0.Position = obj.pos
+		for _, sk in ipairs(spikes) do
+			local a = sk.ang + t * obj.spin
+			local L = obj.radius * sk.len * (0.8 + 0.2 * sin(t * sk.sp + sk.ph)) * obj.visible
+			sk.a.Position = obj.pos + (right * cos(a) + up * sin(a)) * L
+			sk.b.Width0 = obj.radius * sk.w * obj.visible
+		end
+		return true
+	end)
 	return obj
+end
+
+-- блик-звёздочка: четыре тонких луча крестом
+function FX.twinkle(pos, size, color, life)
+	local c0 = FX.att(pos)
+	local arms = {}
+	for i = 1, 4 do
+		local a1 = FX.att(pos)
+		arms[i] = { a = a1, b = FX.beam(c0, a1, ColorSequence.new(C.white, color), size * 0.18, 0, { brightness = 5 }) }
+	end
+	local age, ph = 0, rr(0, 6)
+	addUpdater(function(dt)
+		age = age + dt
+		if life and age > life then
+			c0:Destroy()
+			for _, ar in ipairs(arms) do
+				ar.a:Destroy()
+				ar.b:Destroy()
+			end
+			return false
+		end
+		local k = 0.6 + 0.4 * sin(age * 9 + ph)
+		if life then
+			k = k * sin(math.pi * clamp01(age / life))
+		end
+		local cp = camCF.Position
+		local look = (pos - cp).Unit
+		local right = look:Cross(V3(0, 1, 0)).Unit
+		local up = right:Cross(look).Unit
+		local dirs = { right, -right, up, -up }
+		for i, ar in ipairs(arms) do
+			local L = size * k
+			if i > 2 then
+				L = L * 1.4
+			end
+			ar.a.Position = pos + dirs[i] * L
+		end
+		return true
+	end)
+end
+
+-- искра-штрих: летит по скорости и сжимается к концу жизни
+function FX.spark(pos, vel, color, len, life, width)
+	local p = newPart(Shot.folder, V3(width or 0.12, width or 0.12, len), color, nil, { neon = true })
+	local age = 0
+	addUpdater(function(dt)
+		age = age + dt
+		if age >= life or not p.Parent then
+			p:Destroy()
+			return false
+		end
+		vel = vel * (1 - math.min(0.9, 2.5 * dt))
+		pos = pos + vel * dt
+		local k = 1 - age / life
+		local L = len * k + 0.05
+		local v = vel
+		if v.Magnitude < 0.01 then
+			v = V3(0, 1, 0)
+		end
+		p.Size = V3((width or 0.12) * (0.4 + 0.6 * k), (width or 0.12) * (0.4 + 0.6 * k), L)
+		p.CFrame = CFrame.lookAt(pos, pos + v)
+		return true
+	end)
+	return p
+end
+
+function FX.sparkBurst(pos, n, colors, speed, len, life)
+	for _ = 1, n do
+		local d = randUnit()
+		FX.spark(pos + d * rr(0, 1), d * speed * rr(0.5, 1), pick(colors), len * rr(0.6, 1.3), life * rr(0.6, 1.2))
+	end
+end
+
+-- Мультяшный дым: белые клубы с тенью снизу и контуром. Растут, плывут и «лопаются».
+function FX.puff(pos, size, life, vel, o)
+	o = o or {}
+	local base = o.color or RGB(246, 248, 255)
+	local shade = o.shade or RGB(196, 210, 238)
+	local balls = {}
+	for i = 1, (o.count or 5) do
+		local off = V3(rr(-0.5, 0.5), rr(-0.25, 0.35), rr(-0.5, 0.5)) * size
+		local s = size * rr(0.45, 0.75)
+		local top = newPart(Shot.clouds, V3(s, s * 0.85, s), base, CF(pos + off), { shape = "ball" })
+		local bot = newPart(Shot.clouds, V3(s * 0.92, s * 0.6, s * 0.92), shade, CF(pos + off - V3(0, s * 0.18, 0)), { shape = "ball" })
+		balls[i] = { top = top, bot = bot, off = off, s = s }
+	end
+	local age = 0
+	vel = vel or V3()
+	addUpdater(function(dt)
+		age = age + dt
+		if age >= life then
+			for _, b in ipairs(balls) do
+				b.top:Destroy()
+				b.bot:Destroy()
+			end
+			return false
+		end
+		local a = age / life
+		local k
+		if a < 0.3 then
+			k = 0.35 + 0.65 * easeOut(a / 0.3)
+		elseif a > 0.75 then
+			k = 1 - easeIn((a - 0.75) / 0.25)
+		else
+			k = 1
+		end
+		k = math.max(k, 0.02)
+		pos = pos + vel * dt
+		for _, b in ipairs(balls) do
+			local s = b.s * k * (1 + 0.25 * a)
+			local c = pos + b.off * (1 + 0.4 * a)
+			b.top.Size = V3(s, s * 0.85, s)
+			b.top.CFrame = CF(c)
+			b.bot.Size = V3(s * 0.92, s * 0.6, s * 0.92)
+			b.bot.CFrame = CF(c - V3(0, s * 0.18, 0))
+		end
+		return true
+	end)
+end
+
+-- аниме-пламя: языки из сужающихся лучей, колышутся вверх
+function FX.flame(base, height, color, n)
+	local tongues = {}
+	for i = 1, (n or 7) do
+		local a0, a1 = FX.att(base), FX.att(base)
+		local b = FX.beam(a0, a1, ColorSequence.new(C.white, color), 1, 0,
+			{ brightness = 5, alpha = NS({ { 0, 0.05 }, { 0.6, 0.2 }, { 1, 1 } }) })
+		tongues[i] = { a0 = a0, a1 = a1, b = b, off = V3(rr(-1, 1), 0, rr(-1, 1)) * height * 0.22, h = rr(0.55, 1.1), ph = rr(0, 6), sp = rr(6, 11) }
+	end
+	local obj = { base = base, height = height, k = 1 }
+	addUpdater(function()
+		local t = songT
+		for _, tg in ipairs(tongues) do
+			local h = obj.height * tg.h * (0.7 + 0.3 * sin(t * tg.sp + tg.ph)) * obj.k
+			local sway = V3(sin(t * 3 + tg.ph), 0, cos(t * 2.5 + tg.ph)) * h * 0.18
+			tg.a0.Position = obj.base + tg.off
+			tg.a1.Position = obj.base + tg.off + V3(0, h, 0) + sway
+			tg.b.Width0 = obj.height * 0.35 * obj.k
+			tg.b.Enabled = obj.k > 0.02
+		end
+		return true
+	end)
+	return obj
+end
+
+-- рваное кольцо ударной волны из лучей (в плоскости экрана)
+function FX.ring(pos, color, r0, r1, life, width)
+	local n = 22
+	local pts = {}
+	for i = 0, n do
+		pts[i] = FX.att(pos)
+	end
+	local beams = {}
+	for i = 1, n do
+		beams[i] = FX.beam(pts[i - 1], pts[i], color, width or 0.6, width or 0.6, { brightness = 4 })
+	end
+	local jit = {}
+	for i = 0, n - 1 do
+		jit[i] = rr(0.85, 1.15)
+	end
+	jit[n] = jit[0]
+	local age = 0
+	addUpdater(function(dt)
+		age = age + dt
+		local k = age / life
+		if k >= 1 then
+			for _, b in ipairs(beams) do
+				b:Destroy()
+			end
+			for i = 0, n do
+				pts[i]:Destroy()
+			end
+			return false
+		end
+		local look = (pos - camCF.Position).Unit
+		local right = look:Cross(V3(0, 1, 0)).Unit
+		local up = right:Cross(look).Unit
+		local r = lerp(r0, r1, easeOut(k))
+		for i = 0, n do
+			local a = i / n * math.pi * 2
+			pts[i].Position = pos + (right * cos(a) + up * sin(a)) * r * jit[i]
+		end
+		local tr = NumberSequence.new(k)
+		for _, b in ipairs(beams) do
+			b.Transparency = tr
+			b.Width0 = (width or 0.6) * (1 - k * 0.6)
+			b.Width1 = b.Width0
+		end
+		return true
+	end)
 end
 
 -- сужающиеся лучи-вспышки из центра (аниме-звезда), двигаются плавно
@@ -239,65 +433,6 @@ function FX.rays(center, n, colors, minL, maxL, width, o)
 	return obj
 end
 
--- частицы на встроенных текстурах Roblox
-function FX.emitter(pos, box, p)
-	local holder = newPart(Shot.folder, box or V3(1, 1, 1), C.white, CF(pos), { alpha = 1 })
-	local e = Instance.new("ParticleEmitter")
-	e.Texture = p.texture or TEX.spark
-	e.Rate = p.rate or 0
-	e.Lifetime = NumberRange.new(p.life[1], p.life[2])
-	e.Speed = NumberRange.new(p.speed[1], p.speed[2])
-	e.SpreadAngle = Vector2.new(p.spread or 180, p.spread or 180)
-	e.Size = p.size
-	e.Transparency = p.alpha or NS({ { 0, 0 }, { 1, 1 } })
-	if typeof(p.color) == "ColorSequence" then
-		e.Color = p.color
-	else
-		e.Color = ColorSequence.new(p.color or C.white)
-	end
-	e.LightEmission = p.emission or 1
-	e.LightInfluence = 0
-	e.Brightness = p.brightness or 2
-	e.Drag = p.drag or 0
-	e.Acceleration = p.accel or V3()
-	e.Rotation = NumberRange.new(0, 360)
-	e.RotSpeed = NumberRange.new(-(p.rot or 40), p.rot or 40)
-	e.ZOffset = p.z or 0
-	if p.sphere then
-		e.Shape = Enum.ParticleEmitterShape.Sphere
-	else
-		e.Shape = Enum.ParticleEmitterShape.Box
-	end
-	e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
-	e.EmissionDirection = p.dir or Enum.NormalId.Top
-	e.LockedToPart = p.locked or false
-	e.Parent = holder
-	if p.burst then
-		e:Emit(p.burst)
-	end
-	return e, holder
-end
-
--- искры во все стороны
-function FX.sparks(pos, colors, rate, speed, size)
-	return FX.emitter(pos, V3(1, 1, 1), {
-		rate = rate, life = { 0.25, 0.6 }, speed = { speed * 0.5, speed }, drag = 4,
-		size = NS({ { 0, size or 0.5 }, { 1, 0 } }), alpha = NS({ { 0, 0 }, { 0.7, 0.1 }, { 1, 1 } }),
-		color = CS({ { 0, colors[1] }, { 1, colors[2] or colors[1] } }), brightness = 4, rot = 0,
-	})
-end
-
--- мягкий дым
-function FX.smoke(pos, box, color, rate, size, life, speed, o)
-	o = o or {}
-	return FX.emitter(pos, box, {
-		texture = TEX.smoke, rate = rate, life = { life * 0.7, life }, speed = { speed * 0.4, speed },
-		size = NS({ { 0, size * 0.55 }, { 1, size } }), alpha = o.alpha or NS({ { 0, 0.9 }, { 0.2, 0.45 }, { 1, 1 } }),
-		color = color, emission = o.emission or 0, brightness = o.brightness or 1, rot = 25, spread = o.spread or 60,
-		accel = o.accel, burst = o.burst, dir = o.dir,
-	})
-end
-
 -- молния из лучей
 function FX.bolt(color, width)
 	local n = 8
@@ -325,36 +460,6 @@ function FX.bolt(color, width)
 		end
 	end
 	return obj
-end
-
--- кольцо-ударная волна (всегда смотрит в камеру)
-function FX.ring(pos, color, size0, size1, life, thick)
-	local holder = newPart(Shot.folder, V3(0.2, 0.2, 0.2), C.white, CF(pos), { alpha = 1 })
-	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.fromScale(size0, size0)
-	bb.LightInfluence = 0
-	bb.Brightness = 3
-	bb.Parent = holder
-	local f = uiFrame(bb, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 })
-	corner(f, 0.5)
-	local st = Instance.new("UIStroke")
-	st.Color = color
-	st.Thickness = thick or 8
-	st.Parent = f
-	local age = 0
-	addUpdater(function(dt)
-		age = age + dt
-		local k = age / life
-		if k >= 1 then
-			holder:Destroy()
-			return false
-		end
-		local s = lerp(size0, size1, easeOut(k))
-		bb.Size = UDim2.fromScale(s, s)
-		st.Transparency = k
-		st.Thickness = (thick or 8) * (1 - k * 0.7)
-		return true
-	end)
 end
 
 -- полоса, летящая по направлению dir (мягкие концы)

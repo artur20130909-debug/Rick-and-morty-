@@ -115,11 +115,17 @@ local function buildUI()
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.43), Size = UDim2.fromScale(0.7, 0.045),
 		Text = "фан-анимация по «Магической битве»", Font = Enum.Font.GothamBold, TextColor3 = RGB(170, 220, 255), ZIndex = 21,
 	})
-	ui.btn1 = button(ui.start, "▶ ЧАСТЬ 1", 0.38, 0.6, RGB(255, 60, 170))
-	ui.btn2 = button(ui.start, "▶ ЧАСТЬ 2", 0.62, 0.6, RGB(40, 170, 255))
+	ui.btnAll = button(ui.start, "▶ СТАРТ: ВСЕ ЧАСТИ ПОДРЯД", 0.5, 0.58, RGB(255, 60, 170))
+	ui.btnAll.Size = UDim2.fromScale(0.4, 0.09)
+	ui.btn1 = button(ui.start, "Часть 1", 0.36, 0.7, RGB(60, 70, 120))
+	ui.btn2 = button(ui.start, "Часть 2", 0.5, 0.7, RGB(60, 70, 120))
+	ui.btn3 = button(ui.start, "Часть 3", 0.64, 0.7, RGB(60, 70, 120))
+	for _, b in ipairs({ ui.btn1, ui.btn2, ui.btn3 }) do
+		b.Size = UDim2.fromScale(0.12, 0.06)
+	end
 	uiText(ui.start, "TextLabel", {
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.78), Size = UDim2.fromScale(0.86, 0.034),
-		Text = "Сначала включи запись экрана · клавиши 1 и 2 — старт · R — повтор · графику поставь на 10",
+		Text = "Сначала включи запись экрана · ПРОБЕЛ — всё подряд · 1, 2, 3 — одна часть · R — повтор · графика 10",
 		Font = Enum.Font.GothamBold, TextColor3 = RGB(150, 150, 170), ZIndex = 21,
 	})
 
@@ -129,7 +135,7 @@ local function buildUI()
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.4), Size = UDim2.fromScale(0.6, 0.07), Text = "Конец", ZIndex = 21,
 	})
 	ui.again = button(ui.endScreen, "↻ ЕЩЁ РАЗ (R)", 0.38, 0.56, RGB(255, 60, 170))
-	ui.other = button(ui.endScreen, "▶ ДРУГАЯ ЧАСТЬ", 0.62, 0.56, RGB(40, 170, 255))
+	ui.other = button(ui.endScreen, "▶ ВСЁ ПОДРЯД", 0.62, 0.56, RGB(40, 170, 255))
 end
 
 -- линии скорости: k — сила (0..1), t — время

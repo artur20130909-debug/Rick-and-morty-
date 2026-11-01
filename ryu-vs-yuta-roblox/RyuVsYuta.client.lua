@@ -1,18 +1,19 @@
 --[[
 	РЮ vs ЮТА — фан-анимация по «Магической битве» для Roblox
-	Часть 1 (11 с) и часть 2 (15 с). Тайминг совпадает с клипами кадр в кадр.
+	Три части подряд (11 + 15 + 16 с). Тайминг совпадает с клипами кадр в кадр.
 
 	КАК ЗАПУСТИТЬ
 	  • Открой RyuVsYuta.rbxlx в Roblox Studio и нажми Play (F5).
 	    Или вставь весь этот код в LocalScript: StarterPlayer → StarterPlayerScripts.
 	  • Поставь графику на максимум (10): так неон, контуры и частицы выглядят лучше всего.
-	  • Включи запись экрана, потом нажми 1 (часть 1) или 2 (часть 2). R — повторить.
+	  • Включи запись экрана и нажми ПРОБЕЛ: все части идут подряд без остановок.
+	    Клавиши 1, 2, 3 — отдельная часть. R — повторить.
 
 	Этот файл собирается из папки src командой: python3 build_place.py
 ]]
 
 local CONFIG = {
-	PART = 0, -- 0: выбрать часть на стартовом экране; 1 или 2: сразу эта часть
+	PART = 0, -- 0: все части подряд; 1, 2 или 3: только эта часть
 	DUMMY_MODE = false, -- true: Рю и Юта — серые манекены без одежды
 	OUTLINES = true, -- чёрный аниме-контур
 	AUTO_START = false, -- true: начать сразу после загрузки
@@ -45,6 +46,21 @@ local T2 = {
 	WIDE = 10.75, -- кратер в тумане
 	LOW = 13.03, -- Рю снизу
 	FIN = 15.39,
+}
+
+-- Тайминг части 3, секунды
+local T3 = {
+	RIGHT = 2.40, -- «That's right!»
+	GOING = 4.00, -- «Let's keep going!»
+	SMOKE = 6.40, -- дым и розовая точка вдали
+	BLAST = 6.70, -- розовый луч сквозь обломки
+	RUN = 7.20, -- Юта бежит
+	TOP = 7.75, -- вид сверху на кратер
+	REACH = 9.40, -- Рю тянет руку к Юте
+	BUT = 12.50, -- «But...»
+	BOOM = 13.90, -- жёлто-розовый взрыв
+	WEAK = 14.80, -- «its force is weak!»
+	FIN = 15.97,
 }
 
 local Players = game:GetService("Players")
@@ -144,12 +160,9 @@ local C = {
 	tooth = RGB(252, 250, 244),
 }
 
--- встроенные текстуры Roblox (есть в любом клиенте)
-local TEX = {
-	spark = "rbxasset://textures/particles/sparkles_main.dds",
-	smoke = "rbxasset://textures/particles/smoke_main.dds",
-	fire = "rbxasset://textures/particles/fire_main.dds",
-}
+-- камера и время ролика (общие для всех кадров)
+local camCF, camFOV, shake = CF(0, 2000, 0), 70, 0
+local songT = 0
 
 ----------------------------------------------------------------------
 -- ДЕТАЛИ, ТРЕУГОЛЬНИКИ, «ХОЛСТ» ДЛЯ РИСОВАНИЯ ДЕТАЛЯМИ
@@ -261,17 +274,20 @@ function Canvas:ellipse(x, y, rx, ry, color, layer, rot, o)
 	o = o or {}
 	local cf = self.frame * CF(-x * self.k, y * self.k, -(layer or 0) * self.d) * ANG(0, 0, -(rot or 0))
 	return self.maker(V3(2 * rx * self.k, 2 * ry * self.k, self.d * 0.6), color, cf,
-		{ shape = "ball", neon = o.neon, alpha = o.alpha, tag = o.tag })
+		{ shape = "ball", neon = o.neon, alpha = o.alpha, tag = o.tag or self.tag })
 end
 
 function Canvas:rect(x, y, w, h, color, layer, rot, o)
 	o = o or {}
 	local cf = self.frame * CF(-x * self.k, y * self.k, -(layer or 0) * self.d) * ANG(0, 0, -(rot or 0))
-	return self.maker(V3(w * self.k, h * self.k, self.d * 0.6), color, cf, { neon = o.neon, alpha = o.alpha, tag = o.tag })
+	return self.maker(V3(w * self.k, h * self.k, self.d * 0.6), color, cf, { neon = o.neon, alpha = o.alpha, tag = o.tag or self.tag })
 end
 
 function Canvas:tri(a, b, c, color, layer, o)
 	local frame, maker = self.frame, self.maker
+	if self.tag and not (o and o.tag) then
+		o = { tag = self.tag, neon = o and o.neon, alpha = o and o.alpha }
+	end
 	makeTri(function(size, col, cf, opts)
 		return maker(size, col, frame * cf, opts)
 	end, self:local3(a, layer), self:local3(b, layer), self:local3(c, layer), color, self.d * 0.6, o)
@@ -543,18 +559,24 @@ local function drawEye(cv, spec, side, skin, look, lookY, lidDrop)
 	end
 	local cx, cy = spec.c[1] * (side > 0 and -1 or 1), spec.c[2]
 	local rot = spec.rot * (side > 0 and -1 or 1)
+	local S = side > 0 and "R" or "L"
 	-- белок
+	cv.tag = "eye" .. S
 	cv:ellipse(cx, cy, spec.rx, spec.ry, C.white, 1, rad(rot))
 	-- радужка: одинаковый сдвиг взгляда для обоих глаз
 	local I = spec.iris
 	local ix, iy = cx + (look or 0), cy + (I.dy or 0) + (lookY or 0)
+	cv.tag = "iris" .. S
 	cv:ellipse(ix, iy, I.rx, I.ry, I.shade, 2)
 	cv:ellipse(ix, iy - I.ry * 0.12, I.rx * 0.86, I.ry * 0.8, I.color, 2.5)
 	cv:ellipse(ix, iy - I.ry * 0.42, I.rx * 0.62, I.ry * 0.36, I.color:Lerp(C.white, 0.35), 3)
+	cv.tag = "pupil" .. S
 	cv:ellipse(ix, iy + I.ry * 0.04, I.rx * 0.4, I.ry * 0.42, I.pupil, 3.5)
+	cv.tag = "hi" .. S
 	cv:ellipse(ix - I.rx * 0.32, iy + I.ry * 0.36, I.rx * 0.26, I.ry * 0.21, C.white, 4)
 	cv:ellipse(ix + I.rx * 0.34, iy - I.ry * 0.3, I.rx * 0.12, I.ry * 0.1, C.white, 4)
 	-- маски кожей: прячут белок и радужку за веками
+	cv.tag = "lid" .. S
 	local lid = drop(M(spec.lid))
 	cv:band(lid, cy + 0.2, skin, 5)
 	local low = { M(spec.lid)[1] }
@@ -562,23 +584,28 @@ local function drawEye(cv, spec, side, skin, look, lookY, lidDrop)
 		low[#low + 1] = p
 	end
 	low[#low + 1] = M(spec.lid)[#spec.lid]
-	cv:band(low, cy - 0.16, skin, 5)
 	-- линии век, ресницы, мешки под глазами
 	cv:stroke(lid, spec.lidW, spec.lidColor or C.ink, 6)
 	if spec.flick then
 		cv:stroke(M(spec.flick), spec.flickW, spec.lidColor or C.ink, 6)
 	end
+	cv.tag = "low" .. S
+	cv:band(low, cy - 0.16, skin, 5)
 	cv:stroke(M(spec.lower), spec.lowerW, spec.lowerColor, 6)
+	cv.tag = "bag" .. S
 	for _, bag in ipairs(spec.bags or {}) do
 		cv:stroke(M(bag[1]), bag[2], bag[3], 6)
 	end
+	cv.tag = nil
 end
 
 local function drawBrow(cv, pts, widths, color, side)
 	if side > 0 then
 		pts = mirror(pts)
 	end
+	cv.tag = "brow" .. (side > 0 and "R" or "L")
 	cv:stroke(pts, widths, color, 6.5)
+	cv.tag = nil
 end
 
 local YUTA_EYE = {
@@ -624,6 +651,16 @@ function Face.yuta(cv, skin, opt)
 	end
 	local line = skin:Lerp(RGB(150, 80, 70), 0.45)
 	cv:stroke({ { 0.005, -0.095 }, { 0.022, -0.15 }, { 0.006, -0.168 } }, { 0.003, 0.011, 0.004 }, line, 1)
+	if opt.stress then
+		-- капля пота и штрихи напряжения (появляются перед выстрелом)
+		cv.tag = "stress"
+		cv:ellipse(0.53, 0.12, 0.028, 0.045, RGB(170, 215, 255), 7, 0, { alpha = 1 })
+		cv:ellipse(0.524, 0.132, 0.009, 0.014, C.white, 7.5, 0, { alpha = 1 })
+		for i = 0, 2 do
+			cv:stroke({ { -0.42 + i * 0.05, -0.17 }, { -0.4 + i * 0.05, -0.2 } }, { 0.008, 0.002 }, RGB(170, 110, 105), 7, { alpha = 1 })
+		end
+		cv.tag = nil
+	end
 	if opt.mouth == "grit" then
 		cv:poly({ { -0.085, -0.322 }, { 0.085, -0.322 }, { 0.062, -0.348 }, { -0.062, -0.348 } }, RGB(70, 22, 28), 1)
 		cv:poly({ { -0.07, -0.323 }, { 0.07, -0.323 }, { 0.064, -0.333 }, { -0.064, -0.333 } }, C.tooth, 2)
@@ -672,6 +709,19 @@ function Face.ryu(cv, skin, opt)
 		end
 	end
 	cv:stroke({ { 0, 0.12 }, { 0.003, 0.18 }, { 0, 0.24 } }, { 0.002, 0.009, 0.002 }, line, 2)
+	if opt.stress then
+		-- вздутая вена и лишние складки (появляются перед выстрелом)
+		cv.tag = "stress"
+		local vein = RGB(170, 40, 50)
+		for _, q in ipairs({ { 1, 1 }, { -1, 1 }, { 1, -1 }, { -1, -1 } }) do
+			cv:stroke({ { 0.33 + q[1] * 0.012, 0.215 + q[2] * 0.012 }, { 0.33 + q[1] * 0.032, 0.215 + q[2] * 0.02 }, { 0.33 + q[1] * 0.045, 0.215 + q[2] * 0.042 } },
+				{ 0.012, 0.01, 0.003 }, vein, 7, { alpha = 1 })
+		end
+		for _, x in ipairs({ -0.07, 0.07 }) do
+			cv:stroke({ { x, 0.1 }, { x * 1.2, 0.17 }, { x, 0.25 } }, { 0.002, 0.011, 0.002 }, line, 7, { alpha = 1 })
+		end
+		cv.tag = nil
+	end
 	cv:stroke({ { -0.055, 0.065 }, { 0, 0.075 }, { 0.055, 0.065 } }, { 0.002, 0.01, 0.002 }, line, 2)
 	if not opt.closeup then
 		cv:stroke({ { -0.3, 0.33 }, { -0.1, 0.345 }, { 0.1, 0.345 }, { 0.3, 0.33 } }, { 0.002, 0.01, 0.01, 0.002 }, line, 2)
@@ -1245,106 +1295,300 @@ function FX.beam(a0, a1, color, w0, w1, o)
 	return b
 end
 
--- энергетический луч: белое ядро, цвет, мягкий ореол и бегущие искры
+
+-- энергетический луч: белое ядро, цвет, ореол; по нему бегут яркие штрихи
 function FX.energyBeam(color, width)
 	local a0, a1 = FX.att(), FX.att()
 	local spec = {
 		{ C.white, 0.3, 0, 8 },
 		{ color:Lerp(C.white, 0.55), 0.62, 0.05, 5 },
-		{ color, 1.25, 0.35, 3 },
-		{ color, 2.4, 0.76, 2 },
-		{ color, 4.4, 0.91, 1.5 },
+		{ color, 1.25, 0.3, 3 },
+		{ color, 2.3, 0.72, 2 },
 	}
 	local layers = {}
-	for i, s in ipairs(spec) do
-		layers[i] = { b = FX.beam(a0, a1, s[1], 1, 1, { alpha = NumberSequence.new(s[3]), brightness = s[4] }), k = s[2] }
+	for i, sp in ipairs(spec) do
+		layers[i] = { b = FX.beam(a0, a1, sp[1], 1, 1, { alpha = NumberSequence.new(sp[3]), brightness = sp[4] }), k = sp[2] }
 	end
-	layers[#layers + 1] = {
-		b = FX.beam(a0, a1, color:Lerp(C.white, 0.7), 1, 1, { alpha = NumberSequence.new(0.3), brightness = 4, texture = TEX.spark, texLen = 5, texSpeed = 7 }),
-		k = 1.1,
-	}
-	local obj = { width = width }
+	local obj = { width = width, from = V3(), to = V3() }
 	function obj.set(from, to, w)
 		a0.Position = from
 		a1.Position = to
+		obj.from, obj.to = from, to
 		w = w or obj.width
 		for _, L in ipairs(layers) do
 			L.b.Width0 = w * L.k
 			L.b.Width1 = w * L.k
 		end
 	end
+	local acc = 0
+	addUpdater(function(dt)
+		acc = acc + dt * 22
+		local d = obj.to - obj.from
+		local L = d.Magnitude
+		if L < 1 then
+			return true
+		end
+		local dir = d / L
+		while acc >= 1 do
+			acc = acc - 1
+			local side = dir:Cross(V3(0, 1, 0))
+			if side.Magnitude < 0.1 then
+				side = V3(1, 0, 0)
+			end
+			local off = side.Unit * rr(-0.35, 0.35) * obj.width + V3(0, rr(-0.35, 0.35) * obj.width, 0)
+			FX.streak(obj.from + dir * rr(0, L * 0.3) + off, dir, rr(4, 9), rr(70, 120), L / 95, color:Lerp(C.white, 0.8), obj.width * rr(0.12, 0.25), 6)
+		end
+		return true
+	end)
 	return obj
 end
 
--- Мягкое круглое свечение без «ступенек»: 28 тонких кругов, прозрачность каждого
--- подобрана так, что вместе они дают плавный спад яркости от центра к краю.
-local GLOW_RINGS = 28
-local function glowAlphas(A)
-	if A > 0.97 then
-		A = 0.97
-	end
-	local out = {}
-	local prevT = 1
-	for i = 1, GLOW_RINGS do
-		local r = 1 - (i - 1) / GLOW_RINGS
-		local T = 1 - A * (1 - r) ^ 2 -- пропускание внутри круга i
-		if T < 0.03 then
-			T = 0.03
+-- Аниме-вспышка: колючая звезда из широких сужающихся лучей (без кругов).
+-- Лучи смотрят в камеру, плавно дышат и медленно вращаются.
+function FX.flare(pos, radius, color, o)
+	o = o or {}
+	local c0 = FX.att(pos)
+	local spikes = {}
+	local function layer(n, k, col, br, alpha)
+		for i = 1, n do
+			local a1 = FX.att(pos)
+			local b = FX.beam(c0, a1, ColorSequence.new(C.white, col), 1, 0,
+				{ brightness = br, alpha = NS({ { 0, alpha }, { 0.7, alpha + 0.15 }, { 1, 1 } }) })
+			spikes[#spikes + 1] = { a = a1, b = b, ang = (i / n) * math.pi * 2 + rr(-0.2, 0.2), len = rr(0.75, 1.3) * k,
+				w = rr(0.55, 0.85) * k, ph = rr(0, 6.28), sp = rr(2, 5), k = k }
 		end
-		local a = 1 - T / prevT
-		if a < 0 then
-			a = 0
-		end
-		out[i] = a
-		prevT = T
 	end
-	-- самый внешний круг почти невидим, чтобы край был мягким
-	out[1] = math.min(out[1], 0.01)
-	return out
-end
-
-function FX.glow(pos, size, color, strength, brightness)
-	local holder = newPart(Shot.folder, V3(0.2, 0.2, 0.2), C.white, CF(pos), { alpha = 1 })
-	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.fromScale(size, size)
-	bb.LightInfluence = 0
-	bb.Brightness = brightness or 2
-	bb.AlwaysOnTop = false
-	bb.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	bb.Parent = holder
-	-- strength как раньше (прозрачность одного из 12 кругов) → яркость центра
-	local A = 1 - (1 - (strength or 0.14)) ^ 12
-	local alphas = glowAlphas(A)
-	local rings = {}
-	for i = 1, GLOW_RINGS do
-		local f = 1 - (i - 1) / GLOW_RINGS
-		local r = uiFrame(bb, {
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.fromScale(f, f),
-			BackgroundColor3 = color:Lerp(C.white, (1 - f) ^ 1.6),
-			BackgroundTransparency = 1 - alphas[i],
-			ZIndex = i,
-		})
-		corner(r, 0.5)
-		rings[i] = r
-	end
-	local obj = { holder = holder, bb = bb }
-	function obj.set(p, s, k)
+	layer(o.points or 9, 1.0, color, 3, o.alpha or 0.1)
+	layer(7, 0.55, color:Lerp(C.white, 0.6), 5, 0)
+	local obj = { pos = pos, radius = radius, spin = o.spin or 0.4, visible = 1 }
+	function obj.set(p, r, k)
 		if p then
-			holder.CFrame = CF(p)
+			obj.pos = p
 		end
-		if s then
-			bb.Size = UDim2.fromScale(s, s)
+		if r then
+			obj.radius = r
 		end
 		if k then
-			local al = glowAlphas(math.min(0.97, A * k))
-			for i, r in ipairs(rings) do
-				r.BackgroundTransparency = 1 - al[i]
-			end
+			obj.visible = k
 		end
 	end
+	addUpdater(function()
+		if not c0.Parent then
+			return false
+		end
+		local t = songT
+		local cp = camCF.Position
+		local look = (obj.pos - cp)
+		if look.Magnitude < 0.01 then
+			return true
+		end
+		look = look.Unit
+		local right = look:Cross(V3(0, 1, 0))
+		if right.Magnitude < 0.05 then
+			right = V3(1, 0, 0)
+		end
+		right = right.Unit
+		local up = right:Cross(look).Unit
+		c0.Position = obj.pos
+		for _, sk in ipairs(spikes) do
+			local a = sk.ang + t * obj.spin
+			local L = obj.radius * sk.len * (0.8 + 0.2 * sin(t * sk.sp + sk.ph)) * obj.visible
+			sk.a.Position = obj.pos + (right * cos(a) + up * sin(a)) * L
+			sk.b.Width0 = obj.radius * sk.w * obj.visible
+		end
+		return true
+	end)
 	return obj
+end
+
+-- блик-звёздочка: четыре тонких луча крестом
+function FX.twinkle(pos, size, color, life)
+	local c0 = FX.att(pos)
+	local arms = {}
+	for i = 1, 4 do
+		local a1 = FX.att(pos)
+		arms[i] = { a = a1, b = FX.beam(c0, a1, ColorSequence.new(C.white, color), size * 0.18, 0, { brightness = 5 }) }
+	end
+	local age, ph = 0, rr(0, 6)
+	addUpdater(function(dt)
+		age = age + dt
+		if life and age > life then
+			c0:Destroy()
+			for _, ar in ipairs(arms) do
+				ar.a:Destroy()
+				ar.b:Destroy()
+			end
+			return false
+		end
+		local k = 0.6 + 0.4 * sin(age * 9 + ph)
+		if life then
+			k = k * sin(math.pi * clamp01(age / life))
+		end
+		local cp = camCF.Position
+		local look = (pos - cp).Unit
+		local right = look:Cross(V3(0, 1, 0)).Unit
+		local up = right:Cross(look).Unit
+		local dirs = { right, -right, up, -up }
+		for i, ar in ipairs(arms) do
+			local L = size * k
+			if i > 2 then
+				L = L * 1.4
+			end
+			ar.a.Position = pos + dirs[i] * L
+		end
+		return true
+	end)
+end
+
+-- искра-штрих: летит по скорости и сжимается к концу жизни
+function FX.spark(pos, vel, color, len, life, width)
+	local p = newPart(Shot.folder, V3(width or 0.12, width or 0.12, len), color, nil, { neon = true })
+	local age = 0
+	addUpdater(function(dt)
+		age = age + dt
+		if age >= life or not p.Parent then
+			p:Destroy()
+			return false
+		end
+		vel = vel * (1 - math.min(0.9, 2.5 * dt))
+		pos = pos + vel * dt
+		local k = 1 - age / life
+		local L = len * k + 0.05
+		local v = vel
+		if v.Magnitude < 0.01 then
+			v = V3(0, 1, 0)
+		end
+		p.Size = V3((width or 0.12) * (0.4 + 0.6 * k), (width or 0.12) * (0.4 + 0.6 * k), L)
+		p.CFrame = CFrame.lookAt(pos, pos + v)
+		return true
+	end)
+	return p
+end
+
+function FX.sparkBurst(pos, n, colors, speed, len, life)
+	for _ = 1, n do
+		local d = randUnit()
+		FX.spark(pos + d * rr(0, 1), d * speed * rr(0.5, 1), pick(colors), len * rr(0.6, 1.3), life * rr(0.6, 1.2))
+	end
+end
+
+-- Мультяшный дым: белые клубы с тенью снизу и контуром. Растут, плывут и «лопаются».
+function FX.puff(pos, size, life, vel, o)
+	o = o or {}
+	local base = o.color or RGB(246, 248, 255)
+	local shade = o.shade or RGB(196, 210, 238)
+	local balls = {}
+	for i = 1, (o.count or 5) do
+		local off = V3(rr(-0.5, 0.5), rr(-0.25, 0.35), rr(-0.5, 0.5)) * size
+		local s = size * rr(0.45, 0.75)
+		local top = newPart(Shot.clouds, V3(s, s * 0.85, s), base, CF(pos + off), { shape = "ball" })
+		local bot = newPart(Shot.clouds, V3(s * 0.92, s * 0.6, s * 0.92), shade, CF(pos + off - V3(0, s * 0.18, 0)), { shape = "ball" })
+		balls[i] = { top = top, bot = bot, off = off, s = s }
+	end
+	local age = 0
+	vel = vel or V3()
+	addUpdater(function(dt)
+		age = age + dt
+		if age >= life then
+			for _, b in ipairs(balls) do
+				b.top:Destroy()
+				b.bot:Destroy()
+			end
+			return false
+		end
+		local a = age / life
+		local k
+		if a < 0.3 then
+			k = 0.35 + 0.65 * easeOut(a / 0.3)
+		elseif a > 0.75 then
+			k = 1 - easeIn((a - 0.75) / 0.25)
+		else
+			k = 1
+		end
+		k = math.max(k, 0.02)
+		pos = pos + vel * dt
+		for _, b in ipairs(balls) do
+			local s = b.s * k * (1 + 0.25 * a)
+			local c = pos + b.off * (1 + 0.4 * a)
+			b.top.Size = V3(s, s * 0.85, s)
+			b.top.CFrame = CF(c)
+			b.bot.Size = V3(s * 0.92, s * 0.6, s * 0.92)
+			b.bot.CFrame = CF(c - V3(0, s * 0.18, 0))
+		end
+		return true
+	end)
+end
+
+-- аниме-пламя: языки из сужающихся лучей, колышутся вверх
+function FX.flame(base, height, color, n)
+	local tongues = {}
+	for i = 1, (n or 7) do
+		local a0, a1 = FX.att(base), FX.att(base)
+		local b = FX.beam(a0, a1, ColorSequence.new(C.white, color), 1, 0,
+			{ brightness = 5, alpha = NS({ { 0, 0.05 }, { 0.6, 0.2 }, { 1, 1 } }) })
+		tongues[i] = { a0 = a0, a1 = a1, b = b, off = V3(rr(-1, 1), 0, rr(-1, 1)) * height * 0.22, h = rr(0.55, 1.1), ph = rr(0, 6), sp = rr(6, 11) }
+	end
+	local obj = { base = base, height = height, k = 1 }
+	addUpdater(function()
+		local t = songT
+		for _, tg in ipairs(tongues) do
+			local h = obj.height * tg.h * (0.7 + 0.3 * sin(t * tg.sp + tg.ph)) * obj.k
+			local sway = V3(sin(t * 3 + tg.ph), 0, cos(t * 2.5 + tg.ph)) * h * 0.18
+			tg.a0.Position = obj.base + tg.off
+			tg.a1.Position = obj.base + tg.off + V3(0, h, 0) + sway
+			tg.b.Width0 = obj.height * 0.35 * obj.k
+			tg.b.Enabled = obj.k > 0.02
+		end
+		return true
+	end)
+	return obj
+end
+
+-- рваное кольцо ударной волны из лучей (в плоскости экрана)
+function FX.ring(pos, color, r0, r1, life, width)
+	local n = 22
+	local pts = {}
+	for i = 0, n do
+		pts[i] = FX.att(pos)
+	end
+	local beams = {}
+	for i = 1, n do
+		beams[i] = FX.beam(pts[i - 1], pts[i], color, width or 0.6, width or 0.6, { brightness = 4 })
+	end
+	local jit = {}
+	for i = 0, n - 1 do
+		jit[i] = rr(0.85, 1.15)
+	end
+	jit[n] = jit[0]
+	local age = 0
+	addUpdater(function(dt)
+		age = age + dt
+		local k = age / life
+		if k >= 1 then
+			for _, b in ipairs(beams) do
+				b:Destroy()
+			end
+			for i = 0, n do
+				pts[i]:Destroy()
+			end
+			return false
+		end
+		local look = (pos - camCF.Position).Unit
+		local right = look:Cross(V3(0, 1, 0)).Unit
+		local up = right:Cross(look).Unit
+		local r = lerp(r0, r1, easeOut(k))
+		for i = 0, n do
+			local a = i / n * math.pi * 2
+			pts[i].Position = pos + (right * cos(a) + up * sin(a)) * r * jit[i]
+		end
+		local tr = NumberSequence.new(k)
+		for _, b in ipairs(beams) do
+			b.Transparency = tr
+			b.Width0 = (width or 0.6) * (1 - k * 0.6)
+			b.Width1 = b.Width0
+		end
+		return true
+	end)
 end
 
 -- сужающиеся лучи-вспышки из центра (аниме-звезда), двигаются плавно
@@ -1402,65 +1646,6 @@ function FX.rays(center, n, colors, minL, maxL, width, o)
 	return obj
 end
 
--- частицы на встроенных текстурах Roblox
-function FX.emitter(pos, box, p)
-	local holder = newPart(Shot.folder, box or V3(1, 1, 1), C.white, CF(pos), { alpha = 1 })
-	local e = Instance.new("ParticleEmitter")
-	e.Texture = p.texture or TEX.spark
-	e.Rate = p.rate or 0
-	e.Lifetime = NumberRange.new(p.life[1], p.life[2])
-	e.Speed = NumberRange.new(p.speed[1], p.speed[2])
-	e.SpreadAngle = Vector2.new(p.spread or 180, p.spread or 180)
-	e.Size = p.size
-	e.Transparency = p.alpha or NS({ { 0, 0 }, { 1, 1 } })
-	if typeof(p.color) == "ColorSequence" then
-		e.Color = p.color
-	else
-		e.Color = ColorSequence.new(p.color or C.white)
-	end
-	e.LightEmission = p.emission or 1
-	e.LightInfluence = 0
-	e.Brightness = p.brightness or 2
-	e.Drag = p.drag or 0
-	e.Acceleration = p.accel or V3()
-	e.Rotation = NumberRange.new(0, 360)
-	e.RotSpeed = NumberRange.new(-(p.rot or 40), p.rot or 40)
-	e.ZOffset = p.z or 0
-	if p.sphere then
-		e.Shape = Enum.ParticleEmitterShape.Sphere
-	else
-		e.Shape = Enum.ParticleEmitterShape.Box
-	end
-	e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
-	e.EmissionDirection = p.dir or Enum.NormalId.Top
-	e.LockedToPart = p.locked or false
-	e.Parent = holder
-	if p.burst then
-		e:Emit(p.burst)
-	end
-	return e, holder
-end
-
--- искры во все стороны
-function FX.sparks(pos, colors, rate, speed, size)
-	return FX.emitter(pos, V3(1, 1, 1), {
-		rate = rate, life = { 0.25, 0.6 }, speed = { speed * 0.5, speed }, drag = 4,
-		size = NS({ { 0, size or 0.5 }, { 1, 0 } }), alpha = NS({ { 0, 0 }, { 0.7, 0.1 }, { 1, 1 } }),
-		color = CS({ { 0, colors[1] }, { 1, colors[2] or colors[1] } }), brightness = 4, rot = 0,
-	})
-end
-
--- мягкий дым
-function FX.smoke(pos, box, color, rate, size, life, speed, o)
-	o = o or {}
-	return FX.emitter(pos, box, {
-		texture = TEX.smoke, rate = rate, life = { life * 0.7, life }, speed = { speed * 0.4, speed },
-		size = NS({ { 0, size * 0.55 }, { 1, size } }), alpha = o.alpha or NS({ { 0, 0.9 }, { 0.2, 0.45 }, { 1, 1 } }),
-		color = color, emission = o.emission or 0, brightness = o.brightness or 1, rot = 25, spread = o.spread or 60,
-		accel = o.accel, burst = o.burst, dir = o.dir,
-	})
-end
-
 -- молния из лучей
 function FX.bolt(color, width)
 	local n = 8
@@ -1488,36 +1673,6 @@ function FX.bolt(color, width)
 		end
 	end
 	return obj
-end
-
--- кольцо-ударная волна (всегда смотрит в камеру)
-function FX.ring(pos, color, size0, size1, life, thick)
-	local holder = newPart(Shot.folder, V3(0.2, 0.2, 0.2), C.white, CF(pos), { alpha = 1 })
-	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.fromScale(size0, size0)
-	bb.LightInfluence = 0
-	bb.Brightness = 3
-	bb.Parent = holder
-	local f = uiFrame(bb, { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 })
-	corner(f, 0.5)
-	local st = Instance.new("UIStroke")
-	st.Color = color
-	st.Thickness = thick or 8
-	st.Parent = f
-	local age = 0
-	addUpdater(function(dt)
-		age = age + dt
-		local k = age / life
-		if k >= 1 then
-			holder:Destroy()
-			return false
-		end
-		local s = lerp(size0, size1, easeOut(k))
-		bb.Size = UDim2.fromScale(s, s)
-		st.Transparency = k
-		st.Thickness = (thick or 8) * (1 - k * 0.7)
-		return true
-	end)
 end
 
 -- полоса, летящая по направлению dir (мягкие концы)
@@ -1590,11 +1745,11 @@ end
 ----------------------------------------------------------------------
 
 -- Всё стоит далеко от (0, 0, 0): не мешает Baseplate и точке появления
-local ORIGIN = V3(0, 0, 9000) -- город
-local CLASH_POINT = ORIGIN + V3(0, 16, 0)
-local CITY_CAM_REL = V3(-62, 50, -122) -- камера общего плана: вдоль её взгляда дома ниже
-local CITY_CAM = ORIGIN + CITY_CAM_REL
-local FIELD = V3(3000, 0, 9000) -- поле с кратером
+local FIELD = V3(3000, 0, 9000) -- поле боя
+local CLASH_POINT = FIELD + V3(0, 16, 0)
+local CITY_CAM = FIELD + V3(-62, 50, -122) -- камера общего плана
+local CRATER = FIELD + V3(24, 0, -14)
+local GROUND = RGB(66, 112, 222)
 local STAGE = {
 	eyes = V3(0, 2600, -6000),
 	yuta1 = V3(4000, 400, 0),
@@ -1605,123 +1760,143 @@ local STAGE = {
 	zoom = V3(6000, 400, -3000),
 }
 
-local function buildCity(parent)
+-- Поле боя по кадрам аниме: ярко-синий асфальт в трещинах, оранжевая разметка,
+-- тёмный кратер, персиковая пыль, белые клубы дыма и светлый город вдали
+local function buildBattlefield(parent)
 	local f = Instance.new("Folder")
-	f.Name = "City"
-	f.Parent = parent
-	local function at(x, y, z)
-		return CF(ORIGIN.X + x, ORIGIN.Y + y, ORIGIN.Z + z)
-	end
-	newPart(f, V3(2400, 2, 2400), RGB(26, 30, 36), at(0, -0.95, 0), { material = Enum.Material.Asphalt })
-	local r = Random.new(7)
-	local function n(a, b)
-		return r:NextNumber(a, b)
-	end
-	local camXZ = Vector2.new(CITY_CAM_REL.X, CITY_CAM_REL.Z)
-	local axis = (Vector2.new(0, 0) - camXZ).Unit
-	local span = (Vector2.new(0, 0) - camXZ).Magnitude
-	for gx = -11, 11 do
-		for gz = -11, 11 do
-			local cx, cz = gx * 46 + n(-6, 6), gz * 46 + n(-6, 6)
-			if not (abs(cx) < 70 and abs(cz) < 95) then
-				local w, d = n(18, 34), n(18, 34)
-				local h = n(14, 64)
-				if abs(cx) + abs(cz) < 300 then
-					h = h * 1.4
-				end
-				local rel = Vector2.new(cx, cz) - camXZ
-				local along = rel:Dot(axis)
-				local side = abs(rel.X * axis.Y - rel.Y * axis.X)
-				if along > -40 and along < span and side < 45 then
-					h = math.min(h, 22 + along * 0.06)
-				end
-				local col = RGB(r:NextInteger(36, 58), r:NextInteger(54, 76), r:NextInteger(60, 82))
-				local cf = at(cx, h / 2, cz)
-				newPart(f, V3(w, h, d), col, cf, { material = Enum.Material.Concrete })
-				newPart(f, V3(w * 0.4, n(2, 5), d * 0.4), col:Lerp(C.black, 0.3), cf * CF(n(-3, 3), h / 2 + 1.5, n(-3, 3)))
-				for _ = 1, r:NextInteger(2, 9) do
-					local face = r:NextInteger(1, 4)
-					local wy = n(-h / 2 + 3, h / 2 - 3)
-					local lit = RGB(255, 214, 140)
-					if r:NextNumber() < 0.35 then
-						lit = RGB(170, 210, 255)
-					end
-					if face == 1 then
-						newPart(f, V3(1.6, 1.1, 0.12), lit, cf * CF(n(-w / 2 + 2, w / 2 - 2), wy, -d / 2 - 0.05), { neon = true })
-					elseif face == 2 then
-						newPart(f, V3(1.6, 1.1, 0.12), lit, cf * CF(n(-w / 2 + 2, w / 2 - 2), wy, d / 2 + 0.05), { neon = true })
-					elseif face == 3 then
-						newPart(f, V3(0.12, 1.1, 1.6), lit, cf * CF(w / 2 + 0.05, wy, n(-d / 2 + 2, d / 2 - 2)), { neon = true })
-					else
-						newPart(f, V3(0.12, 1.1, 1.6), lit, cf * CF(-w / 2 - 0.05, wy, n(-d / 2 + 2, d / 2 - 2)), { neon = true })
-					end
-				end
-			end
-		end
-	end
-	-- не ставим обломки у камеры кадра столкновения
-	local function nearCam(x, z)
-		return (V3(x, 0, z) - V3(-14, 0, -35)).Magnitude < 24
-	end
-	for _ = 1, 40 do
-		local pos = V3(n(-68, 68), 0, n(-92, 92))
-		if nearCam(pos.X, pos.Z) then
-			pos = V3(pos.X, 0, math.abs(pos.Z) + 10)
-		end
-		local s = V3(n(3, 12), n(1.5, 7), n(3, 12))
-		newPart(f, s, RGB(52, 58, 60), at(pos.X, s.Y / 2 - 0.5, pos.Z) * ANG(n(-0.4, 0.4), n(0, 6.28), n(-0.4, 0.4)), { material = Enum.Material.Concrete })
-	end
-	for _ = 1, 18 do
-		local pos = V3(n(-60, 60), n(2, 8), n(-85, 85))
-		if nearCam(pos.X, pos.Z) then
-			pos = V3(pos.X, pos.Y, math.abs(pos.Z) + 10)
-		end
-		newPart(f, V3(0.5, 0.5, n(6, 16)), C.red, CF(ORIGIN + pos) * ANG(n(-1, 1), n(0, 6.28), n(-1, 1)))
-	end
-	return f
-end
-
--- поле после взрыва: светлая земля в трещинах, кратер с тёмными камнями
-local function buildField(parent)
-	local f = Instance.new("Folder")
-	f.Name = "Field"
+	f.Name = "Battlefield"
 	f.Parent = parent
 	local r = Random.new(11)
 	local function n(a, b)
 		return r:NextNumber(a, b)
 	end
-	local ground = RGB(186, 196, 214)
-	newPart(f, V3(1600, 2, 1600), ground, CF(FIELD + V3(0, -1, 0)))
-	local crater = FIELD + V3(24, 0, -14)
-	newPart(f, V3(0.2, 70, 64), RGB(132, 142, 162), CF(crater + V3(0, 0.02, 0)) * ANG(0, 0, rad(90)), { shape = "cyl" })
-	newPart(f, V3(0.2, 46, 42), RGB(98, 106, 124), CF(crater + V3(0, 0.05, 0)) * ANG(0, 0, rad(90)), { shape = "cyl" })
-	local rocks = Instance.new("Model")
-	rocks.Name = "Rocks"
-	rocks.Parent = f
-	outline(rocks, nil, 1, RGB(40, 44, 58))
-	for i = 1, 70 do
-		local a = n(0, math.pi * 2)
-		local rad0 = n(8, 26)
-		local pos = crater + V3(cos(a) * rad0 * 1.05, 0, sin(a) * rad0)
-		if (pos - (FIELD + V3(2, 0, 16))).Magnitude < 16 then
-			pos = crater + V3(cos(a) * 9, 0, -abs(sin(a)) * 12)
-		end
-		local s = V3(n(1.5, 6.5), n(1, 4.5), n(1.5, 6))
-		local shade = n(0.85, 1.15)
-		local col = RGB(floor(78 * shade), floor(86 * shade), floor(104 * shade))
-		newPart(rocks, s, col, CF(pos + V3(0, s.Y * 0.3, 0)) * ANG(n(-0.6, 0.6), n(0, 6.28), n(-0.6, 0.6)), { wedge = (i % 3 == 0) })
+	local function at(x, y, z)
+		return FIELD + V3(x, y, z)
 	end
-	-- трещины
-	local crack = RGB(118, 126, 146)
-	for i = 1, 26 do
-		local a = n(0, math.pi * 2)
-		local p = crater + V3(cos(a) * 33, 0.08, sin(a) * 30)
-		for _ = 1, r:NextInteger(3, 6) do
-			local a2 = a + n(-0.6, 0.6)
-			local L = n(5, 14)
-			local q = p + V3(cos(a2) * L, 0, sin(a2) * L)
-			newPart(f, V3(n(0.15, 0.4), 0.06, (q - p).Magnitude), crack, CFrame.lookAt((p + q) / 2, q))
+	newPart(f, V3(3000, 2, 3000), GROUND, CF(at(0, -1, 0)))
+	-- пятна тона на асфальте
+	for _ = 1, 45 do
+		local c = GROUND:Lerp(pick({ RGB(40, 80, 190), RGB(95, 140, 235), RGB(55, 95, 205) }), n(0.3, 0.7))
+		newPart(f, V3(n(20, 60), 0.04, n(15, 45)), c, CF(at(n(-220, 220), 0.02, n(-220, 220))) * ANG(0, n(0, 6.28), 0))
+	end
+	-- трещины: сеть по всему полю и лучи от кратера
+	local crack = RGB(22, 34, 92)
+	local cracks = Instance.new("Model")
+	cracks.Name = "Cracks"
+	cracks.Parent = f
+	local function crackLine(p, a, steps, wmax)
+		for _ = 1, steps do
+			a = a + n(-0.7, 0.7)
+			local L = n(3, 10)
+			local q = p + V3(cos(a) * L, 0, sin(a) * L)
+			newPart(cracks, V3(n(0.18, wmax), 0.06, (q - p).Magnitude + 0.2), crack, CFrame.lookAt((p + q) / 2, q))
+			if r:NextNumber() < 0.25 then
+				local a2 = a + n(-1.4, 1.4)
+				local L2 = n(2, 5)
+				local q2 = q + V3(cos(a2) * L2, 0, sin(a2) * L2)
+				newPart(cracks, V3(n(0.12, 0.3), 0.06, (q2 - q).Magnitude + 0.1), crack, CFrame.lookAt((q + q2) / 2, q2))
+			end
 			p = q
+		end
+	end
+	for _ = 1, 110 do
+		crackLine(at(n(-200, 200), 0.05, n(-200, 200)), n(0, 6.28), r:NextInteger(3, 7), 0.5)
+	end
+	for i = 1, 34 do
+		local a = i / 34 * math.pi * 2
+		crackLine(CRATER + V3(cos(a) * 19, 0.05, sin(a) * 13), a, r:NextInteger(5, 9), 0.7)
+	end
+	-- оранжевая разметка: двойные линии сеткой, местами стёрта
+	local paint = RGB(238, 156, 86)
+	local function lane(p0, dir, len)
+		local side = dir:Cross(V3(0, 1, 0)).Unit
+		local t = 0
+		while t < len do
+			local seg = n(12, 30)
+			if r:NextNumber() > 0.2 then
+				for _, o in ipairs({ -0.7, 0.7 }) do
+					local a0 = p0 + dir * t + side * o
+					local a1 = p0 + dir * math.min(len, t + seg) + side * o
+					local mid = (a0 + a1) / 2
+					if (V3(mid.X, 0, mid.Z) - V3(CRATER.X, 0, CRATER.Z)).Magnitude > 22 then
+						newPart(f, V3(0.45, 0.07, (a1 - a0).Magnitude), paint, CFrame.lookAt(mid, a1))
+					end
+				end
+			end
+			t = t + seg + n(1, 6)
+		end
+	end
+	for _, z in ipairs({ -70, -30, 30, 70 }) do
+		lane(at(-220, 0.06, z), V3(1, 0, 0), 440)
+	end
+	for _, x in ipairs({ -80, -40, 40, 80 }) do
+		lane(at(x, 0.06, -220), V3(0, 0, 1), 440)
+	end
+	-- кратер: тёмная яма с рваным краем из плит
+	newPart(f, V3(0.2, 40, 27), RGB(26, 32, 70), CF(CRATER + V3(0, 0.04, 0)) * ANG(0, 0, rad(90)), { shape = "cyl" })
+	newPart(f, V3(0.2, 28, 18), RGB(12, 14, 34), CF(CRATER + V3(0, 0.07, 0)) * ANG(0, 0, rad(90)), { shape = "cyl" })
+	local slabs = Instance.new("Model")
+	slabs.Name = "Slabs"
+	slabs.Parent = f
+	outline(slabs, nil, 1, RGB(16, 22, 60))
+	for i = 1, 30 do
+		local a = i / 30 * math.pi * 2 + n(-0.08, 0.08)
+		local pos = CRATER + V3(cos(a) * 20, 0, sin(a) * 13.5)
+		local s = V3(n(4, 8), n(0.8, 1.6), n(2.5, 5))
+		newPart(slabs, s, GROUND:Lerp(RGB(30, 50, 140), n(0.2, 0.6)), CF(pos + V3(0, 0.4, 0)) * ANG(0, -a, 0) * ANG(rad(n(-25, -8)), 0, rad(n(-10, 10))), { wedge = (i % 4 == 0) })
+	end
+	for _ = 1, 26 do
+		local pos = CRATER + V3(n(-14, 14), 0.3, n(-9, 9))
+		newPart(slabs, V3(n(1, 3.5), n(0.6, 2), n(1, 3.5)), RGB(30, 36, 70), CF(pos) * ANG(n(-1, 1), n(0, 6), n(-1, 1)))
+	end
+	-- вздыбленные плиты по полю
+	for _ = 1, 26 do
+		local pos = at(n(-180, 180), 0, n(-180, 180))
+		if (pos - CRATER).Magnitude > 30 and (pos - FIELD).Magnitude > 18 then
+			local s = V3(n(8, 22), n(1, 2), n(6, 14))
+			newPart(slabs, s, GROUND:Lerp(RGB(110, 150, 240), n(0, 0.4)), CF(pos + V3(0, s.Y * 0.3, 0)) * ANG(rad(n(-14, 14)), n(0, 6.28), rad(n(-14, 14))))
+		end
+	end
+	-- персиковая пыль вдали
+	for i = 1, 40 do
+		local a = i / 40 * math.pi * 2
+		local rad0 = n(235, 270)
+		newPart(f, V3(n(45, 70), 0.08, n(18, 34)), RGB(244, 208, 170):Lerp(RGB(230, 186, 150), n(0, 1)), CF(at(cos(a) * rad0, 0.03, sin(a) * rad0)) * ANG(0, -a, 0))
+	end
+	-- светлый город вдали
+	for i = 1, 70 do
+		local a = i / 70 * math.pi * 2 + n(-0.03, 0.03)
+		local d = n(330, 560)
+		local w, dd, h = n(26, 60), n(24, 50), n(30, 130)
+		local pos = at(cos(a) * d, h / 2, sin(a) * d)
+		local col = RGB(r:NextInteger(150, 186), r:NextInteger(166, 196), r:NextInteger(196, 222))
+		local cf = CFrame.lookAt(pos, V3(FIELD.X, pos.Y, FIELD.Z))
+		newPart(f, V3(w, h, dd), col, cf, { material = Enum.Material.Concrete })
+		local win = col:Lerp(RGB(90, 110, 160), 0.45)
+		for row = 1, floor(h / 9) do
+			newPart(f, V3(w * 0.86, 1.4, 0.2), win, cf * CF(0, -h / 2 + row * 9 - 2, -dd / 2 - 0.1))
+		end
+	end
+	-- тёмный завал справа (как на кадре с разломом)
+	for _ = 1, 26 do
+		local pos = at(n(200, 300), 0, n(60, 220))
+		local s = V3(n(20, 50), n(14, 50), n(20, 50))
+		newPart(f, s, RGB(26, 34, 70), CF(pos + V3(0, s.Y * 0.35, 0)) * ANG(n(-0.5, 0.5), n(0, 6), n(-0.5, 0.5)), { wedge = true })
+	end
+	-- белые клубы дыма с контуром (неподвижные, задний план)
+	local clouds = Instance.new("Model")
+	clouds.Name = "BackClouds"
+	clouds.Parent = f
+	outline(clouds, nil, 1, RGB(110, 130, 180))
+	for i = 1, 30 do
+		local a = i / 30 * math.pi * 2 + n(-0.1, 0.1)
+		local d = n(170, 290)
+		local base = at(cos(a) * d, n(6, 24), sin(a) * d)
+		for _ = 1, 6 do
+			local s = n(18, 34)
+			local p0 = base + V3(n(-22, 22), n(-6, 10), n(-22, 22))
+			newPart(clouds, V3(s, s * 0.8, s), RGB(240, 244, 252), CF(p0), { shape = "ball" })
+			newPart(clouds, V3(s * 0.9, s * 0.55, s * 0.9), RGB(196, 208, 236), CF(p0 - V3(0, s * 0.2, 0)), { shape = "ball" })
 		end
 	end
 	return f
@@ -1755,6 +1930,18 @@ local function buildEyes(parent)
 	local function maker(size, color, cf, o)
 		return newPart(f, size, color, cf, o)
 	end
+	-- детали с метками запоминаем, чтобы двигать их в кадре (напряжение перед выстрелом)
+	local function tagMaker(store)
+		return function(size, color, cf, o)
+			local p = newPart(f, size, color, cf, o)
+			if o and o.tag then
+				store[o.tag] = store[o.tag] or {}
+				table.insert(store[o.tag], { p = p, cf = cf, size = size, alpha = o.alpha or 0 })
+			end
+			return p
+		end
+	end
+	local tagsY, tagsR = {}, {}
 	local function sky(center, colors, h)
 		local p = newPart(f, V3(110, h or 24, 0.2), C.black, CF(center))
 		local sg = Instance.new("SurfaceGui")
@@ -1768,12 +1955,12 @@ local function buildEyes(parent)
 	-- ВЕРХ: Юта (z = 0)
 	local topC = S0 + V3(0, 11, 0)
 	sky(topC + V3(0, 0, 1.2), { RGB(58, 78, 150), RGB(120, 138, 202) })
-	local cvY = Canvas.new(maker, CF(topC + V3(-8, -1.8, 0)), k, EYES.d)
+	local cvY = Canvas.new(tagMaker(tagsY), CF(topC + V3(-8, -1.8, 0)), k, EYES.d)
 	local skinY = C.skinYuta
 	cvY:rect(0, 0.06, 1.25, 0.62, skinY, 0)
 	cvY:poly({ { 0.36, 0.33 }, { 0.625, 0.33 }, { 0.625, -0.27 }, { 0.5, -0.27 }, { 0.47, -0.05 }, { 0.42, 0.12 } }, skinY:Lerp(RGB(150, 110, 150), 0.32), 0.5)
 	cvY:rect(-0.6, 0.06, 0.05, 0.62, skinY:Lerp(RGB(150, 110, 150), 0.25), 0.5)
-	Face.yuta(cvY, skinY, { look = -0.03, angry = 0.55, mouth = "neutral", bangs = true })
+	Face.yuta(cvY, skinY, { look = -0.03, angry = 0.55, mouth = "neutral", bangs = true, stress = true })
 	for _, s in ipairs({
 		{ { { -0.66, 0.36 }, { -0.68, 0.15 }, { -0.64, -0.05 } }, { 0.12, 0.08, 0 } },
 		{ { { -0.76, 0.36 }, { -0.8, 0.2 }, { -0.78, 0.04 } }, { 0.1, 0.06, 0 } },
@@ -1785,11 +1972,11 @@ local function buildEyes(parent)
 	-- НИЗ: Рю (ближе к камере на 1.5, поэтому закрывает всё, что Юта «свесил» вниз)
 	local botC = S0 + V3(0, -11, -1.5)
 	sky(botC + V3(0, -0.5, 0.6), { RGB(70, 100, 175), RGB(152, 184, 230) }, 21)
-	local cvR = Canvas.new(maker, CF(botC + V3(8, -0.6, 0)), k, EYES.d)
+	local cvR = Canvas.new(tagMaker(tagsR), CF(botC + V3(8, -0.6, 0)), k, EYES.d)
 	local skinR = C.skinRyu
 	cvR:rect(0, -0.07, 1.25, 0.66, skinR, 0)
 	cvR:poly({ { -0.625, 0.28 }, { -0.42, 0.28 }, { -0.47, 0.1 }, { -0.5, -0.1 }, { -0.44, -0.3 }, { -0.625, -0.3 } }, skinR:Lerp(RGB(140, 90, 120), 0.3), 0.5)
-	Face.ryu(cvR, skinR, { look = 0.035, closeup = true })
+	Face.ryu(cvR, skinR, { look = 0.035, closeup = true, stress = true })
 	for _, s in ipairs({
 		{ { { -0.64, 0.28 }, { -0.68, 0.1 }, { -0.64, -0.12 } }, { 0.11, 0.07, 0 } },
 		{ { { -0.72, 0.28 }, { -0.76, 0.05 }, { -0.7, -0.2 } }, { 0.09, 0.06, 0 } },
@@ -1807,6 +1994,61 @@ local function buildEyes(parent)
 	for i = 1, 4 do
 		newPart(f, V3(140, rr(0.25, 0.6), 0.2), black, CF(S0 + V3(0, rr(-0.95, 0.95), fz - 0.05)) * ANG(0, 0, rad(rr(-0.4, 0.4))))
 	end
+
+	-- Напряжение t (0..1): веки опускаются, брови сходятся, зрачки сужаются,
+	-- блики гаснут, радужки дрожат, проступают пот и вена.
+	local faces = {
+		{ tags = tagsY, frame = cvY.frame, brow = { -0.47, 0.232 }, drop = 0.032, browA = 9 },
+		{ tags = tagsR, frame = cvR.frame, brow = { -0.48, 0.165 }, drop = 0.026, browA = 7 },
+	}
+	local function move(list, fn)
+		if not list then
+			return
+		end
+		for _, e in ipairs(list) do
+			e.p.CFrame = fn(e.cf)
+		end
+	end
+	function EYES.tension(t, time)
+		for fi, fc in ipairs(faces) do
+			for _, S in ipairs({ "L", "R" }) do
+				local sgn = (S == "L") and 1 or -1
+				local down = CF(0, -fc.drop * t * k, 0)
+				move(fc.tags["lid" .. S], function(cf)
+					return down * cf
+				end)
+				local up = CF(0, 0.012 * t * k, 0)
+				move(fc.tags["low" .. S], function(cf)
+					return up * cf
+				end)
+				local bx = fc.brow[1] * sgn
+				local pivot = fc.frame * CF(-bx * k, fc.brow[2] * k, 0)
+				local rot = pivot * ANG(0, 0, sgn * rad(fc.browA) * t) * pivot:Inverse()
+				local bdown = CF(0, -0.012 * t * k, 0)
+				move(fc.tags["brow" .. S], function(cf)
+					return bdown * rot * cf
+				end)
+				local j = 0.006 * k * clamp01((t - 0.3) / 0.7)
+				local jit = CF(noise(time * 9, fi * 3 + sgn) * j, noise(time * 9, fi * 5 - sgn) * j, 0)
+				move(fc.tags["iris" .. S], function(cf)
+					return jit * cf
+				end)
+				for _, e in ipairs(fc.tags["pupil" .. S] or {}) do
+					local sc = 1 - 0.38 * t
+					e.p.Size = V3(e.size.X * sc, e.size.Y * sc, e.size.Z)
+					e.p.CFrame = jit * e.cf
+				end
+				for _, e in ipairs(fc.tags["hi" .. S] or {}) do
+					e.p.Transparency = clamp01((t - 0.55) * 4)
+					e.p.CFrame = jit * e.cf
+				end
+			end
+			for _, e in ipairs(fc.tags.stress or {}) do
+				e.p.Transparency = 1 - clamp01((t - 0.45) * 3)
+			end
+		end
+	end
+	EYES.tension(0, 0)
 	return f
 end
 
@@ -1927,11 +2169,17 @@ local function buildUI()
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.43), Size = UDim2.fromScale(0.7, 0.045),
 		Text = "фан-анимация по «Магической битве»", Font = Enum.Font.GothamBold, TextColor3 = RGB(170, 220, 255), ZIndex = 21,
 	})
-	ui.btn1 = button(ui.start, "▶ ЧАСТЬ 1", 0.38, 0.6, RGB(255, 60, 170))
-	ui.btn2 = button(ui.start, "▶ ЧАСТЬ 2", 0.62, 0.6, RGB(40, 170, 255))
+	ui.btnAll = button(ui.start, "▶ СТАРТ: ВСЕ ЧАСТИ ПОДРЯД", 0.5, 0.58, RGB(255, 60, 170))
+	ui.btnAll.Size = UDim2.fromScale(0.4, 0.09)
+	ui.btn1 = button(ui.start, "Часть 1", 0.36, 0.7, RGB(60, 70, 120))
+	ui.btn2 = button(ui.start, "Часть 2", 0.5, 0.7, RGB(60, 70, 120))
+	ui.btn3 = button(ui.start, "Часть 3", 0.64, 0.7, RGB(60, 70, 120))
+	for _, b in ipairs({ ui.btn1, ui.btn2, ui.btn3 }) do
+		b.Size = UDim2.fromScale(0.12, 0.06)
+	end
 	uiText(ui.start, "TextLabel", {
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.78), Size = UDim2.fromScale(0.86, 0.034),
-		Text = "Сначала включи запись экрана · клавиши 1 и 2 — старт · R — повтор · графику поставь на 10",
+		Text = "Сначала включи запись экрана · ПРОБЕЛ — всё подряд · 1, 2, 3 — одна часть · R — повтор · графика 10",
 		Font = Enum.Font.GothamBold, TextColor3 = RGB(150, 150, 170), ZIndex = 21,
 	})
 
@@ -1941,7 +2189,7 @@ local function buildUI()
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.4), Size = UDim2.fromScale(0.6, 0.07), Text = "Конец", ZIndex = 21,
 	})
 	ui.again = button(ui.endScreen, "↻ ЕЩЁ РАЗ (R)", 0.38, 0.56, RGB(255, 60, 170))
-	ui.other = button(ui.endScreen, "▶ ДРУГАЯ ЧАСТЬ", 0.62, 0.56, RGB(40, 170, 255))
+	ui.other = button(ui.endScreen, "▶ ВСЁ ПОДРЯД", 0.62, 0.56, RGB(40, 170, 255))
 end
 
 -- линии скорости: k — сила (0..1), t — время
@@ -1971,9 +2219,7 @@ world.Parent = workspace
 
 local yuta, ryu, rika
 local rigs = {}
-local songT = 0
 local playing = false
-local camCF, camFOV, shake = CF(0, 2000, 0), 70, 0
 local fx = {}
 
 -- позы: {x, y, z} в градусах. Руки и хвост висят вниз: x+ — вперёд.
@@ -2018,6 +2264,21 @@ local POSE = {
 		root = { -4, 0, 0 }, neck = { -2, 0, 0 },
 		rArm = { 25, 0, 8 }, lArm = { 18, 0, -10 }, rLeg = { -12, 0, 6 }, lLeg = { 14, 0, -6 },
 	},
+	ryuBack = {
+		rArm = { 8, 0, 12 }, lArm = { 8, 0, -12 }, rLeg = { 0, 0, 8 }, lLeg = { 0, 0, -8 },
+	},
+	ryuArmsWide = {
+		root = { 6, 0, 0 }, neck = { 10, -10, 0 }, rArm = { 20, 0, 75 }, lArm = { 20, 0, -75 }, rLeg = { 0, 0, 6 }, lLeg = { 0, 0, -6 },
+	},
+	ryuHeadBack = {
+		root = { 10, 0, 0 }, neck = { 22, -10, 6 }, rArm = { 30, 0, 80 }, lArm = { 30, 0, -80 }, rLeg = { 0, 0, 6 }, lLeg = { 0, 0, -6 },
+	},
+	ryuReach = {
+		root = { -12, 0, 0 }, neck = { -5, 0, 0 }, rArm = { 85, 0, -10 }, lArm = { -20, 0, -20 }, rLeg = { -20, 0, 0 }, lLeg = { 20, 0, 0 },
+	},
+	ryuSide = {
+		root = { -8, 0, 0 }, neck = { -4, 0, 0 }, rArm = { 80, 0, 10 }, lArm = { -30, 0, -10 }, rLeg = { -15, 0, 0 }, lLeg = { 15, 0, 0 },
+	},
 	ryuLow = {
 		root = { 8, 0, 0 }, neck = { 10, -20, 6 },
 		rArm = { 10, 0, 12 }, lArm = { 15, 0, -15 },
@@ -2060,6 +2321,8 @@ local function placeBoneAt(rig, boneName, want)
 	rig:update(songT)
 end
 
+local partOffset = 0 -- начало текущей части на общем таймлайне
+
 local function beginShot(t0)
 	updaters = {}
 	if Shot.folder then
@@ -2074,12 +2337,16 @@ local function beginShot(t0)
 	Shot.debris.Name = "Debris"
 	Shot.debris.Parent = f
 	outline(Shot.debris, nil, 1)
-	Shot.t0 = t0
+	Shot.clouds = Instance.new("Model")
+	Shot.clouds.Name = "Clouds"
+	Shot.clouds.Parent = f
+	outline(Shot.clouds, nil, 1, RGB(70, 95, 150))
+	Shot.t0 = t0 + partOffset
 	Shot.update = nil
 	shake = 0
 	for _, r in ipairs(rigs) do
 		r:show(false)
-		for _, name in ipairs({ "root", "neck", "coat" }) do
+		for _, name in ipairs({ "root", "neck", "coat", "rArm", "lArm", "rLeg", "lLeg" }) do
 			if r.bones[name] and r ~= rika then
 				r.bones[name].wob = nil
 			end
@@ -2094,7 +2361,7 @@ local function beginShot(t0)
 	ui.washBottom.BackgroundTransparency = 1
 	ui.impact1.Visible = false
 	ui.impact2.Visible = false
-	ui.vignette.Visible = true
+	ui.vignette.Visible = false
 	ui.speed.Visible = false
 	Shot.blur = 0
 	return f
@@ -2106,19 +2373,33 @@ end
 
 local P1 = {}
 
--- 0.00–4.83: глаза Юты (сверху) и Рю (снизу)
+-- яркий дневной свет поля боя (меняется по кадрам только оттенком)
+local function dayLook(o)
+	o = o or {}
+	setLook({
+		clock = 13, brightness = o.brightness or 2.4, exposure = o.exposure or 0.15,
+		ambient = o.ambient or RGB(150, 165, 200), outdoor = o.outdoor or RGB(160, 176, 210),
+		fogColor = RGB(200, 220, 250), fogStart = o.fogStart or 450, fogEnd = o.fogEnd or 2600,
+		tint = o.tint or RGB(245, 250, 255), sat = o.sat or 0.3, contrast = o.contrast or 0.12, bright = o.bright or 0.03,
+		bloom = o.bloom or 0.9, bloomSize = 40, bloomThreshold = o.threshold or 0.9, dof = o.dof,
+	})
+end
+
+-- кадр с глазами: перед выстрелом оба напрягаются и сосредотачиваются
 function P1.eyes()
 	beginShot(0)
 	setLook({ clock = 12, brightness = 0, ambient = C.white, outdoor = C.white, fogStart = 100000, fogEnd = 100001,
-		bloom = 0.2, bloomThreshold = 0.97, sat = 0.06, contrast = 0.05 })
-	ui.vignette.Visible = false
+		bloom = 0.2, bloomThreshold = 0.97, sat = 0.08, contrast = 0.05 })
 	local S0 = STAGE.eyes
 	local cam0 = CFrame.lookAt(S0 + V3(0, 0, -EYES.camDist), S0)
 	camCF, camFOV = cam0, 20
+	EYES.tension(0, 0)
 	Shot.update = function(u)
 		local k = smooth(u / T1.WHITE)
-		camFOV = lerp(20, 18.9, k)
-		local j = 0.04 + 0.12 * clamp01((u - 3.4) / 1.2)
+		camFOV = lerp(20, 18.6, k)
+		local tense = smooth((u - 1.3) / 2.7)
+		EYES.tension(tense, songT)
+		local j = 0.03 + 0.14 * tense
 		camCF = cam0 * CF(noise(u * 6, 1.1) * j, noise(u * 6, 2.2) * j, 0)
 		local g = easeIn(clamp01((u - T1.GLOW) / (T1.WHITE - T1.GLOW)))
 		ui.washTop.BackgroundTransparency = 1 - g * 0.9
@@ -2130,9 +2411,7 @@ end
 -- 4.83–7.83: вспышка и столкновение лучей; Рика справа сверху бьёт из пасти
 function P1.clash()
 	local f = beginShot(T1.WHITE)
-	setLook({ clock = 0, brightness = 1.2, ambient = RGB(95, 115, 112), outdoor = RGB(85, 105, 108), tint = RGB(232, 255, 244),
-		sat = 0.4, contrast = 0.18, bright = 0.02, bloom = 1.4, bloomSize = 40, bloomThreshold = 0.8,
-		fogColor = RGB(14, 30, 34), fogStart = 120, fogEnd = 700 })
+	dayLook({ tint = RGB(238, 255, 250), sat = 0.35, bloom = 1.2, threshold = 0.85 })
 	ui.flashGrad.Color = CS({ { 0, RGB(110, 240, 180) }, { 0.5, C.white }, { 1, RGB(255, 140, 215) } })
 	ui.flashGrad.Rotation = 15
 	ui.flash.BackgroundTransparency = 0
@@ -2146,25 +2425,21 @@ function P1.clash()
 	rika:place(CFrame.lookAt(rp, V3(P.X, rp.Y, P.Z)))
 	rika:pose(POSE.rikaFire, 0)
 	rika:update(songT)
-	newPart(f, V3(32, 80, 28), RGB(34, 40, 44), CF(rp.X, rp.Y - 14 - 40, rp.Z + 4) * ANG(0, rad(20), 0), { material = Enum.Material.Concrete })
-	for _ = 1, 4 do
-		newPart(f, V3(0.6, 0.6, rr(8, 14)), C.red, CF(rp + V3(rr(-12, 12), -rr(12, 20), rr(-8, 8))) * ANG(rr(-1, 1), rr(0, 6), rr(-1, 1)))
-	end
+	newPart(f, V3(32, 80, 28), GROUND:Lerp(RGB(30, 50, 130), 0.5), CF(rp.X, rp.Y - 14 - 40, rp.Z + 4) * ANG(0, rad(20), 0))
 
 	local pink = FX.energyBeam(C.pink, 2.2)
 	local cyan = FX.energyBeam(C.cyan, 2.8)
 	local cyanFrom = cam0 * V3(-34, -19, -20)
-	local core = FX.glow(P, 26, C.yellow, 0.17, 3)
-	local halo = FX.glow(P, 64, RGB(255, 240, 205), 0.06, 1.5)
+	local core = FX.flare(P, 9, C.yellow, { points = 10 })
+	local coreP = FX.flare(P + cam0.RightVector * 2, 6, C.pinkHot, { points = 7, alpha = 0.3, spin = -0.6 })
+	local coreC = FX.flare(P - cam0.RightVector * 2, 6, C.cyan, { points = 7, alpha = 0.3, spin = 0.7 })
 	local rays = FX.rays(P, 22, { C.yellow, C.white, C.pinkHot, C.cyan, C.gold }, 10, 34, 1.6)
-	FX.emitter(P, V3(3, 3, 3), {
-		rate = 70, life = { 0.12, 0.25 }, speed = { 2, 6 }, sphere = true, brightness = 4,
-		size = NS({ { 0, 9 }, { 1, 16 } }), alpha = NS({ { 0, 0.35 }, { 1, 1 } }), color = CS({ { 0, C.white }, { 1, C.yellow } }),
-	})
-	FX.sparks(P, { C.yellow, C.white }, 280, 70, 0.7)
-	FX.smoke(cam0 * V3(-40, 22, -75), V3(50, 20, 20), CS({ { 0, RGB(40, 150, 115) }, { 1, RGB(30, 90, 80) } }), 6, 40, 3, 4, { burst = 12 })
-	FX.smoke(cam0 * V3(35, -24, -60), V3(40, 10, 20), ColorSequence.new(RGB(46, 66, 52)), 5, 34, 3, 3, { burst = 8 })
 	local bolts = { FX.bolt(C.cyan, 0.12), FX.bolt(C.yellow, 0.1), FX.bolt(RGB(230, 255, 255), 0.1), FX.bolt(C.white, 0.08) }
+	-- клубы дыма вокруг столкновения (мультяшные, с контуром)
+	for _ = 1, 10 do
+		local d = randUnit()
+		FX.puff(P + d * rr(10, 18) + V3(0, -4, 0), rr(7, 12), rr(2.5, 3.2), d * rr(1, 3) + V3(0, 1, 0))
+	end
 
 	local toCam = (cam0.Position - P).Unit
 	local function spawn(kind)
@@ -2173,20 +2448,21 @@ function P1.clash()
 			FX.flyer(V3(0.15, rr(0.8, 2.8), rr(1.2, 4.5)), pick({ C.yellow, C.gold, RGB(255, 246, 205) }), P + dir * rr(2, 5), dir * rr(28, 62),
 				{ neon = true, wedge = true, life = rr(0.55, 1.0), spin = 9 })
 		elseif kind == "rock" then
-			FX.flyer(V3(rr(0.7, 2.6), rr(0.6, 2.2), rr(0.7, 2.6)), C.rock, P + dir * rr(3, 6), dir * rr(18, 40),
-				{ material = Enum.Material.Slate, life = rr(0.9, 1.4), spin = 5, gravity = 18 })
-		elseif kind == "girder" then
-			local side = (cam0.RightVector * rr(-1, 1) + cam0.UpVector * rr(-0.3, 1)).Unit
-			FX.flyer(V3(0.35, 0.35, rr(2.5, 6)), C.red, P + side * rr(3, 6), side * rr(14, 28), { life = rr(1, 1.6), spin = 4, gravity = 10 })
+			FX.flyer(V3(rr(0.7, 2.6), rr(0.6, 2.2), rr(0.7, 2.6)), GROUND:Lerp(RGB(30, 40, 90), 0.5), P + dir * rr(3, 6), dir * rr(18, 40),
+				{ life = rr(0.9, 1.4), spin = 5, gravity = 18 })
 		elseif kind == "teal" then
 			FX.flyer(V3(0.12, rr(0.6, 1.8), rr(0.8, 2.6)), RGB(120, 245, 228), P + dir * rr(4, 10), dir * rr(22, 48),
 				{ neon = true, wedge = true, life = 0.9, spin = 7 })
-		else
-			FX.flyer(V3(0.1, rr(0.5, 1.4), rr(0.5, 1.6)), RGB(20, 40, 45), P + dir * rr(4, 10), dir * rr(20, 40), { wedge = true, life = 0.9, spin = 7 })
+		elseif kind == "spark" then
+			local d = randUnit()
+			FX.spark(P + d * rr(1, 3), d * rr(40, 90), pick({ C.yellow, C.white, C.pinkHot, C.cyan }), rr(2, 5), rr(0.25, 0.5), 0.14)
+		elseif kind == "puff" then
+			local d = (randUnit() + V3(0, 0.3, 0)).Unit
+			FX.puff(P + d * rr(8, 14), rr(5, 9), rr(1.6, 2.4), d * rr(4, 9))
 		end
 	end
 
-	local acc = { shard = 0, rock = 0, girder = 0, teal = 0, dark = 0 }
+	local acc = { shard = 0, rock = 0, teal = 0, spark = 0, puff = 0 }
 	local tBolt, tRing, tReroll = 0, 0, 0
 	local teal = nil
 	local w = T1.CLASH - T1.WHITE
@@ -2196,18 +2472,16 @@ function P1.clash()
 		camFOV = lerp(72, 64, k)
 		if u < w then
 			ui.flash.BackgroundTransparency = lerp(0, 0.5, u / w)
-			Shot.blur = lerp(26, 6, u / w)
+			Shot.blur = lerp(24, 5, u / w)
 			shake = 1.7
 		else
 			ui.flash.BackgroundTransparency = clamp01(0.5 + (u - w) * 3.5)
-			Shot.blur = math.max(0, 6 - (u - w) * 30)
+			Shot.blur = math.max(0, 5 - (u - w) * 30)
 			shake = 0.8 + 0.25 * sin(u * 31)
 		end
 		pink.set(rika.mouth(), P, 2.1 + sin(u * 50) * 0.3)
 		cyan.set(cyanFrom, P, 2.8 + sin(u * 43 + 1) * 0.4)
-		local pulse = 1 + sin(u * 40) * 0.12
-		core.set(nil, 26 * pulse)
-		halo.set(nil, 64 * (1 + sin(u * 23) * 0.08))
+		core.set(nil, 9 * (1 + sin(u * 40) * 0.12))
 		rays.update(u)
 		tReroll = tReroll - dt
 		if tReroll <= 0 then
@@ -2218,20 +2492,20 @@ function P1.clash()
 		if tBolt <= 0 then
 			tBolt = 0.05
 			for _, b in ipairs(bolts) do
-				b.strike(P, P + V3(rr(-1, 1), rr(-0.6, 1), rr(-1, 1)).Unit * rr(16, 34), 1.8)
+				b.strike(P, P + randUnit() * rr(16, 34), 1.8)
 			end
 		end
 		tRing = tRing - dt
 		if tRing <= 0 then
 			tRing = 0.3
-			FX.ring(P, C.white, 6, 46, 0.45, 10)
+			FX.ring(P, C.white, 4, 30, 0.45, 0.7)
 		end
 		local late = u > (T1.TEAL - T1.WHITE)
-		local rates = { shard = 48, rock = 15, girder = 4, teal = 0, dark = 0 }
+		local rates = { shard = 40, rock = 12, teal = 0, spark = 120, puff = 5 }
 		if u < w then
-			rates = { shard = 18, rock = 4, girder = 1, teal = 0, dark = 0 }
+			rates = { shard = 16, rock = 4, teal = 0, spark = 60, puff = 2 }
 		elseif late then
-			rates = { shard = 20, rock = 6, girder = 2, teal = 45, dark = 25 }
+			rates = { shard = 18, rock = 6, teal = 45, spark = 90, puff = 6 }
 		end
 		for kind, rate in pairs(rates) do
 			acc[kind] = acc[kind] + rate * dt
@@ -2243,38 +2517,36 @@ function P1.clash()
 		if late then
 			local g = clamp01((u - (T1.TEAL - T1.WHITE)) / (T1.CITY - T1.TEAL))
 			if not teal then
-				teal = FX.glow(P, 20, C.teal, 0.12, 2)
+				teal = FX.flare(P, 10, C.teal, { points = 12, alpha = 0.25 })
 			end
-			teal.set(nil, lerp(20, 140, easeOut(g)), 0.6 + g)
-			ui.tint.BackgroundColor3 = RGB(90, 235, 215)
-			ui.tint.BackgroundTransparency = lerp(1, 0.5, g)
+			teal.set(nil, lerp(10, 60, easeOut(g)))
+			ui.tint.BackgroundColor3 = RGB(110, 240, 220)
+			ui.tint.BackgroundTransparency = lerp(1, 0.45, g)
 			shake = lerp(0.9, 1.7, g)
 		end
 	end
 end
 
--- 7.83–8.70: общий план ночного города, розово-голубой взрыв
+-- 7.83–8.70: общий план: над полем встаёт розово-голубой взрыв
 function P1.city()
 	local f = beginShot(T1.CITY)
-	setLook({ clock = 0, brightness = 1.2, ambient = RGB(92, 118, 132), outdoor = RGB(86, 112, 128), tint = RGB(222, 236, 255),
-		sat = 0.28, contrast = 0.14, bright = 0.02, bloom = 1.1, bloomSize = 40, fogColor = RGB(16, 22, 44), fogStart = 160, fogEnd = 1100 })
+	dayLook({ tint = RGB(242, 246, 255), bloom = 1.0 })
 	local P = CLASH_POINT + V3(0, -4, 0)
 	local cam0 = CFrame.lookAt(CITY_CAM, P + V3(0, 26, 0))
 	local cam1 = CFrame.lookAt(CITY_CAM + (P - CITY_CAM).Unit * 16, P + V3(0, 27, 0))
 	camCF, camFOV = cam0, 46
 	local right, up = cam0.RightVector, cam0.UpVector
-	local pinkCS = CS({ { 0, RGB(255, 150, 230) }, { 1, RGB(170, 60, 200) } })
-	local cyanCS = CS({ { 0, RGB(170, 250, 255) }, { 1, RGB(40, 170, 230) } })
-	FX.smoke(P - right * 16 + up * 18, V3(26, 30, 14), pinkCS, 40, 48, 1.6, 12, { emission = 0.6, brightness = 2, burst = 30, alpha = NS({ { 0, 0.5 }, { 0.5, 0.35 }, { 1, 1 } }), spread = 80 })
-	FX.smoke(P + right * 16 + up * 18, V3(26, 30, 14), cyanCS, 40, 48, 1.6, 12, { emission = 0.6, brightness = 2, burst = 30, alpha = NS({ { 0, 0.5 }, { 0.5, 0.35 }, { 1, 1 } }), spread = 80 })
-	FX.smoke(P + up * 40, V3(14, 20, 14), ColorSequence.new(RGB(215, 190, 250)), 16, 40, 2, 22, { emission = 0.4, burst = 10, spread = 20 })
-	local core = FX.glow(P + up * 8, 28, RGB(255, 235, 255), 0.12, 3)
-	FX.glow(P - right * 14 + up * 22, 70, C.pink, 0.08, 2)
-	FX.glow(P + right * 14 + up * 22, 70, C.cyan, 0.08, 2)
-	FX.emitter(P + up * 20, V3(40, 40, 10), {
-		rate = 60, life = { 0.6, 1.1 }, speed = { 4, 12 }, size = NS({ { 0, 1.2 }, { 1, 0 } }), brightness = 4,
-		color = CS({ { 0, C.pinkHot }, { 0.5, C.white }, { 1, C.cyan } }), burst = 40,
-	})
+	local pinkC = { color = RGB(255, 205, 240), shade = RGB(236, 140, 210) }
+	local cyanC = { color = RGB(205, 248, 255), shade = RGB(120, 205, 245) }
+	for i = 1, 24 do
+		local side = (i % 2 == 0) and 1 or -1
+		local pos = P + right * side * rr(4, 26) + up * rr(4, 40)
+		FX.puff(pos, rr(9, 16), rr(1.4, 2.2), (right * side * rr(2, 6) + up * rr(6, 14)), side > 0 and cyanC or pinkC)
+	end
+	FX.flare(P + up * 10, 12, RGB(255, 240, 255), { points = 11 })
+	FX.flare(P - right * 12 + up * 22, 9, C.pink, { points = 8, alpha = 0.3 })
+	FX.flare(P + right * 12 + up * 22, 9, C.cyan, { points = 8, alpha = 0.3, spin = -0.5 })
+	FX.rays(P + up * 12, 18, { C.pinkHot, C.white, C.cyan }, 18, 45, 2.2, { colorStart = true, start = 4 })
 	for _ = 1, 170 do
 		local side = 1
 		if rng:NextNumber() < 0.5 then
@@ -2288,17 +2560,22 @@ function P1.city()
 		FX.flyer(V3(rr(1.2, 3.6), rr(0.8, 2.6), 0.15), col, P + up * rr(4, 34) + dir * rr(0, 14), dir * rr(8, 30),
 			{ neon = true, life = rr(0.8, 1.2), spin = 3, gravity = 4 })
 	end
-	local tStreak = 0
+	local tStreak, tPuff = 0, 0
 	Shot.update = function(u, dt)
 		local k = u / (T1.YUTA - T1.CITY)
 		camCF = cam0:Lerp(cam1, smooth(k))
 		shake = 0.22
-		core.set(nil, 28 * (1 + 0.1 * sin(u * 20)))
 		tStreak = tStreak - dt
 		if tStreak <= 0 then
 			tStreak = 0.05
 			local from = P + up * rr(10, 40) + right * rr(0, 20)
 			FX.streak(from, (right + up * rr(0.4, 0.8)).Unit, rr(18, 34), rr(90, 150), 0.45, RGB(150, 245, 255), rr(0.4, 0.8), 4)
+		end
+		tPuff = tPuff - dt
+		if tPuff <= 0 then
+			tPuff = 0.06
+			local side = (rng:NextNumber() < 0.5) and 1 or -1
+			FX.puff(P + right * side * rr(4, 20) + up * rr(10, 30), rr(8, 13), rr(1.2, 1.8), up * rr(8, 14) + right * side * rr(2, 6), side > 0 and cyanC or pinkC)
 		end
 	end
 end
@@ -2306,14 +2583,13 @@ end
 -- 8.70–10.00: Юта вытягивает руку, за спиной огромная Рика
 function P1.yuta()
 	local f = beginShot(T1.YUTA)
-	setLook({ clock = 0, brightness = 1, ambient = RGB(255, 215, 240), outdoor = RGB(255, 205, 235), tint = RGB(255, 236, 250),
-		sat = 0.25, contrast = 0.14, bright = 0.02, bloom = 1.0, dof = { 8.5, 6, 0.35 } })
+	setLook({ clock = 13, brightness = 1.6, ambient = RGB(255, 225, 245), outdoor = RGB(255, 218, 242), tint = RGB(255, 242, 252),
+		sat = 0.28, contrast = 0.12, bright = 0.05, bloom = 1.0, dof = { 8.5, 6, 0.3 } })
 	local base = STAGE.yuta1
 	local cam0 = CFrame.lookAt(base, base + V3(0, 0.08, -1))
 	local cam1 = cam0 * CF(-0.3, 0.1, -0.6)
 	camCF, camFOV = cam0, 52
-	FX.backdrop(cam0 * CF(0, 0, -240) * ANG(0, math.pi, 0), 900, 600, { RGB(255, 175, 232), RGB(205, 60, 170), RGB(120, 20, 110) }, 120)
-	FX.glow(cam0 * V3(-60, 35, -180), 160, RGB(255, 190, 240), 0.08, 1.5)
+	FX.backdrop(cam0 * CF(0, 0, -240) * ANG(0, math.pi, 0), 900, 600, { RGB(255, 210, 245), RGB(240, 110, 205), RGB(170, 50, 160) }, 120)
 
 	yuta:show(true)
 	yuta:place(cam0 * CF(1.1, -4.5, -8.0) * ANG(0, rad(112), 0))
@@ -2327,20 +2603,15 @@ function P1.yuta()
 	local hand = yuta:point("rArm", V3(0, -1.6, 0))
 	local armDir = (hand - yuta:point("rArm", V3(0, 0, 0))).Unit
 	local hit = hand + armDir * 2.2
-	local glow = FX.glow(hit, 4.5, C.pink, 0.16, 3)
+	local flare = FX.flare(hit, 2.6, C.pink, { points = 9 })
 	local rays = FX.rays(hit, 16, { C.pinkHot, C.white, C.pink }, 2, 8, 0.45, { bias = (armDir + V3(-0.3, 0.3, 0)) * 0.7 })
-	FX.sparks(hit, { C.pinkHot, C.white }, 120, 22, 0.25)
-	FX.emitter(cam0 * V3(0, 0, -12), V3(26, 16, 6), {
-		rate = 30, life = { 1, 2 }, speed = { 0.5, 2 }, size = NS({ { 0, 0.25 }, { 0.5, 0.35 }, { 1, 0 } }), brightness = 3,
-		color = ColorSequence.new(RGB(255, 190, 240)), burst = 30,
-	})
 	local sdir = (cam0.RightVector * -1 + cam0.UpVector * -0.5).Unit
-	local tStreak, tRing = 0, 0
+	local tStreak, tRing, tTw, tSp = 0, 0, 0, 0
 	Shot.update = function(u, dt)
 		local k = smooth(u / (T1.RYU - T1.YUTA))
 		camCF = cam0:Lerp(cam1, k)
 		shake = 0.16 + 0.08 * sin(u * 20)
-		glow.set(nil, 4.5 * (1 + sin(u * 37) * 0.15))
+		flare.set(nil, 2.6 * (1 + sin(u * 37) * 0.15))
 		rays.update(u)
 		if floor(u * 9) ~= floor((u - dt) * 9) then
 			rays.reroll(0.3)
@@ -2348,7 +2619,18 @@ function P1.yuta()
 		tRing = tRing - dt
 		if tRing <= 0 then
 			tRing = 0.35
-			FX.ring(hit, C.pinkHot, 1.5, 9, 0.4, 6)
+			FX.ring(hit, C.pinkHot, 1, 6, 0.4, 0.2)
+		end
+		tSp = tSp - dt
+		if tSp <= 0 then
+			tSp = 0.02
+			local d = (armDir + randUnit() * 0.9).Unit
+			FX.spark(hit, d * rr(12, 26), pick({ C.pinkHot, C.white }), rr(0.6, 1.4), rr(0.2, 0.4), 0.05)
+		end
+		tTw = tTw - dt
+		if tTw <= 0 then
+			tTw = 0.12
+			FX.twinkle(cam0 * V3(rr(-12, 12), rr(-6, 7), -rr(9, 16)), rr(0.25, 0.5), RGB(255, 200, 240), rr(0.6, 1.0))
 		end
 		tStreak = tStreak - dt
 		if tStreak <= 0 then
@@ -2368,14 +2650,14 @@ end
 -- 10.00–11.17: Рю отбрасывает голубым взрывом
 function P1.ryu()
 	local f = beginShot(T1.RYU)
-	setLook({ clock = 0, brightness = 1, ambient = RGB(150, 185, 235), outdoor = RGB(140, 175, 230), tint = RGB(218, 236, 255),
-		sat = 0.35, contrast = 0.16, bright = 0.02, bloom = 1.1, dof = { 8.4, 5, 0.3 } })
+	setLook({ clock = 13, brightness = 1.6, ambient = RGB(175, 205, 245), outdoor = RGB(170, 200, 240), tint = RGB(232, 244, 255),
+		sat = 0.3, contrast = 0.14, bright = 0.04, bloom = 1.0, dof = { 8.4, 5, 0.3 } })
 	ui.flash.BackgroundTransparency = 0.3
 	local base = STAGE.ryu1
 	local cam0 = CFrame.lookAt(base, base + V3(0, 0.02, -1)) * ANG(0, 0, rad(6))
 	local cam1 = cam0 * CF(0.2, 0.08, -0.7)
 	camCF, camFOV = cam0, 56
-	FX.backdrop(cam0 * CF(0, 0, -240) * ANG(0, math.pi, 0), 900, 600, { RGB(40, 90, 190), RGB(14, 36, 100), RGB(8, 18, 60) }, 70)
+	FX.backdrop(cam0 * CF(0, 0, -240) * ANG(0, math.pi, 0), 900, 600, { RGB(120, 190, 255), RGB(40, 100, 220), RGB(20, 50, 150) }, 70)
 
 	ryu:show(true)
 	showVariant(ryu.tags, "mouth_", "grin")
@@ -2386,24 +2668,16 @@ function P1.ryu()
 
 	local face = ryu:point("neck", V3(0, 0.7, 0))
 	local hit = face + cam0.RightVector * 2.2 + cam0.UpVector * 1.0 - cam0.LookVector * 0.4
-	local glow = FX.glow(hit, 3, C.cyan, 0.18, 4)
-	local halo = FX.glow(hit, 10, C.cyanDeep, 0.07, 2)
+	local flare = FX.flare(hit, 1.6, C.cyan, { points = 10 })
 	local rays = FX.rays(hit, 18, { C.cyan, C.white, RGB(160, 240, 255), C.pinkHot }, 1.5, 6.5, 0.32)
-	FX.sparks(hit, { C.cyan, C.white }, 160, 18, 0.22)
-	FX.emitter(cam0 * V3(-2.5, 0, -6.5), V3(5, 6, 2), {
-		rate = 40, life = { 0.2, 0.45 }, speed = { 0.5, 2 }, size = NS({ { 0, 0.18 }, { 1, 0 } }), brightness = 4,
-		color = ColorSequence.new(RGB(255, 90, 210)),
-	})
 	local toCam = (cam0.Position - hit).Unit
-	local acc = { shard = 0, streak = 0 }
+	local acc = { shard = 0, streak = 0, spark = 0, tw = 0 }
 	Shot.update = function(u, dt)
 		local k = smooth(u / (T1.FIN - T1.RYU))
 		camCF = cam0:Lerp(cam1, k)
 		shake = lerp(1.0, 0.45, k)
 		ui.flash.BackgroundTransparency = clamp01(0.3 + u * 6)
-		local pulse = 1 + sin(u * 35) * 0.15 + u * 0.35
-		glow.set(nil, 3 * pulse)
-		halo.set(nil, 10 * (1 + u * 0.45))
+		flare.set(nil, 1.6 * (1 + sin(u * 35) * 0.15 + u * 0.35))
 		rays.scale = 1 + u * 0.4
 		rays.update(u)
 		if floor(u * 10) ~= floor((u - dt) * 10) then
@@ -2415,6 +2689,17 @@ function P1.ryu()
 			local dir = (toCam * 0.5 + cam0.RightVector * rr(-0.4, 1.2) + V3(rr(-1, 1), rr(-0.8, 1), rr(-1, 1))).Unit
 			FX.flyer(V3(0.06, rr(0.2, 0.6), rr(0.3, 0.9)), pick({ C.cyan, RGB(140, 240, 255), RGB(90, 210, 255) }), hit + dir * rr(0.4, 1.5), dir * rr(7, 16),
 				{ neon = true, wedge = true, life = rr(0.5, 1.0), spin = 6 })
+		end
+		acc.spark = acc.spark + 50 * dt
+		while acc.spark >= 1 do
+			acc.spark = acc.spark - 1
+			local d = randUnit()
+			FX.spark(hit, d * rr(10, 22), pick({ C.cyan, C.white }), rr(0.5, 1.2), rr(0.2, 0.4), 0.04)
+		end
+		acc.tw = acc.tw + 14 * dt
+		while acc.tw >= 1 do
+			acc.tw = acc.tw - 1
+			FX.twinkle(cam0 * V3(rr(-5, 1), rr(-3, 3), -rr(5, 8)), rr(0.1, 0.22), RGB(255, 100, 215), rr(0.25, 0.5))
 		end
 		acc.streak = acc.streak + 6 * dt
 		while acc.streak >= 1 do
@@ -2437,40 +2722,52 @@ P1.fin = T1.FIN
 local P2 = {}
 local RAINBOW = { C.pink, C.cyan, C.yellow, C.orange, C.blue, C.white, C.pinkHot }
 
--- радужный взрыв: лучи, цветной дым, осколки летят в камеру
+-- радужный взрыв: лучи, колючие вспышки, цветной дым, искры, осколки летят в камеру
 local function rainbowBurst(P, cam0, scale)
 	local rays = FX.rays(P, 40, RAINBOW, 18 * scale, 70 * scale, 2.4 * scale, { brightness = 2.5, colorStart = true, start = 5 })
-	local core = FX.glow(P, 13 * scale, RGB(255, 225, 245), 0.16, 3)
-	FX.smoke(P, V3(36, 36, 36) * scale, CS({ { 0, C.pinkHot }, { 0.5, RGB(120, 80, 255) }, { 1, C.cyan } }), 14, 30 * scale, 1.4, 18 * scale,
-		{ emission = 0.25, brightness = 1.2, burst = 10, spread = 180, alpha = NS({ { 0, 0.75 }, { 0.4, 0.7 }, { 1, 1 } }) })
-	FX.sparks(P, { C.yellow, C.pinkHot }, 100, 80 * scale, 0.7 * scale)
-	local bolts = { FX.bolt(C.cyan, 0.15), FX.bolt(C.pinkHot, 0.15), FX.bolt(C.yellow, 0.12) }
-	-- цветные мягкие подсветки вокруг: кадр заполнен цветом, а не белым пятном
+	local core = FX.flare(P, 6 * scale, RGB(255, 235, 250), { points = 11 })
 	local fills = {}
-	local fillCols = { C.pink, C.cyan, C.blue, C.yellow, C.magenta, C.cyanDeep }
 	for i = 1, 6 do
 		local a = (i / 6) * math.pi * 2
 		local off = (cam0.RightVector * cos(a) + cam0.UpVector * sin(a)) * rr(10, 18) * scale
-		fills[i] = { g = FX.glow(P + off, rr(30, 46) * scale, fillCols[i], 0.05, 1.6), off = off, ph = rr(0, 6) }
+		fills[i] = FX.flare(P + off, rr(8, 12) * scale, RAINBOW[i], { points = 7, alpha = 0.35, spin = rr(-0.8, 0.8) })
 	end
+	local bolts = { FX.bolt(C.cyan, 0.15), FX.bolt(C.pinkHot, 0.15), FX.bolt(C.yellow, 0.12) }
 	local toCam = (cam0.Position - P).Unit
 	local obj = { rays = rays, core = core }
-	local acc, tb = 0, 0
+	local acc, sp, pf, tb = 0, 0, 0, 0
+	local cloudCols = {
+		{ color = RGB(255, 205, 240), shade = RGB(236, 140, 210) },
+		{ color = RGB(205, 248, 255), shade = RGB(120, 205, 245) },
+		{ color = RGB(255, 245, 200), shade = RGB(240, 200, 120) },
+	}
 	function obj.update(u, dt, rate)
 		rays.update(u)
 		if floor(u * 8) ~= floor((u - dt) * 8) then
 			rays.reroll(0.3)
 		end
-		core.set(nil, 13 * scale * (1 + 0.12 * sin(u * 30)))
-		for _, fl in ipairs(fills) do
-			fl.g.set(P + fl.off * (1 + 0.15 * sin(u * 3 + fl.ph)))
-		end
+		core.set(nil, 6 * scale * (1 + 0.15 * sin(u * 30)))
 		tb = tb - dt
 		if tb <= 0 then
 			tb = 0.06
 			for _, b in ipairs(bolts) do
 				b.strike(P, P + randUnit() * rr(20, 45) * scale, 2.5 * scale)
 			end
+		end
+		sp = sp + 140 * dt
+		while sp >= 1 do
+			sp = sp - 1
+			local d = randUnit()
+			FX.spark(P + d * rr(1, 4), d * rr(50, 110) * scale, pick(RAINBOW), rr(2, 6) * scale, rr(0.25, 0.5), 0.14 * scale)
+		end
+		pf = pf + 8 * dt
+		while pf >= 1 do
+			pf = pf - 1
+			local d = randUnit()
+			if d:Dot(toCam) > -0.2 then
+				d = (d - toCam * (d:Dot(toCam) + 0.6)).Unit
+			end
+			FX.puff(P + d * rr(12, 22) * scale, rr(6, 11) * scale, rr(1.2, 1.8), d * rr(6, 12) * scale, pick(cloudCols))
 		end
 		acc = acc + (rate or 60) * dt
 		while acc >= 1 do
@@ -2491,12 +2788,12 @@ end
 -- 0.00–3.20: внутри столкновения — радужный взрыв
 function P2.vortex()
 	beginShot(0)
-	setLook({ clock = 0, brightness = 1, ambient = RGB(90, 90, 140), tint = RGB(245, 240, 255), sat = 0.5, contrast = 0.2,
-		bloom = 1.5, bloomSize = 44, bloomThreshold = 0.8 })
+	setLook({ clock = 13, brightness = 1.5, ambient = RGB(150, 150, 200), tint = RGB(250, 245, 255), sat = 0.5, contrast = 0.15,
+		bloom = 1.3, bloomSize = 44, bloomThreshold = 0.8 })
 	local S0 = STAGE.vortex
 	local cam0 = CFrame.lookAt(S0 + V3(0, 0, 34), S0)
 	camCF, camFOV = cam0, 75
-	FX.backdrop(CF(S0 + V3(0, 0, -160)), 900, 600, { RGB(30, 40, 120), RGB(60, 20, 90), RGB(10, 10, 40) }, 45)
+	FX.backdrop(CF(S0 + V3(0, 0, -160)) * ANG(0, math.pi, 0), 900, 600, { RGB(70, 90, 210), RGB(140, 60, 190), RGB(40, 40, 130) }, 45)
 	local burst = rainbowBurst(S0, cam0, 1)
 	local tStreak = 0
 	Shot.update = function(u, dt)
@@ -2519,16 +2816,13 @@ end
 -- 3.20–7.90: Рю смеётся, по нему бежит голубая энергия
 function P2.laugh()
 	local f = beginShot(T2.LAUGH)
-	setLook({ clock = 0, brightness = 1, ambient = RGB(175, 200, 215), outdoor = RGB(170, 198, 215), tint = RGB(228, 246, 255),
-		sat = 0.2, contrast = 0.16, bloom = 1.0, dof = { 5.8, 4, 0.45 } })
+	setLook({ clock = 13, brightness = 1.4, ambient = RGB(190, 215, 230), outdoor = RGB(185, 212, 230), tint = RGB(235, 248, 255),
+		sat = 0.22, contrast = 0.14, bright = 0.04, bloom = 1.0, dof = { 5.8, 4, 0.4 } })
 	local S0 = STAGE.laugh
 	local cam0 = CFrame.lookAt(S0, S0 + V3(0, -0.02, -1))
 	local cam1 = cam0 * CF(-0.12, 0.03, -0.7)
 	camCF, camFOV = cam0, 40
-	FX.backdrop(cam0 * CF(0, 0, -200) * ANG(0, math.pi, 0), 700, 500, { RGB(40, 110, 120), RGB(12, 40, 50), RGB(4, 14, 22) }, 60)
-	for i = 1, 6 do
-		FX.glow(cam0 * V3(rr(-60, 60), rr(-30, 40), -rr(120, 180)), rr(10, 26), pick({ C.cyan, RGB(90, 200, 255), RGB(140, 255, 230) }), 0.06, 1.5)
-	end
+	FX.backdrop(cam0 * CF(0, 0, -200) * ANG(0, math.pi, 0), 700, 500, { RGB(110, 210, 225), RGB(40, 120, 150), RGB(20, 60, 90) }, 60)
 	local light = newPart(f, V3(1, 1, 1), C.white, cam0 * CF(5, 1, -5), { alpha = 1 })
 	local pl = Instance.new("PointLight")
 	pl.Color = C.cyan
@@ -2549,19 +2843,10 @@ function P2.laugh()
 		return CF(0, bob * 0.04 * sin(t * 18), 0)
 	end
 
-	-- голубая энергия справа
 	local side = cam0 * V3(2.9, -0.9, -6.0)
-	FX.emitter(side, V3(1.5, 3, 1.5), {
-		texture = TEX.fire, rate = 50, life = { 0.4, 0.8 }, speed = { 2, 5 }, spread = 25,
-		size = NS({ { 0, 1.4 }, { 1, 0.2 } }), color = CS({ { 0, RGB(220, 255, 255) }, { 1, C.cyanDeep } }), brightness = 4, accel = V3(0, 3, 0),
-	})
-	local glow = FX.glow(side + V3(0, 0.8, 0), 6, C.cyan, 0.12, 3)
+	local flame = FX.flame(side + V3(0, -0.6, 0), 2.2, C.cyan, 8)
+	local flare = FX.flare(side + V3(0, 0.8, 0), 1.3, C.cyan, { points = 9, alpha = 0.2 })
 	local bolts = { FX.bolt(C.cyan, 0.05), FX.bolt(RGB(200, 255, 255), 0.04) }
-	FX.emitter(cam0 * V3(1.5, 0, -6.8), V3(5, 4, 1), {
-		rate = 40, life = { 0.4, 0.9 }, speed = { 0.5, 2 }, size = NS({ { 0, 0.12 }, { 1, 0 } }), brightness = 5,
-		color = ColorSequence.new(RGB(170, 245, 255)),
-	})
-	-- голубые мазки через лицо
 	local face = ryu:point("neck", V3(0, 0.55, -0.7))
 	local strokes = {}
 	for i = 1, 3 do
@@ -2571,7 +2856,7 @@ function P2.laugh()
 	end
 	local schedule = { { 0, "smirk" }, { 0.8, "grin" }, { 1.2, "laugh" }, { 2.5, "grin" }, { 3.1, "smirk" }, { 3.8, "grin" } }
 	local current = ""
-	local tb = 0
+	local tb, tw = 0, 0
 	Shot.update = function(u, dt)
 		local k = smooth(u / (T2.ZOOM - T2.LAUGH))
 		camCF = cam0:Lerp(cam1, k) * CF(noise(u * 1.5, 7) * 0.05, noise(u * 1.5, 8) * 0.05, 0)
@@ -2591,13 +2876,18 @@ function P2.laugh()
 			target = 1
 		end
 		bob = lerp(bob, target, clamp01(dt * 8))
-		glow.set(nil, 6 * (1 + 0.2 * sin(u * 14)))
+		flare.set(nil, 1.3 * (1 + 0.2 * sin(u * 14)))
 		tb = tb - dt
 		if tb <= 0 then
 			tb = 0.07
 			for _, b in ipairs(bolts) do
 				b.strike(side + V3(0, rr(-1, 2), 0), side + V3(rr(-3, 1), rr(1, 4), rr(-1, 1)), 0.5)
 			end
+		end
+		tw = tw - dt
+		if tw <= 0 then
+			tw = 0.1
+			FX.twinkle(cam0 * V3(rr(-4, 4), rr(-2, 3), -rr(6, 9)), rr(0.12, 0.25), RGB(170, 245, 255), rr(0.5, 0.9))
 		end
 		for i, s in ipairs(strokes) do
 			local x = sin(u * 0.8 + s.ph) * 0.8
@@ -2611,21 +2901,19 @@ end
 -- 7.90–8.55: радужный рывок вперёд
 function P2.zoom()
 	beginShot(T2.ZOOM)
-	setLook({ clock = 0, brightness = 1, ambient = RGB(100, 100, 150), tint = RGB(255, 245, 255), sat = 0.5, contrast = 0.15, bloom = 1.6, bloomSize = 50 })
+	setLook({ clock = 13, brightness = 1.5, ambient = RGB(150, 150, 200), tint = RGB(255, 248, 255), sat = 0.5, contrast = 0.12, bloom = 1.4, bloomSize = 50 })
 	local S0 = STAGE.zoom
 	local cam0 = CFrame.lookAt(S0 + V3(0, 0, 60), S0)
 	camCF, camFOV = cam0, 80
-	FX.backdrop(CF(S0 + V3(0, 0, -200)), 900, 600, { RGB(60, 30, 110), RGB(20, 20, 60) }, 90)
-	local core = FX.glow(S0, 8, RGB(255, 240, 200), 0.16, 3)
+	FX.backdrop(CF(S0 + V3(0, 0, -200)) * ANG(0, math.pi, 0), 900, 600, { RGB(120, 70, 210), RGB(50, 60, 160) }, 90)
+	local core = FX.flare(S0, 5, RGB(255, 240, 200), { points = 10 })
 	local zrays = FX.rays(S0, 34, RAINBOW, 30, 90, 3, { brightness = 2.5, colorStart = true, start = 6 })
-	FX.smoke(S0, V3(50, 50, 40), CS({ { 0, C.pinkHot }, { 0.5, C.cyan }, { 1, C.yellow } }), 16, 36, 1.2, 22,
-		{ emission = 0.3, brightness = 1.4, burst = 12, spread = 180, alpha = NS({ { 0, 0.75 }, { 0.4, 0.7 }, { 1, 1 } }) })
 	Shot.update = function(u, dt)
 		camCF = cam0 * CF(0, 0, -50 * easeIn(u / (T2.IMPACT1 - T2.ZOOM))) * ANG(0, 0, rad(u * 25))
 		camFOV = lerp(80, 95, u / 0.65)
-		Shot.blur = 10
+		Shot.blur = 9
 		shake = 1
-		core.set(nil, 8 + u * 20)
+		core.set(nil, 5 + u * 14)
 		zrays.update(u)
 		for _ = 1, 3 do
 			local a = rr(0, math.pi * 2)
@@ -2642,7 +2930,6 @@ local function impactShot(t0, key)
 	return function()
 		beginShot(t0)
 		camCF = CF(0, 3000, 0)
-		ui.vignette.Visible = false
 		ui[key].Visible = true
 	end
 end
@@ -2652,13 +2939,13 @@ P2.impact2 = impactShot(T2.IMPACT2, "impact2")
 -- 8.65–9.20: жёлтый взрыв, потом смаз с силуэтом Юты
 function P2.burst()
 	beginShot(T2.BURST)
-	setLook({ clock = 0, brightness = 1, ambient = RGB(255, 200, 220), tint = RGB(255, 245, 230), sat = 0.45, contrast = 0.12, bloom = 1.6, bloomSize = 50 })
+	setLook({ clock = 13, brightness = 1.5, ambient = RGB(255, 210, 230), tint = RGB(255, 248, 235), sat = 0.45, contrast = 0.1, bloom = 1.4, bloomSize = 50 })
 	local S0 = STAGE.zoom + V3(0, 0, -500)
 	local cam0 = CFrame.lookAt(S0 + V3(0, 0, 30), S0)
 	camCF, camFOV = cam0, 70
-	FX.backdrop(CF(S0 + V3(0, 0, -150)), 900, 600, { RGB(255, 120, 200), RGB(60, 160, 255), RGB(255, 220, 120) }, 30)
+	FX.backdrop(CF(S0 + V3(0, 0, -150)) * ANG(0, math.pi, 0), 900, 600, { RGB(255, 150, 220), RGB(90, 180, 255), RGB(255, 225, 130) }, 30)
 	local burst = rainbowBurst(S0, cam0, 0.8)
-	local yellow = FX.glow(S0, 12, C.yellow, 0.18, 4)
+	local yellow = FX.flare(S0, 7, C.yellow, { points = 12 })
 	yuta:show(true)
 	yuta:place(cam0 * CF(9, -4, -12) * ANG(0, rad(130), 0))
 	yuta:pose(POSE.yutaOrb, 0)
@@ -2667,9 +2954,9 @@ function P2.burst()
 		camCF = cam0 * CF(0, 0, -6 * u) * ANG(0, 0, rad(-6 * u))
 		shake = 1.2
 		burst.update(u, dt, 50)
-		yellow.set(nil, 12 * (1 + 0.3 * sin(u * 25)))
+		yellow.set(nil, 7 * (1 + 0.3 * sin(u * 25)))
 		local blurPhase = clamp01((u - (T2.BLUR - T2.BURST)) / 0.08)
-		Shot.blur = lerp(4, 22, blurPhase)
+		Shot.blur = lerp(3, 20, blurPhase)
 		yuta:show(blurPhase > 0)
 		updateSpeedLines(0.5 * (1 - blurPhase), u)
 	end
@@ -2678,13 +2965,13 @@ end
 -- 9.20–9.55: Юта с голубым сгустком, над ним огромная Рика
 function P2.yutaRika()
 	local f = beginShot(T2.YUTARIKA)
-	setLook({ clock = 0, brightness = 1, ambient = RGB(200, 190, 235), outdoor = RGB(190, 185, 230), tint = RGB(240, 235, 255),
-		sat = 0.3, contrast = 0.15, bloom = 1.2, dof = { 9.5, 7, 0.3 } })
+	setLook({ clock = 13, brightness = 1.5, ambient = RGB(215, 205, 245), outdoor = RGB(205, 200, 240), tint = RGB(245, 242, 255),
+		sat = 0.3, contrast = 0.13, bloom = 1.1, dof = { 9.5, 7, 0.3 } })
 	local base = STAGE.yuta2
 	local cam0 = CFrame.lookAt(base, base + V3(0, 0.1, -1))
 	local cam1 = cam0 * CF(0.2, 0, -0.5)
 	camCF, camFOV = cam0, 56
-	FX.backdrop(cam0 * CF(0, 0, -240) * ANG(0, math.pi, 0), 900, 600, { RGB(150, 120, 210), RGB(70, 50, 130), RGB(30, 20, 70) }, 110)
+	FX.backdrop(cam0 * CF(0, 0, -240) * ANG(0, math.pi, 0), 900, 600, { RGB(190, 170, 250), RGB(110, 90, 200), RGB(60, 50, 140) }, 110)
 	yuta:show(true)
 	yuta:place(cam0 * CF(3.2, -4.9, -9.5) * ANG(0, rad(118), 0))
 	yuta:pose(POSE.yutaOrb, 0)
@@ -2695,16 +2982,20 @@ function P2.yutaRika()
 	rika:update(songT)
 	local hand = yuta:point("lArm", V3(0, -1.6, 0))
 	local orb = hand + (cam0.RightVector * -2.2 + cam0.UpVector * 0.2)
-	local glow = FX.glow(orb, 4.5, C.cyan, 0.2, 4)
-	FX.glow(orb, 12, C.cyanDeep, 0.07, 2)
+	local flare = FX.flare(orb, 2.2, C.cyan, { points = 10 })
 	local rays = FX.rays(orb, 14, { C.cyan, C.white, RGB(160, 240, 255) }, 1.5, 6, 0.35)
-	FX.sparks(orb, { C.cyan, C.white }, 120, 16, 0.2)
-	local tStreak = 0
+	local tStreak, tSp = 0, 0
 	Shot.update = function(u, dt)
 		camCF = cam0:Lerp(cam1, smooth(u / 0.35))
 		shake = 0.3
-		glow.set(nil, 4.5 * (1 + 0.2 * sin(u * 30)))
+		flare.set(nil, 2.2 * (1 + 0.2 * sin(u * 30)))
 		rays.update(u)
+		tSp = tSp - dt
+		if tSp <= 0 then
+			tSp = 0.02
+			local d = randUnit()
+			FX.spark(orb, d * rr(10, 20), pick({ C.cyan, C.white }), rr(0.6, 1.2), rr(0.2, 0.35), 0.05)
+		end
 		tStreak = tStreak - dt
 		if tStreak <= 0 then
 			tStreak = 0.05
@@ -2718,13 +3009,13 @@ end
 -- 9.55–10.15: Юта крупно, рядом огромная рука Рики
 function P2.yutaClose()
 	local f = beginShot(T2.YUTACLOSE)
-	setLook({ clock = 0, brightness = 1, ambient = RGB(170, 205, 240), outdoor = RGB(160, 200, 240), tint = RGB(225, 240, 255),
-		sat = 0.25, contrast = 0.16, bloom = 1.1, dof = { 3.2, 2.2, 0.5 } })
+	setLook({ clock = 13, brightness = 1.5, ambient = RGB(190, 220, 250), outdoor = RGB(185, 215, 250), tint = RGB(232, 244, 255),
+		sat = 0.25, contrast = 0.14, bloom = 1.0, dof = { 3.2, 2.2, 0.45 } })
 	local base = STAGE.yuta2 + V3(0, 0, -300)
 	local cam0 = CFrame.lookAt(base, base + V3(0, 0, -1))
 	local cam1 = cam0 * CF(0.05, 0, -0.35)
 	camCF, camFOV = cam0, 42
-	FX.backdrop(cam0 * CF(0, 0, -200) * ANG(0, math.pi, 0), 700, 500, { RGB(90, 170, 255), RGB(30, 80, 190), RGB(10, 30, 90) }, 60)
+	FX.backdrop(cam0 * CF(0, 0, -200) * ANG(0, math.pi, 0), 700, 500, { RGB(150, 210, 255), RGB(60, 130, 235), RGB(30, 70, 170) }, 60)
 	yuta:show(true)
 	yuta:place(cam0 * CF(0.35, -4.55, -3.2) * ANG(0, rad(150), 0))
 	yuta:pose({ root = { -2, 0, 0 }, neck = { -6, 22, 0 }, lArm = { 20, 0, -10 }, rArm = { 10, 0, 10 } }, 0)
@@ -2733,18 +3024,14 @@ function P2.yutaClose()
 	rika:pose(POSE.rikaHand, 0)
 	local handAt = cam0 * CF(-2.3, -0.4, -5.6) * ANG(math.pi, 0, rad(-14))
 	placeBoneAt(rika, "haL", handAt)
-	local fireAt = cam0 * V3(-1.9, -0.6, -4)
-	FX.emitter(fireAt, V3(1.4, 1.6, 1), {
-		texture = TEX.fire, rate = 45, life = { 0.3, 0.6 }, speed = { 1.5, 4 }, spread = 30,
-		size = NS({ { 0, 1.1 }, { 1, 0.1 } }), color = CS({ { 0, RGB(220, 255, 255) }, { 1, C.cyanDeep } }), brightness = 4, accel = V3(0, 2, 0),
-	})
-	local glow = FX.glow(fireAt, 4, C.cyan, 0.14, 3)
+	local fireAt = cam0 * V3(-1.9, -0.9, -4)
+	FX.flame(fireAt, 1.4, C.cyan, 8)
+	local flare = FX.flare(fireAt + V3(0, 0.6, 0), 0.9, C.cyan, { points = 9, alpha = 0.2 })
 	Shot.update = function(u, dt)
 		camCF = cam0:Lerp(cam1, smooth(u / (T2.WHITE - T2.YUTACLOSE)))
 		shake = 0.12
-		glow.set(nil, 4 * (1 + 0.2 * sin(u * 20)))
-		local wf = clamp01((u - 0.45) / 0.15)
-		ui.flash.BackgroundTransparency = 1 - wf
+		flare.set(nil, 0.9 * (1 + 0.2 * sin(u * 20)))
+		ui.flash.BackgroundTransparency = 1 - clamp01((u - 0.45) / 0.15)
 	end
 end
 
@@ -2758,11 +3045,11 @@ function P2.white()
 	end
 end
 
--- 10.40–13.03: кратер в тумане, Рю стоит сбоку (сначала белая дымка)
+-- 10.40–13.03: поле с кратером при ярком дне, Рю стоит сбоку, ветер несёт пыль
 function P2.wide()
 	local f = beginShot(T2.MIST)
-	setLook({ clock = 14, brightness = 1.6, ambient = RGB(170, 180, 200), outdoor = RGB(180, 190, 212), fogColor = RGB(214, 224, 240),
-		fogStart = 25, fogEnd = 320, tint = RGB(232, 240, 255), sat = -0.12, contrast = 0.05, bloom = 0.4 })
+	setLook({ clock = 13, brightness = 2.4, exposure = 0.15, ambient = RGB(150, 165, 200), outdoor = RGB(160, 176, 210),
+		fogColor = RGB(200, 220, 250), fogStart = 450, fogEnd = 2600, tint = RGB(245, 250, 255), sat = 0.3, contrast = 0.12, bloom = 0.8 })
 	local cam0 = CFrame.lookAt(FIELD + V3(2, 4.0, 16), FIELD + V3(8, 3.2, 0))
 	local cam1 = CFrame.lookAt(FIELD + V3(1.8, 4.0, 15), FIELD + V3(8, 3.2, 0))
 	camCF, camFOV = cam0, 50
@@ -2773,31 +3060,35 @@ function P2.wide()
 	ryu.bones.coat.wob = function(t)
 		return ANG(rad(-6 - 3 * sin(t * 5)), 0, 0)
 	end
-	local crater = FIELD + V3(24, 0, -14)
-	FX.smoke(crater + V3(0, 6, 0), V3(50, 8, 40), CS({ { 0, RGB(235, 240, 250) }, { 1, RGB(200, 212, 232) } }), 14, 60, 4, 4,
-		{ burst = 20, alpha = NS({ { 0, 0.85 }, { 0.3, 0.55 }, { 1, 1 } }), spread = 40 })
-	FX.smoke(FIELD + V3(-6, 3, -14), V3(40, 4, 10), ColorSequence.new(RGB(225, 232, 245)), 4, 40, 4, 3,
-		{ burst = 6, alpha = NS({ { 0, 0.9 }, { 0.3, 0.75 }, { 1, 1 } }), dir = Enum.NormalId.Left })
-	local tStreak, tFlake = 0, 0
+	-- пыль из кратера: мультяшные клубы, ветер несёт их влево
+	for _ = 1, 12 do
+		FX.puff(CRATER + V3(rr(-14, 14), rr(1, 6), rr(-9, 9)), rr(6, 11), rr(2.4, 3.2), V3(-rr(2, 5), rr(0.5, 2), rr(-1, 1)))
+	end
+	local tStreak, tFlake, tPuff = 0, 0, 0
 	Shot.update = function(u, dt)
 		local k = smooth(u / (T2.LOW - T2.MIST))
 		camCF = cam0:Lerp(cam1, k)
 		shake = 0.08
-		local m = clamp01((u - 0) / (T2.WIDE - T2.MIST))
+		local m = clamp01(u / (T2.WIDE - T2.MIST))
 		ui.flash.BackgroundColor3 = RGB(235, 242, 255)
 		ui.flash.BackgroundTransparency = lerp(0.05, 1, easeOut(m))
-		Shot.blur = lerp(16, 0, m)
+		Shot.blur = lerp(14, 0, m)
 		tStreak = tStreak - dt
 		if tStreak <= 0 then
 			tStreak = 0.09
 			local from = FIELD + V3(rr(12, 26), rr(3, 9), rr(-4, 6))
-			FX.streak(from, V3(-1, rr(-0.05, 0.12), rr(-0.1, 0.1)).Unit, rr(6, 12), rr(30, 45), 0.9, RGB(245, 250, 255), rr(0.25, 0.6), 1.5)
+			FX.streak(from, V3(-1, rr(-0.05, 0.12), rr(-0.1, 0.1)).Unit, rr(6, 12), rr(30, 45), 0.9, RGB(250, 252, 255), rr(0.25, 0.6), 2)
 		end
 		tFlake = tFlake - dt
 		if tFlake <= 0 then
 			tFlake = 0.06
-			FX.flyer(V3(rr(0.4, 1.2), rr(0.3, 0.8), 0.08), RGB(250, 252, 255), crater + V3(rr(-20, 10), rr(2, 10), rr(-10, 10)),
+			FX.flyer(V3(rr(0.4, 1.2), rr(0.3, 0.8), 0.08), RGB(250, 252, 255), CRATER + V3(rr(-10, 10), rr(2, 10), rr(-8, 8)),
 				V3(-rr(20, 35), rr(-2, 4), rr(-3, 3)), { life = rr(0.8, 1.4), spin = 6 })
+		end
+		tPuff = tPuff - dt
+		if tPuff <= 0 then
+			tPuff = 0.35
+			FX.puff(CRATER + V3(rr(-12, 12), rr(1, 5), rr(-8, 8)), rr(5, 9), rr(2.2, 3), V3(-rr(2, 5), rr(0.5, 2), 0))
 		end
 	end
 end
@@ -2805,8 +3096,8 @@ end
 -- 13.03–15.39: Рю снизу, ухмылка, ветер и голубое пламя
 function P2.low()
 	local f = beginShot(T2.LOW)
-	setLook({ clock = 14, brightness = 2, ambient = RGB(160, 170, 200), outdoor = RGB(170, 182, 210), fogColor = RGB(200, 215, 240),
-		fogStart = 300, fogEnd = 3000, tint = RGB(232, 240, 255), sat = 0.05, contrast = 0.12, bloom = 0.7, dof = { 5.5, 4, 0.25 } })
+	setLook({ clock = 13, brightness = 2.6, exposure = 0.2, ambient = RGB(170, 182, 212), outdoor = RGB(180, 192, 222), fogColor = RGB(200, 220, 250),
+		fogStart = 600, fogEnd = 4000, tint = RGB(240, 246, 255), sat = 0.12, contrast = 0.12, bloom = 0.7, dof = { 5.5, 4, 0.2 } })
 	ryu:show(true)
 	showVariant(ryu.tags, "mouth_", "grin")
 	ryu:place(CF(FIELD) * ANG(0, rad(180), 0))
@@ -2819,26 +3110,23 @@ function P2.low()
 	local cam0 = CFrame.lookAt(chest + V3(-1.0, -1.3, 6.6), chest + V3(0, 1.7, 0)) * ANG(0, 0, rad(-8))
 	local cam1 = cam0 * CF(0, 0.15, -0.5)
 	camCF, camFOV = cam0, 55
-	local flameAt = chest + V3(3.2, 0.5, -0.5)
-	local flame, flameHolder = FX.emitter(flameAt, V3(2, 4, 1.5), {
-		texture = TEX.fire, rate = 0, life = { 0.4, 0.8 }, speed = { 3, 7 }, spread = 30,
-		size = NS({ { 0, 1.8 }, { 1, 0.2 } }), color = CS({ { 0, RGB(230, 255, 255) }, { 1, C.cyanDeep } }), brightness = 5, accel = V3(0, 4, 0),
-	})
-	local glow = FX.glow(flameAt, 1, C.cyan, 0.14, 3)
+	local flameAt = chest + V3(3.2, -0.5, -0.5)
+	local flame = FX.flame(flameAt, 2.4, C.cyan, 9)
+	local flare = FX.flare(flameAt + V3(0, 1.2, 0), 1.4, C.cyan, { points = 9, alpha = 0.2 })
 	local bolts = { FX.bolt(C.cyan, 0.06), FX.bolt(RGB(200, 255, 255), 0.05) }
 	local tStreak, tb = 0, 0
 	Shot.update = function(u, dt)
 		camCF = cam0:Lerp(cam1, smooth(u / (T2.FIN - T2.LOW)))
 		shake = 0.12
 		local e = clamp01((u - 0.3) / 0.15) * (1 - clamp01((u - 1.25) / 0.2))
-		flame.Rate = 60 * e
-		glow.set(nil, 7 * e * (1 + 0.2 * sin(u * 16)))
+		flame.k = e
+		flare.set(nil, 1.4 * e * (1 + 0.2 * sin(u * 16)))
 		tb = tb - dt
 		if tb <= 0 then
 			tb = 0.08
 			for _, b in ipairs(bolts) do
 				b.show(e > 0.1)
-				b.strike(flameAt + V3(0, rr(-2, 1), 0), flameAt + V3(rr(-2, 2), rr(2, 5), rr(-1, 1)), 0.6)
+				b.strike(flameAt + V3(0, rr(-1, 2), 0), flameAt + V3(rr(-2, 2), rr(2, 5), rr(-1, 1)), 0.6)
 			end
 		end
 		local windy = clamp01((u - 1.35) / 0.2)
@@ -2846,9 +3134,9 @@ function P2.low()
 		if tStreak <= 0 then
 			tStreak = lerp(0.07, 0.03, windy)
 			local from = chest + cam0.RightVector * rr(4, 9) + cam0.UpVector * rr(-2, 7) - cam0.LookVector * rr(-2, 3)
-			local col = RGB(240, 246, 255)
+			local col = RGB(245, 250, 255)
 			if windy > 0.5 then
-				col = RGB(205, 210, 222)
+				col = RGB(215, 220, 232)
 			end
 			FX.streak(from, (cam0.RightVector * -1 + cam0.UpVector * -0.45).Unit, rr(5, 10), rr(30, 50), 0.6, col, rr(0.12, 0.3) * (1 + windy), 1.5)
 		end
@@ -2863,11 +3151,430 @@ P2.shots = {
 P2.fin = T2.FIN
 
 ----------------------------------------------------------------------
+-- ЧАСТЬ 3 (0:00–0:16)
+----------------------------------------------------------------------
+
+local P3 = {}
+local RYU_POS = FIELD + V3(-30, 0, 30) -- где стоит Рю в части 3
+local YUTA_POS = FIELD + V3(-20, 0, -40) -- где Юта
+
+local function day3(o)
+	o = o or {}
+	setLook({
+		clock = 13, brightness = o.brightness or 2.5, exposure = o.exposure or 0.15,
+		ambient = o.ambient or RGB(155, 170, 205), outdoor = o.outdoor or RGB(165, 180, 215),
+		fogColor = o.fogColor or RGB(205, 222, 250), fogStart = o.fogStart or 450, fogEnd = o.fogEnd or 2600,
+		tint = o.tint or RGB(245, 250, 255), sat = o.sat or 0.3, contrast = o.contrast or 0.12, bright = o.bright or 0.03,
+		bloom = o.bloom or 0.9, bloomSize = 40, bloomThreshold = 0.88, dof = o.dof,
+	})
+end
+
+local function windStreaks(cam0, dt, state, rate, dir, col)
+	state.t = (state.t or 0) - dt
+	if state.t <= 0 then
+		state.t = rate
+		local from = cam0 * V3(rr(-8, 10), rr(-3, 8), -rr(8, 16))
+		FX.streak(from, dir, rr(6, 12), rr(35, 55), 0.6, col or RGB(245, 250, 255), rr(0.15, 0.35), 1.5)
+	end
+end
+
+-- 0.00–2.40: Рю спиной, на него летит розовый луч
+function P3.approach()
+	local f = beginShot(0)
+	day3({ tint = RGB(255, 240, 252), sat = 0.25, fogColor = RGB(250, 225, 245), fogStart = 120, fogEnd = 900, bloom = 1.1 })
+	ryu:show(true)
+	showVariant(ryu.tags, "mouth_", "smirk")
+	ryu:place(CF(RYU_POS))
+	ryu:pose(POSE.ryuBack, 0)
+	ryu.bones.coat.wob = function(t)
+		return ANG(rad(-8 - 4 * sin(t * 6)), 0, rad(2 * sin(t * 4)))
+	end
+	ryu:update(songT)
+	local cam0 = CFrame.lookAt(RYU_POS + V3(-1.6, 3.0, 9), RYU_POS + V3(1, 3.4, -30))
+	local cam1 = CFrame.lookAt(RYU_POS + V3(-1.4, 3.0, 8.2), RYU_POS + V3(1, 3.4, -30))
+	camCF, camFOV = cam0, 55
+	local far = RYU_POS + V3(18, 9, -140)
+	local beam = FX.energyBeam(C.pink, 3)
+	local head = FX.flare(far, 6, C.pinkHot, { points = 10 })
+	for _ = 1, 10 do
+		FX.puff(RYU_POS + V3(rr(-40, 40), rr(2, 8), -rr(30, 90)), rr(10, 18), rr(3, 4), V3(rr(-2, 2), rr(0, 1), 0),
+			{ color = RGB(250, 236, 248), shade = RGB(220, 190, 230) })
+	end
+	local wind = {}
+	Shot.update = function(u, dt)
+		camCF = cam0:Lerp(cam1, smooth(u / T3.RIGHT))
+		shake = 0.1 + 0.2 * clamp01((u - 1.5) / 0.9)
+		local prog = easeIn(clamp01(u / T3.RIGHT)) * 0.8
+		local tip = far:Lerp(RYU_POS + V3(2, 3, -6), prog)
+		beam.set(far, tip, 3 + prog * 4)
+		head.set(tip, 6 + prog * 8)
+		windStreaks(cam0, dt, wind, 0.08, (cam0.RightVector * -1).Unit, RGB(255, 240, 250))
+	end
+end
+
+-- 2.40–4.00: «That's right!» — Рю смеётся, раскинув руки
+function P3.right()
+	local f = beginShot(T3.RIGHT)
+	day3({ brightness = 2.6, dof = { 6.5, 5, 0.2 } })
+	ryu:show(true)
+	showVariant(ryu.tags, "mouth_", "laugh")
+	ryu:place(CF(RYU_POS) * ANG(0, rad(180), 0))
+	ryu:pose(POSE.ryuArmsWide, 0)
+	ryu.bones.coat.wob = function(t)
+		return ANG(rad(-8 - 4 * sin(t * 6)), 0, 0)
+	end
+	ryu.bones.neck.wob = function(t)
+		return ANG(rad(3 * sin(t * 16)), 0, 0)
+	end
+	ryu:update(songT)
+	local chest = ryu:point("root", V3(0, 0.8, 0))
+	local cam0 = CFrame.lookAt(chest + V3(1.2, -1.4, 7.2), chest + V3(0, 1.2, 0)) * ANG(0, 0, rad(4))
+	local cam1 = cam0 * CF(0, 0.1, -0.5)
+	camCF, camFOV = cam0, 52
+	local wind = {}
+	Shot.update = function(u, dt)
+		camCF = cam0:Lerp(cam1, smooth(u / (T3.GOING - T3.RIGHT)))
+		shake = 0.1
+		if floor(u * 6) % 4 == 3 then
+			showVariant(ryu.tags, "mouth_", "grin")
+		else
+			showVariant(ryu.tags, "mouth_", "laugh")
+		end
+		windStreaks(cam0, dt, wind, 0.06, (cam0.RightVector * -1 + cam0.UpVector * -0.5).Unit)
+	end
+end
+
+-- 4.00–6.40: «Let's keep going!» — смех, голубая энергия у головы, жёлтая молния
+function P3.going()
+	local f = beginShot(T3.GOING)
+	day3({ brightness = 2.4, tint = RGB(238, 246, 255), dof = { 6, 5, 0.25 } })
+	ryu:show(true)
+	showVariant(ryu.tags, "mouth_", "laugh")
+	ryu:place(CF(RYU_POS) * ANG(0, rad(170), 0))
+	ryu:pose(POSE.ryuHeadBack, 0)
+	ryu.bones.coat.wob = function(t)
+		return ANG(rad(-10 - 4 * sin(t * 6)), 0, 0)
+	end
+	ryu.bones.neck.wob = function(t)
+		return ANG(rad(4 * sin(t * 17)), 0, 0)
+	end
+	ryu:update(songT)
+	local head = ryu:point("neck", V3(0, 1.2, -0.2))
+	local chest = ryu:point("root", V3(0, 0.8, 0))
+	local cam0 = CFrame.lookAt(chest + V3(-1.0, -1.0, 6.6), chest + V3(0, 1.4, 0)) * ANG(0, 0, rad(-12))
+	local cam1 = cam0 * CF(0, 0.1, -0.6)
+	camCF, camFOV = cam0, 52
+	local aura = FX.flare(head + V3(0.6, 0.6, 0), 1.8, C.cyan, { points = 10, alpha = 0.15 })
+	local bolts = { FX.bolt(C.cyan, 0.06), FX.bolt(RGB(200, 255, 255), 0.05), FX.bolt(C.cyan, 0.04) }
+	local gold = FX.bolt(C.gold, 0.12)
+	local goldFrom = cam0 * V3(-9, -6, -9)
+	local goldTo = cam0 * V3(9, 1, -7)
+	local wind = {}
+	local tb = 0
+	Shot.update = function(u, dt)
+		camCF = cam0:Lerp(cam1, smooth(u / (T3.SMOKE - T3.GOING)))
+		shake = 0.15
+		if floor(u * 6) % 5 == 4 then
+			showVariant(ryu.tags, "mouth_", "grin")
+		else
+			showVariant(ryu.tags, "mouth_", "laugh")
+		end
+		aura.set(nil, 1.8 * (1 + 0.2 * sin(u * 14)))
+		tb = tb - dt
+		if tb <= 0 then
+			tb = 0.06
+			for _, b in ipairs(bolts) do
+				b.strike(head + V3(rr(-0.5, 0.5), rr(0, 0.6), 0), head + V3(rr(-3, 3), rr(1, 4), rr(-1, 1)), 0.5)
+			end
+			gold.strike(goldFrom, goldTo, 0.5)
+		end
+		windStreaks(cam0, dt, wind, 0.05, (cam0.RightVector * -1 + cam0.UpVector * -0.4).Unit)
+	end
+end
+
+-- 6.40–6.70: серые клубы дыма, вдали розовая точка
+function P3.smoke()
+	local f = beginShot(T3.SMOKE)
+	day3({ brightness = 2.2, tint = RGB(235, 240, 255), sat = 0.1 })
+	local base = RYU_POS + V3(0, 6, 0)
+	local cam0 = CFrame.lookAt(base, base + V3(0, 0, -1))
+	camCF, camFOV = cam0, 50
+	local grey = { color = RGB(176, 188, 214), shade = RGB(130, 145, 185) }
+	for _ = 1, 22 do
+		FX.puff(cam0 * V3(rr(-30, 30), rr(-14, 14), -rr(25, 60)), rr(12, 22), 1.2, V3(rr(-4, 4), rr(-1, 1), 0), grey)
+	end
+	local dot = FX.flare(cam0 * V3(4, 2, -90), 1.5, C.pinkHot, { points = 8 })
+	Shot.update = function(u)
+		shake = 0.1
+		dot.set(nil, 1.5 + u * 12)
+	end
+end
+
+-- 6.70–7.20: розовый луч проносится сквозь обломки
+function P3.blast()
+	local f = beginShot(T3.BLAST)
+	day3({ brightness = 2.4, tint = RGB(255, 240, 252), bloom = 1.3 })
+	local base = RYU_POS + V3(-10, 5, 0)
+	local cam0 = CFrame.lookAt(base, base + V3(0, 0, -1)) * ANG(0, 0, rad(-10))
+	camCF, camFOV = cam0, 60
+	local beam = FX.energyBeam(C.pink, 5)
+	local from = cam0 * V3(-40, -3, -22)
+	local to = cam0 * V3(40, 3, -18)
+	local acc = 0
+	Shot.update = function(u, dt)
+		shake = 1.4
+		Shot.blur = 4
+		beam.set(from, from:Lerp(to, clamp01(u / 0.12)), 5 + sin(u * 40))
+		acc = acc + 90 * dt
+		while acc >= 1 do
+			acc = acc - 1
+			local p = from:Lerp(to, rr(0, 1)) + V3(rr(-4, 4), rr(-4, 4), rr(-2, 2))
+			local d = (cam0.UpVector * rr(-1, 1) + cam0.LookVector * -rr(0.2, 1) + cam0.RightVector * rr(0.3, 1)).Unit
+			FX.flyer(V3(0.15, rr(0.6, 2), rr(1, 3.5)), pick({ RGB(235, 242, 255), RGB(170, 200, 250), C.pinkHot }), p, d * rr(20, 45),
+				{ wedge = true, neon = rng:NextNumber() < 0.3, life = rr(0.4, 0.8), spin = 8 })
+		end
+	end
+end
+
+-- 7.20–7.75: Юта бежит по синему асфальту (камера у ног), в конце розовый смаз
+function P3.run()
+	local f = beginShot(T3.RUN)
+	day3({ brightness = 2.6, dof = { 5, 4, 0.2 } })
+	yuta:show(true)
+	yuta:pose({ root = { -18, 0, 0 } }, 0)
+	local start = YUTA_POS + V3(-6, 0, 10)
+	local dir = V3(1, 0, -1).Unit
+	local run = 0
+	yuta.bones.rLeg.wob = function(t)
+		return ANG(rad(55 * sin(t * 15)), 0, 0)
+	end
+	yuta.bones.lLeg.wob = function(t)
+		return ANG(rad(-55 * sin(t * 15)), 0, 0)
+	end
+	yuta.bones.rArm.wob = function(t)
+		return ANG(rad(-60 * sin(t * 15)), 0, 0)
+	end
+	yuta.bones.lArm.wob = function(t)
+		return ANG(rad(60 * sin(t * 15)), 0, 0)
+	end
+	Shot.update = function(u, dt)
+		run = run + dt * 20
+		local pos = start + dir * run
+		yuta:place(CFrame.lookAt(pos, pos + dir) * CF(0, math.abs(sin(songT * 15)) * 0.25, 0))
+		local foot = pos + V3(0, 1, 0)
+		camCF = CFrame.lookAt(foot + dir * -2 + dir:Cross(V3(0, 1, 0)) * 4 + V3(0, 0.6, 0), foot + dir * 1.5)
+		camFOV = 60
+		shake = 0.4
+		local streak = clamp01((u - 0.48) / 0.07)
+		Shot.blur = streak * 14
+		ui.tint.BackgroundColor3 = C.pinkHot
+		ui.tint.BackgroundTransparency = 1 - streak * 0.5
+	end
+end
+
+-- 7.75–9.40: вид сверху: розовый луч бьёт в кратер, Рю наверху в голубой ауре
+function P3.top()
+	local f = beginShot(T3.TOP)
+	day3({ brightness = 2.6, bloom = 1.1 })
+	local cam0 = CFrame.lookAt(CRATER + V3(-18, 70, 40), CRATER + V3(-4, 0, 0)) * ANG(0, 0, rad(-20))
+	local cam1 = CFrame.lookAt(CRATER + V3(-16, 62, 36), CRATER + V3(-4, 0, 0)) * ANG(0, 0, rad(-24))
+	camCF, camFOV = cam0, 55
+	ryu:show(true)
+	showVariant(ryu.tags, "mouth_", "grin")
+	local rp = CRATER + V3(-6, 0, -26)
+	ryu:place(CFrame.lookAt(rp, CRATER))
+	ryu:pose(POSE.ryuArmsWide, 0)
+	ryu:update(songT)
+	local aura = FX.flare(rp + V3(0, 4, 0), 3, C.cyan, { points = 10, alpha = 0.15 })
+	local beam = FX.energyBeam(C.pink, 3.2)
+	local from = CRATER + V3(-50, 2, 50)
+	for _ = 1, 10 do
+		FX.puff(CRATER + V3(rr(10, 40), rr(2, 6), rr(-20, 30)), rr(9, 15), rr(2.5, 3.5), V3(rr(0, 3), rr(1, 2), rr(-1, 1)))
+	end
+	local acc = 0
+	Shot.update = function(u, dt)
+		camCF = cam0:Lerp(cam1, smooth(u / (T3.REACH - T3.TOP)))
+		shake = 0.3
+		beam.set(from, CRATER + V3(-2, 1, 4), 3.2 + sin(u * 30) * 0.4)
+		aura.set(nil, 3 * (1 + 0.2 * sin(u * 12)))
+		acc = acc + 30 * dt
+		while acc >= 1 do
+			acc = acc - 1
+			local d = (randUnit() + V3(0, 1, 0)).Unit
+			FX.spark(CRATER + V3(-2, 1, 4), d * rr(15, 35), pick({ C.pinkHot, C.white }), rr(1, 3), rr(0.3, 0.6), 0.12)
+		end
+	end
+end
+
+-- 9.40–12.50: из-за спины Рю: его рука тянется к далёкому Юте, жёлтые молнии
+function P3.reach()
+	local f = beginShot(T3.REACH)
+	day3({ brightness = 2.5, tint = RGB(236, 244, 255), dof = { 4, 3.5, 0.15 } })
+	ryu:show(true)
+	ryu:place(CFrame.lookAt(RYU_POS, YUTA_POS))
+	ryu:pose(POSE.ryuReach, 0)
+	ryu.bones.coat.wob = function(t)
+		return ANG(rad(-12 - 4 * sin(t * 6)), 0, 0)
+	end
+	ryu:update(songT)
+	yuta:show(true)
+	yuta:place(CFrame.lookAt(YUTA_POS, RYU_POS))
+	yuta:pose({ root = { -10, 0, 0 }, rArm = { -30, 0, 20 }, lArm = { 40, 0, -10 }, rLeg = { 20, 0, 0 }, lLeg = { -25, 0, 0 } }, 0)
+	yuta:update(songT)
+	local shoulder = ryu:point("root", V3(3.4, 0.6, 6.0))
+	local look = (YUTA_POS + V3(0, 2, 0) - shoulder).Unit
+	local cam0 = CFrame.lookAt(shoulder, shoulder + look * 30 + V3(0, -2, 0))
+	local orbit = 0
+	local bolts = { FX.bolt(C.gold, 0.1), FX.bolt(C.yellow, 0.08) }
+	local hand = ryu:point("rArm", V3(0, -1.5, 0))
+	local spark = FX.flare(hand, 0.6, C.cyan, { points = 7, alpha = 0.2 })
+	local tb = 0
+	local wind = {}
+	Shot.update = function(u, dt)
+		orbit = orbit + dt * 0.08
+		camCF = CF(shoulder) * ANG(0, -orbit, 0) * CF(-shoulder) * cam0 * CF(0, 0, 0.6 * u)
+		camFOV = 58
+		shake = 0.2
+		tb = tb - dt
+		if tb <= 0 then
+			tb = 0.07
+			local a = YUTA_POS + V3(rr(-30, 0), rr(2, 8), rr(-6, 6))
+			for _, b in ipairs(bolts) do
+				b.strike(a, a + (RYU_POS - YUTA_POS).Unit * rr(20, 50) + V3(0, rr(-2, 3), 0), 1.2)
+			end
+		end
+		windStreaks(camCF, dt, wind, 0.06, (camCF.RightVector * -1).Unit)
+	end
+end
+
+-- 12.50–13.90: «But...» — ухмылка, голубое сияние у лица
+function P3.but()
+	local f = beginShot(T3.BUT)
+	day3({ brightness = 2.3, tint = RGB(232, 244, 255), dof = { 5.2, 4, 0.3 } })
+	ryu:show(true)
+	showVariant(ryu.tags, "mouth_", "smirk")
+	ryu:place(CF(RYU_POS) * ANG(0, rad(140), 0))
+	ryu:pose({ root = { -4, 0, 0 }, neck = { -6, 20, 0 }, rArm = { 30, 0, 30 }, lArm = { 10, 0, -10 } }, 0)
+	ryu:update(songT)
+	local head = ryu:point("neck", V3(0, 0.7, 0))
+	local camPos = ryu:point("neck", V3(1.3, 0.1, -4.2))
+	local cam0 = CFrame.lookAt(camPos, head + V3(0, -0.4, 0)) * ANG(0, 0, rad(6))
+	local cam1 = cam0 * CF(0, 0, -0.4)
+	camCF, camFOV = cam0, 50
+	local aura = FX.flare(head + V3(-1.2, 0.8, -0.4), 1.4, C.cyan, { points = 10, alpha = 0.15 })
+	local gold = FX.bolt(C.gold, 0.06)
+	local bolts = { FX.bolt(C.cyan, 0.05) }
+	local tb = 0
+	Shot.update = function(u, dt)
+		camCF = cam0:Lerp(cam1, smooth(u / (T3.BOOM - T3.BUT)))
+		shake = 0.1
+		if u > 0.7 then
+			showVariant(ryu.tags, "mouth_", "grin")
+		end
+		aura.set(nil, 1.4 * (1 + 0.2 * sin(u * 15)))
+		tb = tb - dt
+		if tb <= 0 then
+			tb = 0.07
+			gold.strike(cam0 * V3(-4, -3, -5), cam0 * V3(1, -1.5, -5), 0.3)
+			bolts[1].strike(head + V3(-1, 1, 0), head + V3(rr(-3, -1), rr(1, 3), 0), 0.4)
+		end
+	end
+end
+
+-- 13.90–14.80: жёлто-розовый взрыв
+function P3.boom()
+	local f = beginShot(T3.BOOM)
+	setLook({ clock = 13, brightness = 1.6, ambient = RGB(200, 170, 230), tint = RGB(255, 245, 250), sat = 0.45, contrast = 0.1, bloom = 1.4, bloomSize = 50 })
+	local S0 = STAGE.zoom + V3(0, 0, 600)
+	local cam0 = CFrame.lookAt(S0 + V3(0, 0, 32), S0)
+	camCF, camFOV = cam0, 70
+	FX.backdrop(CF(S0 + V3(0, 0, -150)) * ANG(0, math.pi, 0), 900, 600, { RGB(120, 60, 180), RGB(60, 40, 130), RGB(30, 20, 80) }, 30)
+	local core = FX.flare(S0, 8, C.pinkHot, { points = 12 })
+	local rays = FX.rays(S0, 30, { C.yellow, C.gold, C.pinkHot, C.white }, 20, 70, 3, { brightness = 3, colorStart = true, start = 4 })
+	ryu:show(true)
+	ryu:place(CFrame.lookAt(S0 + V3(10, -4, -8), S0 + V3(-10, -4, -8)))
+	ryu:pose(POSE.ryuSide, 0)
+	ryu:update(songT)
+	Shot.update = function(u, dt)
+		camCF = cam0 * CF(0, 0, -4 * u)
+		shake = 1.4
+		Shot.blur = 3
+		core.set(nil, 8 * (1 + 0.5 * u))
+		rays.update(u)
+		if floor(u * 10) ~= floor((u - dt) * 10) then
+			rays.reroll(0.4)
+		end
+		ryu:show(u < 0.12)
+		for _ = 1, 2 do
+			local d = (randUnit() * V3(1, 0.6, 0.3)).Unit
+			FX.streak(S0 + d * 3, d, rr(12, 26), rr(90, 150), 0.4, pick({ C.yellow, C.gold, C.pinkHot }), rr(0.6, 1.4), 4)
+		end
+		local fl = math.max(0, 1 - abs(u - 0.35) * 6)
+		ui.flash.BackgroundTransparency = 1 - fl * 0.6
+	end
+end
+
+-- 14.80–15.97: «its force is weak!» — Рю сбоку тянет руку, с ладони бьют молнии
+function P3.weak()
+	local f = beginShot(T3.WEAK)
+	setLook({ clock = 13, brightness = 1.6, ambient = RGB(175, 165, 225), outdoor = RGB(170, 160, 220), tint = RGB(240, 235, 255),
+		sat = 0.3, contrast = 0.12, bloom = 1.0, dof = { 9, 6, 0.3 } })
+	local base = STAGE.ryu1 + V3(0, 0, -400)
+	local cam0 = CFrame.lookAt(base, base + V3(0, -0.05, -1))
+	local cam1 = cam0 * CF(0.3, 0, -0.6)
+	camCF, camFOV = cam0, 55
+	FX.backdrop(cam0 * CF(0, 0, -220) * ANG(0, math.pi, 0), 900, 600, { RGB(150, 140, 230), RGB(90, 80, 190), RGB(50, 40, 130) }, 80)
+	ryu:show(true)
+	showVariant(ryu.tags, "mouth_", "grin")
+	ryu:place(cam0 * CF(2.5, -4.6, -10) * ANG(0, rad(100), 0))
+	ryu:pose(POSE.ryuSide, 0)
+	ryu.bones.coat.wob = function(t)
+		return ANG(rad(-10 - 4 * sin(t * 6)), 0, 0)
+	end
+	ryu:update(songT)
+	yuta:show(true)
+	yuta:place(cam0 * CF(-12, -5.5, -24) * ANG(0, rad(-80), 0))
+	yuta:pose({ root = { -8, 0, 0 }, rArm = { 50, 0, 10 }, lArm = { -20, 0, -10 } }, 0)
+	yuta:update(songT)
+	local hand = ryu:point("rArm", V3(0, -1.6, 0))
+	local head = ryu:point("neck", V3(0, 1.0, 0))
+	local hf = FX.flare(hand, 0.9, C.cyan, { points = 8, alpha = 0.2 })
+	local bolts = { FX.bolt(C.cyan, 0.05), FX.bolt(RGB(200, 255, 255), 0.04), FX.bolt(C.cyan, 0.05) }
+	for _ = 1, 8 do
+		FX.puff(cam0 * V3(rr(-6, 8), -rr(4.5, 5.5), -rr(8, 12)), rr(1.5, 3), rr(1.2, 1.6), V3(rr(-3, 3), rr(1, 3), 0))
+	end
+	local tb, tw = 0, 0
+	Shot.update = function(u, dt)
+		camCF = cam0:Lerp(cam1, smooth(u / (T3.FIN - T3.WEAK)))
+		shake = 0.2
+		hf.set(nil, 0.9 * (1 + 0.25 * sin(u * 18)))
+		tb = tb - dt
+		if tb <= 0 then
+			tb = 0.06
+			bolts[1].strike(hand, hand + V3(rr(-6, -2), rr(-1, 2), rr(-1, 1)), 0.5)
+			bolts[2].strike(head, head + V3(rr(-4, 1), rr(2, 5), 0), 0.5)
+			bolts[3].strike(hand, hand + V3(rr(-4, 0), rr(2, 5), 0), 0.4)
+		end
+		tw = tw - dt
+		if tw <= 0 then
+			tw = 0.05
+			FX.twinkle(cam0 * V3(rr(-10, 6), rr(-4, 5), -rr(8, 14)), rr(0.15, 0.3), RGB(255, 110, 220), rr(0.4, 0.7))
+		end
+	end
+end
+
+P3.shots = {
+	{ 0, P3.approach }, { T3.RIGHT, P3.right }, { T3.GOING, P3.going }, { T3.SMOKE, P3.smoke }, { T3.BLAST, P3.blast },
+	{ T3.RUN, P3.run }, { T3.TOP, P3.top }, { T3.REACH, P3.reach }, { T3.BUT, P3.but }, { T3.BOOM, P3.boom }, { T3.WEAK, P3.weak },
+}
+P3.fin = T3.FIN
+
+----------------------------------------------------------------------
 -- ЗАПУСК
 ----------------------------------------------------------------------
 
 local savedCharCF = nil
-local currentPart = 1
+local currentPart = 0
 
 local function parkCharacter()
 	local char = player.Character
@@ -2906,7 +3613,7 @@ local function waitUntil(t)
 	end
 end
 
-local function finish(part)
+local function finish(which)
 	ui.black.BackgroundTransparency = 0
 	playing = false
 	Shot.update = nil
@@ -2920,18 +3627,23 @@ local function finish(part)
 	end
 	fx.blur.Size = 0
 	ui.speed.Visible = false
-	ui.endText.Text = "Часть " .. part .. " — конец"
+	if which == 0 then
+		ui.endText.Text = "Конец"
+	else
+		ui.endText.Text = "Часть " .. which .. " — конец"
+	end
 	ui.endScreen.Visible = true
 	camera.CameraType = Enum.CameraType.Custom
 	releaseCharacter()
 	setCoreUI(true)
 end
 
-local function play(part)
+-- which: 0 — все части подряд, 1..3 — одна часть
+local function play(which)
 	if playing then
 		return
 	end
-	currentPart = part
+	currentPart = which
 	ui.start.Visible = false
 	ui.endScreen.Visible = false
 	ui.black.BackgroundTransparency = 1
@@ -2939,19 +3651,25 @@ local function play(part)
 	parkCharacter()
 	songT = 0
 	playing = true
-	local list = P1
-	if part == 2 then
-		list = P2
+	local all = { P1, P2, P3 }
+	local list = all
+	if which ~= 0 then
+		list = { all[which] }
 	end
-	for _, s in ipairs(list.shots) do
-		waitUntil(s[1])
-		if not playing then
-			return
+	local offset = 0
+	for _, part in ipairs(list) do
+		partOffset = offset
+		for _, s in ipairs(part.shots) do
+			waitUntil(offset + s[1])
+			if not playing then
+				return
+			end
+			s[2]()
 		end
-		s[2]()
+		offset = offset + part.fin
 	end
-	waitUntil(list.fin)
-	finish(part)
+	waitUntil(offset)
+	finish(which)
 end
 
 local function onFrame(dt)
@@ -3021,8 +3739,7 @@ local function setup()
 	setLook({})
 
 	buildUI()
-	buildCity(world)
-	buildField(world)
+	buildBattlefield(world)
 	buildEyes(world)
 	yuta = buildYuta(world, { angry = 1.0, mouth = "grit", blood = true, look = 0.02, lidDrop = 0.035 })
 	ryu = buildRyu(world, { mouth = "smirk" })
@@ -3038,17 +3755,23 @@ local function setup()
 			task.spawn(play, part)
 		end
 	end
+	ui.btnAll.Activated:Connect(function()
+		start(0)
+	end)
 	ui.btn1.Activated:Connect(function()
 		start(1)
 	end)
 	ui.btn2.Activated:Connect(function()
 		start(2)
 	end)
+	ui.btn3.Activated:Connect(function()
+		start(3)
+	end)
 	ui.again.Activated:Connect(function()
 		start(currentPart)
 	end)
 	ui.other.Activated:Connect(function()
-		start(3 - currentPart)
+		start(0)
 	end)
 	UserInputService.InputBegan:Connect(function(input)
 		if UserInputService:GetFocusedTextBox() then
@@ -3058,11 +3781,15 @@ local function setup()
 			start(1)
 		elseif input.KeyCode == Enum.KeyCode.Two then
 			start(2)
-		elseif input.KeyCode == Enum.KeyCode.R or input.KeyCode == Enum.KeyCode.Space then
+		elseif input.KeyCode == Enum.KeyCode.Three then
+			start(3)
+		elseif input.KeyCode == Enum.KeyCode.Space then
+			start(0)
+		elseif input.KeyCode == Enum.KeyCode.R then
 			start(currentPart)
 		end
 	end)
-	if CONFIG.PART == 1 or CONFIG.PART == 2 then
+	if CONFIG.PART == 1 or CONFIG.PART == 2 or CONFIG.PART == 3 then
 		currentPart = CONFIG.PART
 	end
 	if CONFIG.AUTO_START then
