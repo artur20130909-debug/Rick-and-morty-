@@ -492,6 +492,12 @@ function Rig:show(on)
 end
 
 function Rig:update(now)
+	local parts, cfs = self.bulkParts, self.bulkCFs
+	if not parts then
+		parts, cfs = {}, {}
+		self.bulkParts, self.bulkCFs = parts, cfs
+	end
+	local n = 0
 	for _, b in ipairs(self.list) do
 		if b.dur > 0 then
 			local a = clamp01((now - b.t0) / b.dur)
@@ -511,7 +517,21 @@ function Rig:update(now)
 		end
 		b.world = w
 		for _, e in ipairs(b.parts) do
-			e.p.CFrame = w * e.rel
+			n = n + 1
+			parts[n] = e.p
+			cfs[n] = w * e.rel
+		end
+	end
+	for i = #parts, n + 1, -1 do
+		parts[i] = nil
+		cfs[i] = nil
+	end
+	-- одним вызовом двигаем все детали: намного быстрее сотен присваиваний
+	if self.model.Parent then
+		workspace:BulkMoveTo(parts, cfs, Enum.BulkMoveMode.FireCFrameChanged)
+	else
+		for i = 1, n do
+			parts[i].CFrame = cfs[i]
 		end
 	end
 end
