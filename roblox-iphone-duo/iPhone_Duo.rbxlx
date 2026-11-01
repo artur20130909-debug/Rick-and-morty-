@@ -1,0 +1,2084 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+<External>null</External>
+<External>nil</External>
+<Item class="Workspace" referent="RBX00000001"><Properties><string name="Name">Workspace</string></Properties></Item>
+<Item class="Lighting" referent="RBX00000002"><Properties><string name="Name">Lighting</string></Properties></Item>
+<Item class="ReplicatedStorage" referent="RBX00000004"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="ModuleScript" referent="RBX00000003"><Properties><string name="Name">PhoneConfig</string><ProtectedString name="Source"><![CDATA[-- Настройки игры «Мой iPhone Duo». Этот модуль читают и сервер, и клиент.
+local Config = {}
+
+Config.ToolName = "iPhone Duo"
+
+-- Как телефон лежит в руке. Если в руке он стоит криво — поменяй цифры:
+-- Y — выше/ниже, X — левее/правее.
+Config.Grip = CFrame.new(0, -0.45, 0)
+
+-- Батарея (в процентах)
+Config.Battery = {
+	Start = 100,
+	IdleDrain = 0.05, -- в секунду, когда телефон просто в руке
+	FlashlightDrain = 0.35, -- дополнительно, пока горит фонарик
+	MusicDrain = 0.25, -- дополнительно, пока играет музыка
+	ChargeRate = 6, -- в секунду на зарядной станции
+	ChargeRadius = 7, -- в стадах от центра зарядки
+}
+
+-- Турбо-бег
+Config.Turbo = { Speed = 42, Duration = 8, Cooldown = 20, Cost = 8 }
+
+-- Цвета корпуса (меняются в приложении «Цвет», видят все игроки)
+Config.Colors = {
+	{ Name = "Натуральный титан", Color = Color3.fromRGB(190, 184, 172) },
+	{ Name = "Космический чёрный", Color = Color3.fromRGB(45, 45, 50) },
+	{ Name = "Небесно-голубой", Color = Color3.fromRGB(120, 170, 220) },
+	{ Name = "Розовое золото", Color = Color3.fromRGB(232, 178, 160) },
+	{ Name = "Мятный", Color = Color3.fromRGB(150, 215, 185) },
+	{ Name = "Фиолетовый", Color = Color3.fromRGB(150, 110, 200) },
+	{ Name = "Красный (PRODUCT)", Color = Color3.fromRGB(200, 40, 50) },
+	{ Name = "Золотой", Color = Color3.fromRGB(230, 195, 110) },
+}
+
+-- Обои экрана (только у тебя)
+Config.Wallpapers = {
+	{ Name = "Закат", A = Color3.fromRGB(255, 120, 90), B = Color3.fromRGB(120, 60, 200) },
+	{ Name = "Океан", A = Color3.fromRGB(40, 180, 230), B = Color3.fromRGB(20, 40, 120) },
+	{ Name = "Лес", A = Color3.fromRGB(120, 210, 120), B = Color3.fromRGB(20, 80, 60) },
+	{ Name = "Ночь", A = Color3.fromRGB(60, 60, 90), B = Color3.fromRGB(10, 10, 20) },
+	{ Name = "Конфета", A = Color3.fromRGB(255, 160, 210), B = Color3.fromRGB(150, 200, 255) },
+}
+
+-- Места для приложения «Карта». Позиции совпадают с картой из MapBuilder.
+Config.Locations = {
+	{ Name = "Спавн", Icon = "🏠", Position = Vector3.new(0, 4, 0) },
+	{ Name = "Магазин Duo", Icon = "🛍️", Position = Vector3.new(0, 4, -70) },
+	{ Name = "Крыша башни", Icon = "🗼", Position = Vector3.new(74, 64, 34) },
+	{ Name = "Пляж", Icon = "🏖️", Position = Vector3.new(-90, 4, 60) },
+	{ Name = "Парк", Icon = "🌳", Position = Vector3.new(70, 4, -40) },
+}
+
+-- Зарядные станции (позиции центра)
+Config.Chargers = {
+	Vector3.new(14, 0.6, 10),
+	Vector3.new(-14, 0.6, -54),
+	Vector3.new(86, 61.2, 46),
+}
+
+-- Музыка. Roblox часто закрывает звуки авторов, поэтому, если трек молчит,
+-- найди другой в Toolbox → Audio и впиши его цифры сюда или прямо в приложение.
+Config.Music = {
+	{ Name = "Relaxed Scene", Id = "1848354536" },
+	{ Name = "Time To Relax", Id = "9044702906" },
+	{ Name = "Трек 3", Id = "1837849285" },
+}
+Config.MusicVolume = 0.5
+
+-- Встроенные звуки Roblox (работают всегда)
+Config.Sounds = {
+	Click = "rbxasset://sounds/electronicpingshort.wav",
+	Ring = "rbxasset://sounds/electronicpingshort.wav",
+	Shutter = "rbxasset://sounds/swoosh.wav",
+	Notify = "rbxasset://sounds/electronicpingshort.wav",
+}
+
+-- Сутки в игре: сколько реальных минут длится один игровой день
+Config.DayLengthMinutes = 10
+
+-- Сообщения
+Config.MessageMaxLength = 120
+Config.MessageCooldown = 2
+Config.CallCooldown = 6
+
+-- Мини-игра «Тап-тап»
+Config.TapGameSeconds = 15
+
+return Config
+]]></ProtectedString></Properties></Item></Item>
+<Item class="ServerStorage" referent="RBX00000005"><Properties><string name="Name">ServerStorage</string></Properties></Item>
+<Item class="ServerScriptService" referent="RBX00000008"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="ModuleScript" referent="RBX00000006"><Properties><string name="Name">MapBuilder</string><ProtectedString name="Source"><![CDATA[-- Строит карту при запуске: спавн, магазин Duo, башня, пляж, парк, зарядные станции.
+local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("PhoneConfig"))
+
+local Map = {}
+
+local function make(className, props)
+	local inst = Instance.new(className)
+	local parent = props.Parent
+	props.Parent = nil
+	for k, v in pairs(props) do
+		inst[k] = v
+	end
+	if parent then
+		inst.Parent = parent
+	end
+	return inst
+end
+Map.make = make
+
+local function block(parent, name, size, cf, color, material, extra)
+	local p = make("Part", {
+		Name = name,
+		Size = size,
+		CFrame = cf,
+		Color = color,
+		Material = material or Enum.Material.SmoothPlastic,
+		Anchored = true,
+		TopSurface = Enum.SurfaceType.Smooth,
+		BottomSurface = Enum.SurfaceType.Smooth,
+		Parent = parent,
+	})
+	if extra then
+		for k, v in pairs(extra) do
+			p[k] = v
+		end
+	end
+	return p
+end
+Map.block = block
+
+local function sign(part, face, text, textColor, bgColor)
+	local gui = make("SurfaceGui", {
+		Face = face,
+		SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud,
+		PixelsPerStud = 40,
+		LightInfluence = 0,
+		Parent = part,
+	})
+	make("TextLabel", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = bgColor or Color3.new(1, 1, 1),
+		BackgroundTransparency = bgColor and 0 or 1,
+		Text = text,
+		TextScaled = true,
+		Font = Enum.Font.GothamBold,
+		TextColor3 = textColor or Color3.new(0, 0, 0),
+		Parent = gui,
+	})
+	return gui
+end
+Map.sign = sign
+
+local function tree(parent, pos, scale)
+	scale = scale or 1
+	local trunkH = 8 * scale
+	block(parent, "Trunk", Vector3.new(1.6 * scale, trunkH, 1.6 * scale), CFrame.new(pos + Vector3.new(0, trunkH / 2, 0)),
+		Color3.fromRGB(110, 75, 45), Enum.Material.Wood)
+	local leaves = block(parent, "Leaves", Vector3.new(9, 9, 9) * scale, CFrame.new(pos + Vector3.new(0, trunkH + 3 * scale, 0)),
+		Color3.fromRGB(70, 160, 70), Enum.Material.Grass)
+	leaves.Shape = Enum.PartType.Ball
+end
+
+-- Большая статуя телефона у магазина
+local function phoneStatue(parent, cf)
+	local model = make("Model", { Name = "DuoStatue", Parent = parent })
+	local w, h, t = 8, 16, 1
+	local body = Color3.fromRGB(190, 184, 172)
+	block(model, "LeftBody", Vector3.new(w, h, t), cf * CFrame.new(-w / 2 - 0.25, 0, 0), body, Enum.Material.Metal)
+	block(model, "RightBody", Vector3.new(w, h, t), cf * CFrame.new(w / 2 + 0.25, 0, 0), body, Enum.Material.Metal)
+	local hinge = block(model, "Hinge", Vector3.new(h, 0.8, 0.8), cf * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(120, 120, 125), Enum.Material.Metal)
+	hinge.Shape = Enum.PartType.Cylinder
+	for i, side in ipairs({ -1, 1 }) do
+		local scr = block(model, "Screen" .. i, Vector3.new(w - 0.6, h - 0.8, 0.1),
+			cf * CFrame.new(side * (w / 2 + 0.25), 0, t / 2 + 0.05), Color3.fromRGB(20, 20, 30), Enum.Material.Neon)
+		local gui = make("SurfaceGui", { Face = Enum.NormalId.Back, LightInfluence = 0,
+			SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud, PixelsPerStud = 30, Parent = scr })
+		local bg = make("Frame", { Size = UDim2.fromScale(1, 1), BorderSizePixel = 0, Parent = gui })
+		make("UIGradient", { Rotation = 90, Color = ColorSequence.new(
+			i == 1 and Color3.fromRGB(255, 120, 90) or Color3.fromRGB(40, 180, 230),
+			i == 1 and Color3.fromRGB(120, 60, 200) or Color3.fromRGB(20, 40, 120)), Parent = bg })
+		make("TextLabel", { Size = UDim2.fromScale(1, 0.3), Position = UDim2.fromScale(0, 0.12), BackgroundTransparency = 1,
+			Text = i == 1 and "iPhone" or "Duo", TextScaled = true, Font = Enum.Font.GothamBlack,
+			TextColor3 = Color3.new(1, 1, 1), Parent = bg })
+		make("TextLabel", { Size = UDim2.fromScale(1, 0.1), Position = UDim2.fromScale(0, 0.5), BackgroundTransparency = 1,
+			Text = i == 1 and "Два экрана." or "Один телефон.", TextScaled = true, Font = Enum.Font.Gotham,
+			TextColor3 = Color3.new(1, 1, 1), Parent = bg })
+	end
+	-- Камеры сзади
+	local bump = block(model, "CameraBump", Vector3.new(3, 3, 0.4), cf * CFrame.new(-w / 2 - 0.25 - 1.5, h / 2 - 2.5, -t / 2 - 0.2),
+		Color3.fromRGB(60, 60, 65), Enum.Material.Glass)
+	for _, dy in ipairs({ 0.7, -0.7 }) do
+		local lens = block(model, "Lens", Vector3.new(0.3, 1.1, 1.1),
+			bump.CFrame * CFrame.new(0, dy, -0.3) * CFrame.Angles(0, math.rad(90), 0), Color3.fromRGB(15, 15, 25), Enum.Material.Glass)
+		lens.Shape = Enum.PartType.Cylinder
+	end
+	return model
+end
+
+local function charger(parent, pos)
+	local pad = block(parent, "Charger", Vector3.new(8, 0.4, 8), CFrame.new(pos), Color3.fromRGB(60, 230, 120), Enum.Material.Neon)
+	pad.Shape = Enum.PartType.Cylinder
+	pad.Size = Vector3.new(0.4, 9, 9)
+	pad.CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.rad(90))
+	local post = block(parent, "ChargerSign", Vector3.new(4, 2, 0.3), CFrame.new(pos + Vector3.new(0, 5, -4.4)),
+		Color3.fromRGB(30, 30, 35), Enum.Material.SmoothPlastic)
+	sign(post, Enum.NormalId.Back, "⚡ ЗАРЯДКА", Color3.fromRGB(90, 255, 140), Color3.fromRGB(30, 30, 35))
+	sign(post, Enum.NormalId.Front, "⚡ ЗАРЯДКА", Color3.fromRGB(90, 255, 140), Color3.fromRGB(30, 30, 35))
+	block(parent, "ChargerPole", Vector3.new(0.4, 4, 0.4), CFrame.new(pos + Vector3.new(0, 2, -4.4)), Color3.fromRGB(80, 80, 85), Enum.Material.Metal)
+	make("PointLight", { Color = Color3.fromRGB(90, 255, 140), Range = 12, Brightness = 2, Parent = pad })
+end
+
+local function store(parent)
+	local m = make("Model", { Name = "DuoStore", Parent = parent })
+	local c = CFrame.new(0, 0, -80)
+	local white = Color3.fromRGB(245, 245, 245)
+	block(m, "Floor", Vector3.new(50, 1, 34), c * CFrame.new(0, 0.5, 0), Color3.fromRGB(225, 220, 210), Enum.Material.Marble)
+	block(m, "Roof", Vector3.new(52, 1, 36), c * CFrame.new(0, 14.5, 0), white)
+	block(m, "BackWall", Vector3.new(50, 14, 1), c * CFrame.new(0, 7.5, -16.5), white)
+	block(m, "LeftWall", Vector3.new(1, 14, 34), c * CFrame.new(-24.5, 7.5, 0), white)
+	block(m, "RightWall", Vector3.new(1, 14, 34), c * CFrame.new(24.5, 7.5, 0), white)
+	-- Стеклянный фасад со входом посередине
+	for _, x in ipairs({ -15.5, 15.5 }) do
+		block(m, "Glass", Vector3.new(18, 13, 0.4), c * CFrame.new(x, 7.5, 16.8), Color3.fromRGB(180, 220, 255), Enum.Material.Glass,
+			{ Transparency = 0.6 })
+	end
+	block(m, "GlassTop", Vector3.new(13, 4, 0.4), c * CFrame.new(0, 12, 16.8), Color3.fromRGB(180, 220, 255), Enum.Material.Glass,
+		{ Transparency = 0.6 })
+	local logo = block(m, "Logo", Vector3.new(20, 3, 0.4), c * CFrame.new(0, 17, 17), Color3.fromRGB(30, 30, 35))
+	sign(logo, Enum.NormalId.Back, "  DUO STORE", Color3.new(1, 1, 1), Color3.fromRGB(30, 30, 35))
+	block(m, "LogoPole", Vector3.new(1, 2.5, 0.4), c * CFrame.new(0, 15.3, 17), Color3.fromRGB(30, 30, 35))
+	-- Столы с витринными телефонами
+	local colors = Config.Colors
+	local idx = 1
+	for row = -1, 1, 2 do
+		for col = -1, 1 do
+			local tcf = c * CFrame.new(col * 13, 0, row * 6)
+			block(m, "Table", Vector3.new(9, 0.4, 4), tcf * CFrame.new(0, 3.2, 0), Color3.fromRGB(205, 170, 120), Enum.Material.Wood)
+			for _, lx in ipairs({ -4, 4 }) do
+				block(m, "Leg", Vector3.new(0.4, 2.2, 3.4), tcf * CFrame.new(lx, 1.9, 0), Color3.fromRGB(230, 230, 230))
+			end
+			for k = -1, 1 do
+				local col3 = colors[((idx - 1) % #colors) + 1].Color
+				idx = idx + 1
+				local base = tcf * CFrame.new(k * 2.6, 3.5, 0) * CFrame.Angles(math.rad(-80), 0, 0)
+				block(m, "DemoL", Vector3.new(0.8, 1.6, 0.1), base * CFrame.new(-0.42, 0, 0), col3, Enum.Material.Metal)
+				block(m, "DemoR", Vector3.new(0.8, 1.6, 0.1), base * CFrame.new(0.42, 0, 0), col3, Enum.Material.Metal)
+				block(m, "DemoScreen", Vector3.new(1.55, 1.5, 0.02), base * CFrame.new(0, 0, 0.06), Color3.fromRGB(80, 140, 255), Enum.Material.Neon)
+			end
+		end
+	end
+	make("PointLight", { Range = 40, Brightness = 1.2, Parent = m:FindFirstChild("Roof") })
+	return m
+end
+
+local function tower(parent)
+	local m = make("Model", { Name = "Tower", Parent = parent })
+	local base = Vector3.new(80, 0, 40)
+	local h = 60
+	block(m, "Core", Vector3.new(10, h, 10), CFrame.new(base + Vector3.new(0, h / 2, 0)), Color3.fromRGB(200, 200, 210), Enum.Material.Concrete)
+	-- Круглая площадка наверху; с северной стороны (откуда приходит лестница) перил нет
+	local top = block(m, "Top", Vector3.new(1, 26, 26), CFrame.new(base + Vector3.new(0, h + 0.5, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(90, 90, 100), Enum.Material.DiamondPlate)
+	top.Shape = Enum.PartType.Cylinder
+	for _, d in ipairs({ { 0, 12 }, { 12, 0 }, { -12, 0 } }) do
+		local sx = d[1] == 0 and 16 or 0.5
+		local sz = d[1] == 0 and 0.5 or 16
+		block(m, "Rail", Vector3.new(sx, 3, sz), CFrame.new(base + Vector3.new(d[1], h + 2.5, d[2])), Color3.fromRGB(180, 220, 255),
+			Enum.Material.Glass, { Transparency = 0.5 })
+	end
+	-- Спиральная лестница
+	local steps = 60
+	for i = 0, steps - 1 do
+		local a = i / steps * math.pi * 6
+		local y = (i + 1) * (h / steps)
+		block(m, "Step", Vector3.new(4, 1, 6), CFrame.new(base + Vector3.new(0, y, 0)) * CFrame.Angles(0, a, 0) * CFrame.new(0, 0, -16),
+			Color3.fromRGB(150, 150, 160), Enum.Material.Metal)
+	end
+	local beacon = block(m, "Beacon", Vector3.new(2, 2, 2), CFrame.new(base + Vector3.new(0, h + 8, 0)), Color3.fromRGB(255, 80, 80), Enum.Material.Neon)
+	beacon.Shape = Enum.PartType.Ball
+	block(m, "Antenna", Vector3.new(0.4, 6, 0.4), CFrame.new(base + Vector3.new(0, h + 4, 0)), Color3.fromRGB(120, 120, 125), Enum.Material.Metal)
+	make("PointLight", { Color = Color3.fromRGB(255, 80, 80), Range = 30, Brightness = 3, Parent = beacon })
+	local s = block(m, "TowerSign", Vector3.new(10, 3, 0.4), CFrame.new(base + Vector3.new(0, 8, -5.2)), Color3.fromRGB(30, 30, 35))
+	sign(s, Enum.NormalId.Front, "📶 ВЫШКА 5G", Color3.fromRGB(255, 220, 90), Color3.fromRGB(30, 30, 35))
+end
+
+local function beach(parent)
+	local m = make("Model", { Name = "Beach", Parent = parent })
+	block(m, "Sand", Vector3.new(70, 1, 60), CFrame.new(-100, 0.2, 70), Color3.fromRGB(235, 215, 160), Enum.Material.Sand)
+	block(m, "Water", Vector3.new(60, 1, 60), CFrame.new(-150, 0.1, 70), Color3.fromRGB(60, 150, 220), Enum.Material.Glass,
+		{ Transparency = 0.35, CanCollide = false })
+	for i, x in ipairs({ -95, -110, -85 }) do
+		local z = 55 + i * 9
+		block(m, "Towel", Vector3.new(3, 0.1, 6), CFrame.new(x, 0.75, z), i % 2 == 0 and Color3.fromRGB(255, 90, 90) or Color3.fromRGB(80, 170, 255),
+			Enum.Material.Fabric)
+		block(m, "UmbrellaPole", Vector3.new(0.3, 7, 0.3), CFrame.new(x + 2.5, 4, z), Color3.fromRGB(240, 240, 240))
+		local top = block(m, "Umbrella", Vector3.new(1, 8, 8), CFrame.new(x + 2.5, 7.6, z) * CFrame.Angles(0, 0, math.rad(90)),
+			Color3.fromRGB(255, 200, 60), Enum.Material.Fabric)
+		top.Shape = Enum.PartType.Cylinder
+	end
+	for _, p in ipairs({ Vector3.new(-120, 0.7, 45), Vector3.new(-78, 0.7, 95) }) do
+		tree(m, p, 0.9)
+	end
+end
+
+local function park(parent)
+	local m = make("Model", { Name = "Park", Parent = parent })
+	local rng = Random.new(7)
+	for _ = 1, 14 do
+		tree(m, Vector3.new(rng:NextNumber(40, 110), 0.5, rng:NextNumber(-80, -10)), rng:NextNumber(0.8, 1.3))
+	end
+	for i = 0, 2 do
+		local cf = CFrame.new(60 + i * 10, 0, -35)
+		block(m, "BenchSeat", Vector3.new(6, 0.4, 2), cf * CFrame.new(0, 1.8, 0), Color3.fromRGB(150, 100, 60), Enum.Material.Wood)
+		block(m, "BenchBack", Vector3.new(6, 2, 0.3), cf * CFrame.new(0, 3, 0.9), Color3.fromRGB(150, 100, 60), Enum.Material.Wood)
+		block(m, "BenchLegs", Vector3.new(5.6, 1.6, 1.6), cf * CFrame.new(0, 0.8, 0), Color3.fromRGB(60, 60, 60), Enum.Material.Metal,
+			{ Transparency = 0 })
+	end
+end
+
+local function roads(parent)
+	local gray = Color3.fromRGB(70, 70, 75)
+	block(parent, "Road1", Vector3.new(12, 0.2, 180), CFrame.new(0, 0.6, -10), gray, Enum.Material.Asphalt)
+	block(parent, "Road2", Vector3.new(200, 0.2, 12), CFrame.new(-10, 0.6, 30), gray, Enum.Material.Asphalt)
+	block(parent, "SpawnPlaza", Vector3.new(36, 0.3, 36), CFrame.new(0, 0.65, 0), Color3.fromRGB(215, 215, 220), Enum.Material.Slate)
+end
+
+function Map.build()
+	local Lighting = game:GetService("Lighting")
+	Lighting.ClockTime = 12
+	Lighting.Brightness = 2
+	Lighting.OutdoorAmbient = Color3.fromRGB(130, 130, 140)
+	Lighting.Ambient = Color3.fromRGB(60, 60, 70)
+
+	local world = make("Folder", { Name = "DuoWorld", Parent = workspace })
+	block(world, "Ground", Vector3.new(600, 1, 600), CFrame.new(0, 0, 0), Color3.fromRGB(100, 180, 90), Enum.Material.Grass)
+	roads(world)
+
+	local spawn = make("SpawnLocation", {
+		Name = "Spawn",
+		Size = Vector3.new(10, 1, 10),
+		CFrame = CFrame.new(0, 1, 0),
+		Anchored = true,
+		Color = Color3.fromRGB(80, 140, 255),
+		Material = Enum.Material.Neon,
+		Duration = 0,
+		Parent = world,
+	})
+	local welcome = block(world, "Welcome", Vector3.new(18, 5, 0.5), CFrame.new(0, 7, -14), Color3.fromRGB(30, 30, 35))
+	sign(welcome, Enum.NormalId.Back, "📱 МОЙ iPHONE DUO\nОн уже у тебя в инвентаре!", Color3.new(1, 1, 1), Color3.fromRGB(30, 30, 35))
+	block(world, "WelcomePole", Vector3.new(0.6, 5, 0.6), CFrame.new(0, 2.5, -14), Color3.fromRGB(80, 80, 85), Enum.Material.Metal)
+
+	store(world)
+	phoneStatue(world, CFrame.new(-34, 8.6, -50) * CFrame.Angles(0, math.rad(25), 0))
+	tower(world)
+	beach(world)
+	park(world)
+	for _, pos in ipairs(Config.Chargers) do
+		charger(world, pos)
+	end
+	return spawn
+end
+
+return Map
+]]></ProtectedString></Properties></Item><Item class="Script" referent="RBX00000007"><Properties><string name="Name">GameServer</string><ProtectedString name="Source"><![CDATA[-- Сервер игры «Мой iPhone Duo»: строит карту, собирает телефон и кладёт его каждому игроку в инвентарь,
+-- считает батарею и выполняет действия приложений (фонарик, музыка, чат, звонки, карта, турбо, цвет).
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+local Lighting = game:GetService("Lighting")
+local TextService = game:GetService("TextService")
+
+local Config = require(ReplicatedStorage:WaitForChild("PhoneConfig"))
+local Map = require(script.Parent:WaitForChild("MapBuilder"))
+local make = Map.make
+
+Map.build()
+
+-- Каналы связи с клиентом
+local remotes = make("Folder", { Name = "PhoneRemotes", Parent = ReplicatedStorage })
+local actionEvent = make("RemoteEvent", { Name = "PhoneAction", Parent = remotes })
+local notifyEvent = make("RemoteEvent", { Name = "PhoneNotify", Parent = remotes })
+
+local function now()
+	return workspace:GetServerTimeNow()
+end
+
+----------------------------------------------------------------------------------------------------
+-- Модель телефона: две половинки, петля посередине, два экрана, двойная камера и вспышка.
+----------------------------------------------------------------------------------------------------
+local HALF_W, HALF_H, THICK, GAP = 0.8, 1.6, 0.1, 0.06
+
+local function phonePart(name, size, color, material, parent)
+	return make("Part", {
+		Name = name,
+		Size = size,
+		Color = color,
+		Material = material or Enum.Material.Metal,
+		CanCollide = false,
+		CanTouch = false,
+		CanQuery = false,
+		Massless = true,
+		TopSurface = Enum.SurfaceType.Smooth,
+		BottomSurface = Enum.SurfaceType.Smooth,
+		Parent = parent,
+	})
+end
+
+local function screenGui(part, name)
+	local gui = make("SurfaceGui", {
+		Name = name,
+		Face = Enum.NormalId.Back, -- задняя грань детали смотрит на игрока, который держит телефон
+		LightInfluence = 0,
+		SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud,
+		PixelsPerStud = 160,
+		Parent = part,
+	})
+	local bg = make("Frame", { Name = "Bg", Size = UDim2.fromScale(1, 1), BorderSizePixel = 0, BackgroundColor3 = Color3.new(1, 1, 1), Parent = gui })
+	make("UIGradient", { Name = "Wallpaper", Rotation = 90, Color = ColorSequence.new(Config.Wallpapers[1].A, Config.Wallpapers[1].B), Parent = bg })
+	return gui, bg
+end
+
+local function buildPhoneTool()
+	local tool = make("Tool", {
+		Name = Config.ToolName,
+		ToolTip = "Твой телефон с двумя экранами",
+		CanBeDropped = false,
+		RequiresHandle = true,
+		Grip = Config.Grip,
+	})
+	local bodyColor = Config.Colors[1].Color
+	local handle = phonePart("Handle", Vector3.new(HALF_W, HALF_H, THICK), bodyColor, Enum.Material.Metal, tool)
+	handle.CFrame = CFrame.new()
+	local base = handle.CFrame
+	local rightX = HALF_W + GAP
+
+	local right = phonePart("RightBody", Vector3.new(HALF_W, HALF_H, THICK), bodyColor, Enum.Material.Metal, tool)
+	right.CFrame = base * CFrame.new(rightX, 0, 0)
+
+	local hinge = phonePart("Hinge", Vector3.new(HALF_H, 0.09, 0.09), Color3.fromRGB(120, 120, 128), Enum.Material.Metal, tool)
+	hinge.Shape = Enum.PartType.Cylinder
+	hinge.CFrame = base * CFrame.new(rightX / 2, 0, 0) * CFrame.Angles(0, 0, math.rad(90))
+
+	-- Экраны (на стороне +Z, к игроку)
+	local leftScreen = phonePart("LeftScreen", Vector3.new(HALF_W - 0.06, HALF_H - 0.08, 0.01), Color3.fromRGB(10, 10, 14), Enum.Material.Glass, tool)
+	leftScreen.CFrame = base * CFrame.new(0, 0, THICK / 2 + 0.006)
+	local rightScreen = phonePart("RightScreen", Vector3.new(HALF_W - 0.06, HALF_H - 0.08, 0.01), Color3.fromRGB(10, 10, 14), Enum.Material.Glass, tool)
+	rightScreen.CFrame = base * CFrame.new(rightX, 0, THICK / 2 + 0.006)
+
+	local _, lbg = screenGui(leftScreen, "Display")
+	make("TextLabel", { Name = "Clock", Size = UDim2.fromScale(1, 0.22), Position = UDim2.fromScale(0, 0.12), BackgroundTransparency = 1,
+		Text = "12:00", TextScaled = true, Font = Enum.Font.GothamBold, TextColor3 = Color3.new(1, 1, 1), Parent = lbg })
+	make("TextLabel", { Name = "Label", Size = UDim2.fromScale(1, 0.08), Position = UDim2.fromScale(0, 0.36), BackgroundTransparency = 1,
+		Text = "iPhone Duo", TextScaled = true, Font = Enum.Font.Gotham, TextColor3 = Color3.new(1, 1, 1), Parent = lbg })
+	make("TextLabel", { Name = "Battery", Size = UDim2.fromScale(0.9, 0.07), Position = UDim2.fromScale(0.05, 0.02), BackgroundTransparency = 1,
+		Text = "100%", TextScaled = true, Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = Color3.new(1, 1, 1), Parent = lbg })
+
+	local _, rbg = screenGui(rightScreen, "Display")
+	make("TextLabel", { Name = "AppIcon", Size = UDim2.fromScale(1, 0.3), Position = UDim2.fromScale(0, 0.25), BackgroundTransparency = 1,
+		Text = "📱", TextScaled = true, Font = Enum.Font.GothamBold, TextColor3 = Color3.new(1, 1, 1), Parent = rbg })
+	make("TextLabel", { Name = "AppName", Size = UDim2.fromScale(1, 0.09), Position = UDim2.fromScale(0, 0.6), BackgroundTransparency = 1,
+		Text = "Главный экран", TextScaled = true, Font = Enum.Font.GothamBold, TextColor3 = Color3.new(1, 1, 1), Parent = rbg })
+
+	-- Задняя сторона левой половинки: двойная камера и вспышка
+	local bump = phonePart("CameraBump", Vector3.new(0.36, 0.36, 0.03), Color3.fromRGB(40, 40, 45), Enum.Material.Glass, tool)
+	bump.CFrame = base * CFrame.new(-0.14, 0.55, -THICK / 2 - 0.015)
+	for i, dy in ipairs({ 0.08, -0.08 }) do
+		local lens = phonePart("Lens" .. i, Vector3.new(0.03, 0.13, 0.13), Color3.fromRGB(10, 10, 20), Enum.Material.Glass, tool)
+		lens.Shape = Enum.PartType.Cylinder
+		lens.CFrame = bump.CFrame * CFrame.new(-0.06, dy, -0.02) * CFrame.Angles(0, math.rad(90), 0)
+	end
+	local flash = phonePart("Flash", Vector3.new(0.06, 0.06, 0.02), Color3.fromRGB(255, 240, 200), Enum.Material.SmoothPlastic, tool)
+	flash.CFrame = bump.CFrame * CFrame.new(0.1, 0.08, -0.02)
+	make("SpotLight", { Name = "Torch", Face = Enum.NormalId.Front, Angle = 70, Range = 45, Brightness = 6,
+		Color = Color3.fromRGB(255, 245, 225), Shadows = true, Enabled = false, Parent = flash })
+
+	-- Звуки из телефона (их слышат все рядом)
+	make("Sound", { Name = "Music", Volume = Config.MusicVolume, Looped = true, RollOffMaxDistance = 80, Parent = handle })
+	make("Sound", { Name = "Ring", SoundId = Config.Sounds.Ring, Volume = 0.8, PlaybackSpeed = 1.2, RollOffMaxDistance = 60, Parent = handle })
+	make("Sound", { Name = "Shutter", SoundId = Config.Sounds.Shutter, Volume = 0.7, PlaybackSpeed = 1.6, RollOffMaxDistance = 40, Parent = handle })
+
+	-- Всё приваривается к ручке
+	for _, p in ipairs(tool:GetChildren()) do
+		if p:IsA("BasePart") and p ~= handle then
+			make("WeldConstraint", { Part0 = handle, Part1 = p, Parent = p })
+		end
+	end
+	return tool
+end
+
+local template = buildPhoneTool()
+template.Parent = ServerStorage
+
+----------------------------------------------------------------------------------------------------
+-- Состояние игроков
+----------------------------------------------------------------------------------------------------
+local state = {} -- [player] = { flashlight, music, lastMsg, lastCall, lastTp, turboUntil }
+
+local function getPhone(player)
+	local char = player.Character
+	local tool = char and char:FindFirstChild(Config.ToolName)
+	if tool and tool:IsA("Tool") then
+		return tool, true
+	end
+	local bp = player:FindFirstChildOfClass("Backpack")
+	tool = bp and bp:FindFirstChild(Config.ToolName)
+	if tool and tool:IsA("Tool") then
+		return tool, false
+	end
+	return nil, false
+end
+
+local function notify(player, kind, data)
+	notifyEvent:FireClient(player, kind, data or {})
+end
+
+local function applyColor(tool, index)
+	local entry = Config.Colors[index] or Config.Colors[1]
+	for _, name in ipairs({ "Handle", "RightBody" }) do
+		local p = tool:FindFirstChild(name)
+		if p then
+			p.Color = entry.Color
+		end
+	end
+	local hinge = tool:FindFirstChild("Hinge")
+	if hinge then
+		hinge.Color = entry.Color:Lerp(Color3.new(0, 0, 0), 0.3)
+	end
+end
+
+local function setFlashlight(player, on)
+	local st = state[player]
+	if not st then
+		return
+	end
+	st.flashlight = on and true or false
+	local tool = getPhone(player)
+	local flash = tool and tool:FindFirstChild("Flash")
+	if flash then
+		flash.Material = st.flashlight and Enum.Material.Neon or Enum.Material.SmoothPlastic
+		local torch = flash:FindFirstChild("Torch")
+		if torch then
+			torch.Enabled = st.flashlight
+		end
+	end
+	player:SetAttribute("Flashlight", st.flashlight)
+end
+
+local function stopMusic(player)
+	local st = state[player]
+	if st then
+		st.music = false
+	end
+	local tool = getPhone(player)
+	local snd = tool and tool.Handle:FindFirstChild("Music")
+	if snd then
+		snd:Stop()
+	end
+	player:SetAttribute("MusicId", "")
+end
+
+local function playMusic(player, id)
+	local tool = getPhone(player)
+	local snd = tool and tool.Handle:FindFirstChild("Music")
+	if not snd then
+		return
+	end
+	snd:Stop()
+	snd.SoundId = "rbxassetid://" .. id
+	snd:Play()
+	state[player].music = true
+	player:SetAttribute("MusicId", id)
+	task.delay(4, function()
+		if snd.Parent and snd.SoundId == "rbxassetid://" .. id and not snd.IsLoaded then
+			notify(player, "toast", { text = "Трек " .. id .. " не загрузился. Возможно, Roblox закрыл этот звук — попробуй другой ID." })
+		end
+	end)
+end
+
+local function setScreen(player, icon, name)
+	local tool = getPhone(player)
+	local scr = tool and tool:FindFirstChild("RightScreen")
+	local bg = scr and scr:FindFirstChild("Display") and scr.Display:FindFirstChild("Bg")
+	if bg then
+		bg.AppIcon.Text = icon
+		bg.AppName.Text = name
+	end
+end
+
+local function givePhone(player)
+	local tool = getPhone(player)
+	if not tool then
+		tool = template:Clone()
+		tool.Parent = player:WaitForChild("Backpack")
+	end
+	applyColor(tool, player:GetAttribute("PhoneColor") or 1)
+	-- после возрождения фонарик и музыка выключены
+	local st = state[player]
+	if st then
+		st.flashlight = false
+		st.music = false
+	end
+	player:SetAttribute("Flashlight", false)
+	player:SetAttribute("MusicId", "")
+end
+
+local function onPlayerAdded(player)
+	state[player] = { flashlight = false, music = false, lastMsg = 0, lastCall = 0, lastTp = 0, turboUntil = 0 }
+	player:SetAttribute("Battery", Config.Battery.Start)
+	player:SetAttribute("Charging", false)
+	player:SetAttribute("PhoneColor", 1)
+	player:SetAttribute("TurboReadyAt", 0)
+	player.CharacterAdded:Connect(function(char)
+		char:WaitForChild("Humanoid")
+		task.wait(0.1)
+		givePhone(player)
+	end)
+	if player.Character then
+		givePhone(player)
+	end
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+for _, p in ipairs(Players:GetPlayers()) do
+	onPlayerAdded(p)
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	state[player] = nil
+end)
+
+----------------------------------------------------------------------------------------------------
+-- Действия приложений
+----------------------------------------------------------------------------------------------------
+local function hasPower(player)
+	if (player:GetAttribute("Battery") or 0) <= 0 then
+		notify(player, "toast", { text = "🔋 Телефон разряжен! Встань на зелёную зарядку ⚡" })
+		return false
+	end
+	return true
+end
+
+local function spendBattery(player, amount)
+	local b = player:GetAttribute("Battery") or 0
+	player:SetAttribute("Battery", math.max(0, b - amount))
+end
+
+local function filterFor(text, fromId, toId)
+	local ok, result = pcall(function()
+		return TextService:FilterStringAsync(text, fromId)
+	end)
+	if not ok then
+		return nil
+	end
+	local ok2, filtered = pcall(function()
+		return result:GetChatForUserAsync(toId)
+	end)
+	if not ok2 then
+		return nil
+	end
+	return filtered
+end
+
+local handlers = {}
+
+function handlers.flashlight(player, on)
+	if on and not hasPower(player) then
+		return
+	end
+	setFlashlight(player, on == true)
+end
+
+function handlers.music(player, id)
+	if id == nil or id == "" then
+		stopMusic(player)
+		return
+	end
+	id = tostring(id):gsub("%D", "")
+	if #id < 3 or #id > 20 then
+		notify(player, "toast", { text = "Это не похоже на ID звука. Нужны только цифры." })
+		return
+	end
+	if not hasPower(player) then
+		return
+	end
+	playMusic(player, id)
+end
+
+function handlers.photo(player)
+	if not hasPower(player) then
+		return
+	end
+	local tool = getPhone(player)
+	if tool then
+		tool.Handle.Shutter:Play()
+		local flash = tool:FindFirstChild("Flash")
+		local torch = flash and flash:FindFirstChild("Torch")
+		if torch and not torch.Enabled then
+			torch.Enabled = true
+			task.delay(0.12, function()
+				if torch.Parent and not (state[player] and state[player].flashlight) then
+					torch.Enabled = false
+				end
+			end)
+		end
+	end
+	spendBattery(player, 0.5)
+end
+
+function handlers.screen(player, icon, name)
+	if type(icon) ~= "string" or type(name) ~= "string" then
+		return
+	end
+	setScreen(player, icon:sub(1, 32), name:sub(1, 64))
+end
+
+function handlers.color(player, index)
+	index = tonumber(index)
+	if not index or not Config.Colors[index] then
+		return
+	end
+	player:SetAttribute("PhoneColor", index)
+	local tool = getPhone(player)
+	if tool then
+		applyColor(tool, index)
+	end
+end
+
+function handlers.teleport(player, index)
+	index = tonumber(index)
+	local loc = index and Config.Locations[index]
+	local st = state[player]
+	if not loc or not st or now() - st.lastTp < 2 then
+		return
+	end
+	if not hasPower(player) then
+		return
+	end
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+	st.lastTp = now()
+	local _, yaw = root.CFrame:ToOrientation()
+	char:PivotTo(CFrame.new(loc.Position) * CFrame.Angles(0, yaw, 0))
+	spendBattery(player, 2)
+	notify(player, "toast", { text = loc.Icon .. " Ты в месте «" .. loc.Name .. "»" })
+end
+
+function handlers.turbo(player)
+	local st = state[player]
+	if not st then
+		return
+	end
+	if now() < (player:GetAttribute("TurboReadyAt") or 0) then
+		return
+	end
+	if (player:GetAttribute("Battery") or 0) < Config.Turbo.Cost then
+		notify(player, "toast", { text = "🔋 Для турбо нужно хотя бы " .. Config.Turbo.Cost .. "% заряда" })
+		return
+	end
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then
+		return
+	end
+	spendBattery(player, Config.Turbo.Cost)
+	player:SetAttribute("TurboReadyAt", now() + Config.Turbo.Cooldown)
+	local token = now()
+	st.turboUntil = token
+	hum.WalkSpeed = Config.Turbo.Speed
+	notify(player, "toast", { text = "🚀 Турбо на " .. Config.Turbo.Duration .. " секунд!" })
+	task.delay(Config.Turbo.Duration, function()
+		if hum.Parent and st.turboUntil == token then
+			hum.WalkSpeed = 16
+		end
+	end)
+end
+
+function handlers.message(player, text)
+	local st = state[player]
+	if not st or type(text) ~= "string" then
+		return
+	end
+	text = text:gsub("[%c]", " ")
+	text = text:sub(1, Config.MessageMaxLength)
+	if text:match("^%s*$") or now() - st.lastMsg < Config.MessageCooldown then
+		return
+	end
+	if not hasPower(player) then
+		return
+	end
+	st.lastMsg = now()
+	for _, other in ipairs(Players:GetPlayers()) do
+		local filtered = filterFor(text, player.UserId, other.UserId)
+		if filtered then
+			notify(other, "message", { from = player.DisplayName, fromId = player.UserId, text = filtered })
+		end
+	end
+end
+
+function handlers.call(player, targetId)
+	local st = state[player]
+	local target = Players:GetPlayerByUserId(tonumber(targetId) or 0)
+	if not st or not target or target == player then
+		return
+	end
+	if now() - st.lastCall < Config.CallCooldown then
+		notify(player, "toast", { text = "Подожди пару секунд перед новым звонком" })
+		return
+	end
+	if not hasPower(player) then
+		return
+	end
+	st.lastCall = now()
+	spendBattery(player, 1)
+	notify(target, "call", { from = player.DisplayName, fromId = player.UserId })
+	notify(player, "toast", { text = "📞 Звоним " .. target.DisplayName .. "…" })
+	local tool = getPhone(target)
+	if tool then
+		local ring = tool.Handle.Ring
+		task.spawn(function()
+			for _ = 1, 4 do
+				if not ring.Parent then
+					break
+				end
+				ring:Play()
+				task.wait(0.6)
+			end
+		end)
+	end
+end
+
+function handlers.callAnswer(player, callerId, accepted)
+	local caller = Players:GetPlayerByUserId(tonumber(callerId) or 0)
+	if not caller then
+		return
+	end
+	notify(caller, "callResult", { name = player.DisplayName, accepted = accepted == true })
+end
+
+actionEvent.OnServerEvent:Connect(function(player, action, ...)
+	local fn = type(action) == "string" and handlers[action]
+	if fn then
+		local ok, err = pcall(fn, player, ...)
+		if not ok then
+			warn("[iPhone Duo] ошибка в действии " .. action .. ": " .. tostring(err))
+		end
+	end
+end)
+
+----------------------------------------------------------------------------------------------------
+-- Батарея, зарядки, часы на экране и смена дня и ночи
+----------------------------------------------------------------------------------------------------
+local function nearCharger(player)
+	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return false
+	end
+	for _, pos in ipairs(Config.Chargers) do
+		local d = root.Position - pos
+		if Vector3.new(d.X, 0, d.Z).Magnitude <= Config.Battery.ChargeRadius and math.abs(d.Y) < 6 then
+			return true
+		end
+	end
+	return false
+end
+
+local function clockText()
+	local t = Lighting.ClockTime
+	local h = math.floor(t)
+	local m = math.floor((t - h) * 60)
+	return string.format("%02d:%02d", h, m)
+end
+
+local STEP = 0.5
+task.spawn(function()
+	while true do
+		task.wait(STEP)
+		-- сутки: 24 игровых часа за Config.DayLengthMinutes реальных минут
+		Lighting.ClockTime = (Lighting.ClockTime + 24 * STEP / (Config.DayLengthMinutes * 60)) % 24
+		local clock = clockText()
+		for _, player in ipairs(Players:GetPlayers()) do
+			local st = state[player]
+			if st then
+				local tool, equipped = getPhone(player)
+				local battery = player:GetAttribute("Battery") or 0
+				local charging = nearCharger(player)
+				if charging then
+					battery = math.min(100, battery + Config.Battery.ChargeRate * STEP)
+				elseif equipped then
+					local drain = Config.Battery.IdleDrain
+					if st.flashlight then
+						drain = drain + Config.Battery.FlashlightDrain
+					end
+					if st.music then
+						drain = drain + Config.Battery.MusicDrain
+					end
+					battery = math.max(0, battery - drain * STEP)
+				end
+				if player:GetAttribute("Charging") ~= charging then
+					player:SetAttribute("Charging", charging)
+				end
+				local wasDead = (player:GetAttribute("Battery") or 0) <= 0
+				player:SetAttribute("Battery", battery)
+				if battery <= 0 and not wasDead then
+					setFlashlight(player, false)
+					stopMusic(player)
+					notify(player, "toast", { text = "🔋 Телефон сел! Найди зелёную зарядку ⚡ (одна есть у спавна)" })
+				end
+				if tool then
+					local disp = tool.LeftScreen:FindFirstChild("Display")
+					local bg = disp and disp:FindFirstChild("Bg")
+					if bg then
+						bg.Clock.Text = clock
+						bg.Battery.Text = (charging and "⚡" or "") .. math.floor(battery) .. "%"
+						bg.Visible = battery > 0
+					end
+					local rdisp = tool.RightScreen:FindFirstChild("Display")
+					if rdisp and rdisp:FindFirstChild("Bg") then
+						rdisp.Bg.Visible = battery > 0
+					end
+				end
+			end
+		end
+	end
+end)
+]]></ProtectedString></Properties></Item></Item>
+<Item class="StarterPlayer" referent="RBX0000000B"><Properties><string name="Name">StarterPlayer</string></Properties><Item class="StarterPlayerScripts" referent="RBX00000009"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript" referent="RBX0000000A"><Properties><string name="Name">PhoneClient</string><ProtectedString name="Source"><![CDATA[-- Интерфейс телефона iPhone Duo. Два экрана: слева — приложения, справа — открытое приложение.
+-- Телефон открывается, когда достаёшь его из инвентаря (клавиша 1). Клик по миру — открыть/свернуть.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local Config = require(ReplicatedStorage:WaitForChild("PhoneConfig"))
+local remotes = ReplicatedStorage:WaitForChild("PhoneRemotes")
+local actionEvent = remotes:WaitForChild("PhoneAction")
+local notifyEvent = remotes:WaitForChild("PhoneNotify")
+
+local WHITE = Color3.new(1, 1, 1)
+local DARK = Color3.fromRGB(20, 20, 26)
+local BLUE = Color3.fromRGB(10, 132, 255)
+local GREEN = Color3.fromRGB(48, 209, 88)
+local RED = Color3.fromRGB(255, 69, 58)
+local ORANGE = Color3.fromRGB(255, 159, 10)
+local GRAY = Color3.fromRGB(72, 72, 80)
+
+local function make(className, props)
+	local inst = Instance.new(className)
+	local parent = props.Parent
+	props.Parent = nil
+	for k, v in pairs(props) do
+		inst[k] = v
+	end
+	if parent then
+		inst.Parent = parent
+	end
+	return inst
+end
+
+local function corner(parent, r)
+	local existing = parent:FindFirstChildOfClass("UICorner")
+	if existing then
+		existing.CornerRadius = UDim.new(0, r or 12)
+		return existing
+	end
+	return make("UICorner", { CornerRadius = UDim.new(0, r or 12), Parent = parent })
+end
+
+local function label(parent, props)
+	local l = make("TextLabel", {
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamMedium,
+		TextColor3 = WHITE,
+		TextSize = 16,
+		TextWrapped = true,
+		Parent = parent,
+	})
+	for k, v in pairs(props) do
+		l[k] = v
+	end
+	return l
+end
+
+----------------------------------------------------------------------------------------------------
+-- Звуки интерфейса
+----------------------------------------------------------------------------------------------------
+local gui = make("ScreenGui", {
+	Name = "PhoneGui",
+	ResetOnSpawn = false,
+	IgnoreGuiInset = true,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+	DisplayOrder = 5,
+	Parent = player:WaitForChild("PlayerGui"),
+})
+
+local function sound(id, vol, speed)
+	return make("Sound", { SoundId = id, Volume = vol, PlaybackSpeed = speed or 1, Parent = gui })
+end
+local sClick = sound(Config.Sounds.Click, 0.25, 2)
+local sNotify = sound(Config.Sounds.Notify, 0.5, 1.3)
+local sShutter = sound(Config.Sounds.Shutter, 0.6, 1.6)
+local sRing = sound(Config.Sounds.Ring, 0.6, 1.2)
+
+local settings = { sounds = true, wallpaper = 1 }
+
+local function play(s)
+	if settings.sounds then
+		s:Play()
+	end
+end
+
+local function button(parent, text, size, pos, color, onClick)
+	local b = make("TextButton", {
+		Size = size,
+		Position = pos or UDim2.new(),
+		BackgroundColor3 = color or GRAY,
+		Text = text,
+		Font = Enum.Font.GothamBold,
+		TextSize = 16,
+		TextColor3 = WHITE,
+		TextWrapped = true,
+		AutoButtonColor = true,
+		Parent = parent,
+	})
+	corner(b, 12)
+	b.Activated:Connect(function()
+		play(sClick)
+		onClick(b)
+	end)
+	return b
+end
+
+local function column(parent, top)
+	local sf = make("ScrollingFrame", {
+		Size = UDim2.new(1, 0, 1, -(top or 0)),
+		Position = UDim2.fromOffset(0, top or 0),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 4,
+		ScrollBarImageColor3 = WHITE,
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		Parent = parent,
+	})
+	make("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center, Parent = sf })
+	make("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 10), Parent = sf })
+	return sf
+end
+
+local function panel(parent, height, order)
+	local f = make("Frame", { Size = UDim2.new(1, -8, 0, height), BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.55, LayoutOrder = order or 0, Parent = parent })
+	corner(f, 14)
+	return f
+end
+
+----------------------------------------------------------------------------------------------------
+-- Помощники
+----------------------------------------------------------------------------------------------------
+local function clockText()
+	local t = Lighting.ClockTime
+	local h = math.floor(t)
+	local m = math.floor((t - h) * 60)
+	return string.format("%02d:%02d", h, m)
+end
+
+local function battery()
+	return player:GetAttribute("Battery") or 100
+end
+
+local function nearestPlace()
+	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return "Неизвестно"
+	end
+	local best, bestD = nil, math.huge
+	for _, loc in ipairs(Config.Locations) do
+		local d = (root.Position - loc.Position).Magnitude
+		if d < bestD then
+			best, bestD = loc, d
+		end
+	end
+	if best and bestD < 60 then
+		return best.Icon .. " " .. best.Name
+	end
+	return "🏙️ Где-то в городе"
+end
+
+----------------------------------------------------------------------------------------------------
+-- Уведомления сверху экрана (видны и при свёрнутом телефоне)
+----------------------------------------------------------------------------------------------------
+local bannerHolder = make("Frame", {
+	Size = UDim2.fromOffset(380, 400),
+	Position = UDim2.new(0.5, 0, 0, 50),
+	AnchorPoint = Vector2.new(0.5, 0),
+	BackgroundTransparency = 1,
+	Parent = gui,
+})
+make("UIListLayout", { Padding = UDim.new(0, 8), HorizontalAlignment = Enum.HorizontalAlignment.Center, Parent = bannerHolder })
+
+local function banner(icon, title, text, duration, buttons)
+	local f = make("Frame", { Size = UDim2.fromOffset(370, buttons and 108 or 68), BackgroundColor3 = Color3.fromRGB(30, 30, 36),
+		BackgroundTransparency = 0.08, Parent = bannerHolder })
+	corner(f, 20)
+	make("UIStroke", { Color = Color3.fromRGB(80, 80, 90), Thickness = 1, Parent = f })
+	label(f, { Size = UDim2.fromOffset(44, 44), Position = UDim2.fromOffset(12, 12), Text = icon, TextScaled = true })
+	label(f, { Size = UDim2.new(1, -76, 0, 20), Position = UDim2.fromOffset(64, 10), Text = title, Font = Enum.Font.GothamBold,
+		TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd })
+	label(f, { Size = UDim2.new(1, -76, 0, 34), Position = UDim2.fromOffset(64, 30), Text = text, TextSize = 14,
+		TextColor3 = Color3.fromRGB(210, 210, 215), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top })
+	local function close()
+		if f.Parent then
+			f:Destroy()
+		end
+	end
+	if buttons then
+		for i, b in ipairs(buttons) do
+			button(f, b.text, UDim2.new(0.5, -18, 0, 32), UDim2.new((i - 1) * 0.5, 12, 0, 68), b.color, function()
+				close()
+				b.onClick()
+			end)
+		end
+	end
+	task.delay(duration or 4, function()
+		if f.Parent and buttons and buttons.onTimeout then
+			buttons.onTimeout()
+		end
+		close()
+	end)
+	return f
+end
+
+local function toast(text)
+	banner("📱", "iPhone Duo", text, 4)
+	play(sNotify)
+end
+
+----------------------------------------------------------------------------------------------------
+-- Сам телефон на экране
+----------------------------------------------------------------------------------------------------
+local PHONE_W, PHONE_H = 600, 600
+local SCREEN_W, SCREEN_H = 278, 572
+
+local phone = make("Frame", {
+	Name = "Phone",
+	Size = UDim2.fromOffset(PHONE_W, PHONE_H),
+	AnchorPoint = Vector2.new(1, 1),
+	Position = UDim2.new(1, -16, 1, PHONE_H + 40),
+	BackgroundColor3 = Config.Colors[1].Color,
+	Active = true,
+	Visible = false,
+	Parent = gui,
+})
+corner(phone, 40)
+make("UIStroke", { Color = Color3.fromRGB(40, 40, 45), Thickness = 3, Parent = phone })
+local uiScale = make("UIScale", { Parent = phone })
+
+-- Петля посередине
+local hinge = make("Frame", { Size = UDim2.fromOffset(10, PHONE_H - 40), Position = UDim2.fromOffset(PHONE_W / 2 - 5, 20),
+	BackgroundColor3 = Color3.fromRGB(110, 110, 118), Parent = phone })
+corner(hinge, 5)
+
+local function makeScreen(x)
+	local s = make("Frame", { Size = UDim2.fromOffset(SCREEN_W, SCREEN_H), Position = UDim2.fromOffset(x, 14),
+		BackgroundColor3 = WHITE, ClipsDescendants = true, Active = true, Parent = phone })
+	corner(s, 28)
+	local grad = make("UIGradient", { Rotation = 90, Parent = s })
+	return s, grad
+end
+local leftScreen, leftGrad = makeScreen(14)
+local rightScreen, rightGrad = makeScreen(PHONE_W - 14 - SCREEN_W)
+
+local function applyWallpaper()
+	local w = Config.Wallpapers[settings.wallpaper] or Config.Wallpapers[1]
+	leftGrad.Color = ColorSequence.new(w.A, w.B)
+	rightGrad.Color = ColorSequence.new(w.B, w.A)
+end
+applyWallpaper()
+
+-- Статус-бар: время слева, батарея справа (на двух экранах, как один длинный экран)
+local timeLabel = label(leftScreen, { Size = UDim2.fromOffset(100, 24), Position = UDim2.fromOffset(22, 8), Text = "12:00",
+	Font = Enum.Font.GothamBold, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left })
+label(leftScreen, { Size = UDim2.fromOffset(110, 24), Position = UDim2.new(1, -124, 0, 8), Text = "Duo 5G 📶", TextSize = 13,
+	Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Right })
+local island = make("Frame", { Size = UDim2.fromOffset(84, 24), Position = UDim2.new(0.5, -42, 0, 8), BackgroundColor3 = Color3.new(0, 0, 0),
+	Parent = rightScreen })
+corner(island, 12)
+local batteryLabel = label(rightScreen, { Size = UDim2.fromOffset(110, 24), Position = UDim2.new(1, -124, 0, 8), Text = "🔋 100%",
+	Font = Enum.Font.GothamBold, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Right })
+
+-- Сетка приложений (левый экран)
+local grid = make("Frame", { Size = UDim2.new(1, -24, 1, -130), Position = UDim2.fromOffset(12, 48), BackgroundTransparency = 1,
+	Parent = leftScreen })
+make("UIGridLayout", { CellSize = UDim2.fromOffset(76, 90), CellPadding = UDim2.fromOffset(9, 6),
+	HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder, Parent = grid })
+
+-- Нижняя панель левого экрана
+local dock = make("Frame", { Size = UDim2.new(1, -24, 0, 64), Position = UDim2.new(0, 12, 1, -76), BackgroundColor3 = WHITE,
+	BackgroundTransparency = 0.75, Parent = leftScreen })
+corner(dock, 20)
+
+-- Правый экран: заголовок и место для приложения
+local header = make("Frame", { Size = UDim2.new(1, -24, 0, 36), Position = UDim2.fromOffset(12, 40), BackgroundTransparency = 1,
+	Parent = rightScreen })
+local titleLabel = label(header, { Size = UDim2.new(1, -44, 1, 0), Position = UDim2.fromOffset(44, 0), Text = "",
+	Font = Enum.Font.GothamBlack, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left })
+local appArea = make("Frame", { Size = UDim2.new(1, -20, 1, -96), Position = UDim2.fromOffset(10, 84), BackgroundTransparency = 1,
+	ClipsDescendants = true, Parent = rightScreen })
+
+-- Экран «телефон сел»
+local function deadOverlay(screen)
+	local f = make("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), ZIndex = 50, Visible = false,
+		Active = true, Parent = screen })
+	label(f, { Size = UDim2.new(1, -30, 0, 140), Position = UDim2.new(0, 15, 0.5, -70), Text = "🪫\nТелефон разряжен\nВстань на зелёную зарядку ⚡",
+		ZIndex = 51, TextSize = 18, Font = Enum.Font.GothamBold })
+	return f
+end
+local deadLeft = deadOverlay(leftScreen)
+local deadRight = deadOverlay(rightScreen)
+
+-- Вспышка камеры на весь экран
+local flashFrame = make("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BackgroundTransparency = 1, ZIndex = 100,
+	Parent = gui })
+
+-- Подсказка, когда телефон свёрнут
+local hint = label(gui, { Size = UDim2.fromOffset(420, 36), AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -110),
+	BackgroundTransparency = 0.35, BackgroundColor3 = Color3.new(0, 0, 0), Text = "📱 Нажми 1, чтобы достать iPhone Duo",
+	Font = Enum.Font.GothamBold, TextSize = 16, Visible = false })
+corner(hint, 18)
+
+local function updateScale()
+	local cam = workspace.CurrentCamera
+	local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+	uiScale.Scale = math.clamp(math.min(vp.Y * 0.8 / PHONE_H, vp.X * 0.55 / PHONE_W), 0.35, 1)
+	bannerHolder.Size = UDim2.fromOffset(math.min(380, vp.X - 20), 400)
+end
+updateScale()
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(updateScale)
+if workspace.CurrentCamera then
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
+end
+
+----------------------------------------------------------------------------------------------------
+-- Приложения
+----------------------------------------------------------------------------------------------------
+local photos = {}
+local messages = {}
+local unread = 0
+local currentApp = nil
+local currentCleanup = nil
+local currentRefresh = nil
+local iconButtons = {}
+local selfieConn = nil
+local bestTap = 0
+
+local apps -- список приложений, заполняется ниже
+local openApp
+
+local function setSelfie(on)
+	local cam = workspace.CurrentCamera
+	if selfieConn then
+		selfieConn:Disconnect()
+		selfieConn = nil
+	end
+	if on then
+		cam.CameraType = Enum.CameraType.Scriptable
+		selfieConn = RunService.RenderStepped:Connect(function()
+			local head = player.Character and player.Character:FindFirstChild("Head")
+			if not head then
+				return
+			end
+			local cf = head.CFrame
+			local eye = cf.Position + cf.LookVector * 5 + cf.RightVector * 1.6 + Vector3.new(0, 0.6, 0)
+			cam.CFrame = CFrame.lookAt(eye, cf.Position + Vector3.new(0, 0.2, 0))
+		end)
+	else
+		cam.CameraType = Enum.CameraType.Custom
+	end
+end
+
+local function takePhoto(selfie)
+	if battery() <= 0 then
+		return
+	end
+	play(sShutter)
+	flashFrame.BackgroundTransparency = 0
+	TweenService:Create(flashFrame, TweenInfo.new(0.45), { BackgroundTransparency = 1 }):Play()
+	actionEvent:FireServer("photo")
+	table.insert(photos, { time = clockText(), place = nearestPlace(), selfie = selfie })
+	toast("Фото сохранено в 🖼️ Галерею")
+end
+
+local function updateBadge()
+	local b = iconButtons.chat
+	local badge = b and b:FindFirstChild("Badge")
+	if badge then
+		badge.Visible = unread > 0
+		badge.Text = tostring(unread)
+	end
+end
+
+local appBuilders = {}
+
+-- Главный экран справа: виджеты
+local function buildHome(area)
+	local col = column(area)
+	local p1 = panel(col, 130, 1)
+	local big = label(p1, { Size = UDim2.new(1, 0, 0, 70), Position = UDim2.fromOffset(0, 10), Text = clockText(),
+		Font = Enum.Font.GothamBlack, TextSize = 60 })
+	local place = label(p1, { Size = UDim2.new(1, -10, 0, 30), Position = UDim2.fromOffset(5, 88), Text = nearestPlace(), TextSize = 16 })
+	local p2 = panel(col, 80, 2)
+	local bat = label(p2, { Size = UDim2.new(1, -20, 1, 0), Position = UDim2.fromOffset(10, 0), Text = "", TextSize = 18,
+		Font = Enum.Font.GothamBold })
+	local p3 = panel(col, 60, 3)
+	local online = label(p3, { Size = UDim2.new(1, -20, 1, 0), Position = UDim2.fromOffset(10, 0), Text = "", TextSize = 16 })
+	local p4 = panel(col, 90, 4)
+	label(p4, { Size = UDim2.new(1, -20, 1, 0), Position = UDim2.fromOffset(10, 0),
+		Text = "👈 Выбери приложение на левом экране.\nДва экрана — два дела сразу!", TextSize = 15 })
+	local alive = true
+	task.spawn(function()
+		while alive do
+			big.Text = clockText()
+			place.Text = nearestPlace()
+			local charging = player:GetAttribute("Charging")
+			bat.Text = (charging and "⚡ Заряжается: " or "🔋 Заряд: ") .. math.floor(battery()) .. "%"
+			online.Text = "👥 Игроков на сервере: " .. #Players:GetPlayers()
+			task.wait(0.5)
+		end
+	end)
+	return function()
+		alive = false
+	end
+end
+
+function appBuilders.camera(area)
+	local selfie = false
+	local view = make("Frame", { Size = UDim2.new(1, 0, 0, 260), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.3,
+		Parent = area })
+	corner(view, 18)
+	make("UIStroke", { Color = WHITE, Thickness = 2, Transparency = 0.4, Parent = view })
+	label(view, { Size = UDim2.new(1, 0, 0, 80), Position = UDim2.fromOffset(0, 60), Text = "📷", TextSize = 64 })
+	local where = label(view, { Size = UDim2.new(1, -20, 0, 40), Position = UDim2.new(0, 10, 1, -50), Text = nearestPlace(), TextSize = 15 })
+	local mode = label(view, { Size = UDim2.new(1, 0, 0, 24), Position = UDim2.fromOffset(0, 10), Text = "ФОТО", Font = Enum.Font.GothamBold,
+		TextColor3 = Color3.fromRGB(255, 214, 10), TextSize = 14 })
+	local shutter = button(area, "", UDim2.fromOffset(78, 78), UDim2.new(0.5, -39, 0, 275), WHITE, function()
+		takePhoto(selfie)
+		where.Text = nearestPlace()
+	end)
+	corner(shutter, 39)
+	make("UIStroke", { Color = Color3.fromRGB(200, 200, 200), Thickness = 4, Parent = shutter })
+	local selfieBtn
+	selfieBtn = button(area, "🤳 Селфи", UDim2.new(1, 0, 0, 40), UDim2.fromOffset(0, 368), GRAY, function()
+		selfie = not selfie
+		setSelfie(selfie)
+		selfieBtn.Text = selfie and "↩️ Обычная камера" or "🤳 Селфи"
+		mode.Text = selfie and "СЕЛФИ" or "ФОТО"
+	end)
+	return function()
+		if selfie then
+			setSelfie(false)
+		end
+	end
+end
+
+function appBuilders.gallery(area)
+	local col = column(area)
+	if #photos == 0 then
+		local p = panel(col, 120, 1)
+		label(p, { Size = UDim2.new(1, -20, 1, 0), Position = UDim2.fromOffset(10, 0), Text = "Пока нет фото.\nОткрой 📷 Камеру и сделай снимок!" })
+		return
+	end
+	for i = #photos, 1, -1 do
+		local ph = photos[i]
+		local p = panel(col, 64, #photos - i)
+		label(p, { Size = UDim2.fromOffset(50, 50), Position = UDim2.fromOffset(7, 7), Text = ph.selfie and "🤳" or "🖼️", TextScaled = true })
+		label(p, { Size = UDim2.new(1, -70, 0, 22), Position = UDim2.fromOffset(62, 8), Text = "Фото " .. i .. " · " .. ph.time,
+			Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left })
+		label(p, { Size = UDim2.new(1, -70, 0, 22), Position = UDim2.fromOffset(62, 32), Text = ph.place, TextSize = 14,
+			TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(200, 200, 205) })
+	end
+end
+
+function appBuilders.flashlight(area)
+	local big
+	local function refresh()
+		local on = player:GetAttribute("Flashlight") == true
+		big.Text = on and "🔦\nВКЛ" or "🔦\nВЫКЛ"
+		big.BackgroundColor3 = on and Color3.fromRGB(255, 214, 10) or GRAY
+		big.TextColor3 = on and Color3.new(0, 0, 0) or WHITE
+	end
+	big = button(area, "", UDim2.fromOffset(170, 170), UDim2.new(0.5, -85, 0, 30), GRAY, function()
+		actionEvent:FireServer("flashlight", not (player:GetAttribute("Flashlight") == true))
+	end)
+	big.TextSize = 30
+	corner(big, 85)
+	label(area, { Size = UDim2.new(1, 0, 0, 120), Position = UDim2.fromOffset(0, 220), TextSize = 15,
+		Text = "Ночью без фонарика темно!\nСвет видят все игроки.\nФонарик быстрее садит батарею." })
+	refresh()
+	local conn = player:GetAttributeChangedSignal("Flashlight"):Connect(refresh)
+	return function()
+		conn:Disconnect()
+	end
+end
+
+function appBuilders.music(area)
+	local col = column(area)
+	local nowP = panel(col, 50, 0)
+	local nowL = label(nowP, { Size = UDim2.new(1, -16, 1, 0), Position = UDim2.fromOffset(8, 0), TextSize = 15 })
+	local function refresh()
+		local id = player:GetAttribute("MusicId") or ""
+		if id == "" then
+			nowL.Text = "⏸ Ничего не играет"
+		else
+			local name = "ID " .. id
+			for _, t in ipairs(Config.Music) do
+				if t.Id == id then
+					name = t.Name
+				end
+			end
+			nowL.Text = "🎶 Играет: " .. name
+		end
+	end
+	for i, t in ipairs(Config.Music) do
+		local b = button(col, "▶  " .. t.Name, UDim2.new(1, -8, 0, 44), nil, Color3.fromRGB(255, 45, 85), function()
+			actionEvent:FireServer("music", t.Id)
+		end)
+		b.LayoutOrder = i
+		b.TextXAlignment = Enum.TextXAlignment.Left
+		make("UIPadding", { PaddingLeft = UDim.new(0, 14), Parent = b })
+	end
+	local boxP = panel(col, 96, 50)
+	label(boxP, { Size = UDim2.new(1, -16, 0, 22), Position = UDim2.fromOffset(8, 4), Text = "Свой трек (ID из Toolbox → Audio):", TextSize = 13 })
+	local box = make("TextBox", { Size = UDim2.new(1, -16, 0, 30), Position = UDim2.fromOffset(8, 28), BackgroundColor3 = WHITE,
+		Text = "", PlaceholderText = "например 1848354536", TextColor3 = Color3.new(0, 0, 0), Font = Enum.Font.Gotham, TextSize = 15,
+		ClearTextOnFocus = false, Parent = boxP })
+	corner(box, 8)
+	button(boxP, "▶ Играть", UDim2.new(1, -16, 0, 28), UDim2.fromOffset(8, 62), BLUE, function()
+		actionEvent:FireServer("music", box.Text)
+	end)
+	local stop = button(col, "⏹  Стоп", UDim2.new(1, -8, 0, 44), nil, GRAY, function()
+		actionEvent:FireServer("music", "")
+	end)
+	stop.LayoutOrder = 60
+	refresh()
+	local conn = player:GetAttributeChangedSignal("MusicId"):Connect(refresh)
+	return function()
+		conn:Disconnect()
+	end
+end
+
+function appBuilders.chat(area)
+	unread = 0
+	updateBadge()
+	local list = column(area)
+	list.Size = UDim2.new(1, 0, 1, -50)
+	local function refresh()
+		for _, c in ipairs(list:GetChildren()) do
+			if c:IsA("Frame") then
+				c:Destroy()
+			end
+		end
+		if #messages == 0 then
+			local p = panel(list, 90, 1)
+			label(p, { Size = UDim2.new(1, -20, 1, 0), Position = UDim2.fromOffset(10, 0),
+				Text = "Сообщений пока нет.\nНапиши что-нибудь — увидят все, у кого есть iPhone Duo!", TextSize = 14 })
+			return
+		end
+		for i, m in ipairs(messages) do
+			local mine = m.fromId == player.UserId
+			local f = make("Frame", { Size = UDim2.new(1, -8, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+				LayoutOrder = i, Parent = list })
+			local bubble = make("Frame", { Size = UDim2.new(0.85, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+				Position = mine and UDim2.fromScale(0.15, 0) or UDim2.new(), BackgroundColor3 = mine and BLUE or Color3.fromRGB(58, 58, 64),
+				Parent = f })
+			corner(bubble, 14)
+			make("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 6),
+				PaddingBottom = UDim.new(0, 6), Parent = bubble })
+			make("UIListLayout", { Parent = bubble })
+			label(bubble, { Size = UDim2.new(1, 0, 0, 16), Text = mine and "Ты" or m.from, TextSize = 12, Font = Enum.Font.GothamBold,
+				TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(220, 220, 230) })
+			label(bubble, { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, Text = m.text, TextSize = 15,
+				TextXAlignment = Enum.TextXAlignment.Left })
+		end
+		task.defer(function()
+			list.CanvasPosition = Vector2.new(0, math.max(0, list.AbsoluteCanvasSize.Y - list.AbsoluteWindowSize.Y))
+		end)
+	end
+	local box = make("TextBox", { Size = UDim2.new(1, -54, 0, 40), Position = UDim2.new(0, 0, 1, -42), BackgroundColor3 = WHITE,
+		Text = "", PlaceholderText = "Сообщение…", TextColor3 = Color3.new(0, 0, 0), Font = Enum.Font.Gotham, TextSize = 15,
+		ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left, Parent = area })
+	corner(box, 20)
+	make("UIPadding", { PaddingLeft = UDim.new(0, 12), Parent = box })
+	local function send()
+		if box.Text:match("%S") then
+			actionEvent:FireServer("message", box.Text:sub(1, Config.MessageMaxLength))
+			box.Text = ""
+		end
+	end
+	local sendBtn = button(area, "➤", UDim2.fromOffset(46, 40), UDim2.new(1, -46, 1, -42), BLUE, send)
+	corner(sendBtn, 20)
+	box.FocusLost:Connect(function(enter)
+		if enter then
+			send()
+		end
+	end)
+	currentRefresh = refresh
+	refresh()
+end
+
+function appBuilders.call(area)
+	local col = column(area)
+	local others = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player then
+			table.insert(others, p)
+		end
+	end
+	if #others == 0 then
+		local p = panel(col, 110, 1)
+		label(p, { Size = UDim2.new(1, -20, 1, 0), Position = UDim2.fromOffset(10, 0),
+			Text = "Ты один на сервере.\nПозови друзей — и звони им прямо в игре! 📞", TextSize = 15 })
+		return
+	end
+	for i, p in ipairs(others) do
+		local row = panel(col, 60, i)
+		label(row, { Size = UDim2.new(1, -80, 1, 0), Position = UDim2.fromOffset(12, 0), Text = "👤 " .. p.DisplayName,
+			Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd })
+		local b = button(row, "📞", UDim2.fromOffset(48, 44), UDim2.new(1, -56, 0, 8), GREEN, function()
+			actionEvent:FireServer("call", p.UserId)
+		end)
+		corner(b, 22)
+	end
+end
+
+function appBuilders.map(area)
+	local col = column(area)
+	local here = panel(col, 46, 0)
+	label(here, { Size = UDim2.new(1, -16, 1, 0), Position = UDim2.fromOffset(8, 0), Text = "Ты сейчас: " .. nearestPlace(), TextSize = 14 })
+	for i, loc in ipairs(Config.Locations) do
+		local b = button(col, loc.Icon .. "  " .. loc.Name, UDim2.new(1, -8, 0, 50), nil, Color3.fromRGB(52, 120, 246), function()
+			actionEvent:FireServer("teleport", i)
+		end)
+		b.LayoutOrder = i
+		b.TextXAlignment = Enum.TextXAlignment.Left
+		make("UIPadding", { PaddingLeft = UDim.new(0, 14), Parent = b })
+	end
+	local note = panel(col, 40, 99)
+	label(note, { Size = UDim2.new(1, -16, 1, 0), Position = UDim2.fromOffset(8, 0), Text = "Телепорт тратит 2% заряда", TextSize = 13 })
+end
+
+function appBuilders.turbo(area)
+	local big = button(area, "🚀\nТУРБО", UDim2.fromOffset(170, 170), UDim2.new(0.5, -85, 0, 30), ORANGE, function()
+		actionEvent:FireServer("turbo")
+	end)
+	big.TextSize = 28
+	corner(big, 85)
+	local info = label(area, { Size = UDim2.new(1, 0, 0, 120), Position = UDim2.fromOffset(0, 220), TextSize = 15, Text = "" })
+	local conn = RunService.Heartbeat:Connect(function()
+		local left = (player:GetAttribute("TurboReadyAt") or 0) - workspace:GetServerTimeNow()
+		if left > 0 then
+			big.BackgroundColor3 = GRAY
+			info.Text = "Перезарядка: " .. math.ceil(left) .. " с"
+		else
+			big.BackgroundColor3 = ORANGE
+			info.Text = "Скорость ×" .. string.format("%.1f", Config.Turbo.Speed / 16) .. " на " .. Config.Turbo.Duration
+				.. " секунд.\nСтоит " .. Config.Turbo.Cost .. "% заряда."
+		end
+	end)
+	return function()
+		conn:Disconnect()
+	end
+end
+
+function appBuilders.calc(area)
+	local display = "0"
+	local acc, op, fresh = nil, nil, true
+	local screen = label(area, { Size = UDim2.new(1, -10, 0, 70), Position = UDim2.fromOffset(5, 0), Text = "0", TextSize = 46,
+		Font = Enum.Font.GothamMedium, TextXAlignment = Enum.TextXAlignment.Right, TextScaled = false, TextTruncate = Enum.TextTruncate.AtEnd })
+	local function fmt(n)
+		if n == nil or n ~= n or n == math.huge or n == -math.huge then
+			return "Ошибка"
+		end
+		return string.format("%.10g", n)
+	end
+	local function apply(a, o, b)
+		if o == "+" then
+			return a + b
+		elseif o == "−" then
+			return a - b
+		elseif o == "×" then
+			return a * b
+		elseif o == "÷" then
+			if b == 0 then
+				return nil
+			end
+			return a / b
+		end
+		return b
+	end
+	local function press(k)
+		if display == "Ошибка" and k ~= "C" then
+			display, acc, op, fresh = "0", nil, nil, true
+		end
+		if k:match("^%d$") or k == "." then
+			if fresh then
+				display = (k == ".") and "0." or k
+				fresh = false
+			elseif #display < 12 then
+				if k == "." and display:find("%.") then
+					return
+				end
+				if display == "0" and k ~= "." then
+					display = k
+				else
+					display = display .. k
+				end
+			end
+		elseif k == "C" then
+			display, acc, op, fresh = "0", nil, nil, true
+		elseif k == "±" then
+			display = fmt(-(tonumber(display) or 0))
+		elseif k == "%" then
+			display = fmt((tonumber(display) or 0) / 100)
+		elseif k == "⌫" then
+			if not fresh then
+				display = display:sub(1, -2)
+				if display == "" or display == "-" then
+					display = "0"
+				end
+			end
+		elseif k == "=" then
+			if acc and op then
+				display = fmt(apply(acc, op, tonumber(display) or 0))
+				acc, op = nil, nil
+			end
+			fresh = true
+		else -- + − × ÷
+			if acc and op and not fresh then
+				local r = apply(acc, op, tonumber(display) or 0)
+				display = fmt(r)
+				acc = r
+			else
+				acc = tonumber(display)
+			end
+			op = k
+			fresh = true
+		end
+		screen.Text = display
+	end
+	local keys = {
+		{ "C", "±", "%", "÷" },
+		{ "7", "8", "9", "×" },
+		{ "4", "5", "6", "−" },
+		{ "1", "2", "3", "+" },
+		{ "0", ".", "⌫", "=" },
+	}
+	local size = 56
+	local gap = (SCREEN_W - 20 - size * 4) / 3
+	for r, row in ipairs(keys) do
+		for c, k in ipairs(row) do
+			local color = GRAY
+			if c == 4 then
+				color = ORANGE
+			elseif r == 1 then
+				color = Color3.fromRGB(165, 165, 170)
+			end
+			local b = button(area, k, UDim2.fromOffset(size, size), UDim2.fromOffset((c - 1) * (size + gap), 80 + (r - 1) * (size + 8)), color,
+				function()
+					press(k)
+				end)
+			b.TextSize = 24
+			corner(b, size / 2)
+		end
+	end
+end
+
+function appBuilders.game(area)
+	local token = nil
+	local score = 0
+	local info = label(area, { Size = UDim2.new(1, 0, 0, 50), Text = "", TextSize = 16, Font = Enum.Font.GothamBold })
+	local field = make("Frame", { Size = UDim2.new(1, 0, 1, -110), Position = UDim2.fromOffset(0, 54), BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.55, ClipsDescendants = true, Parent = area })
+	corner(field, 16)
+	local target = button(field, "🍎", UDim2.fromOffset(54, 54), UDim2.fromOffset(90, 90), Color3.fromRGB(255, 255, 255), function() end)
+	target.BackgroundTransparency = 1
+	target.TextSize = 40
+	target.Visible = false
+	local startBtn
+	local function moveTarget()
+		local w = field.AbsoluteSize.X / uiScale.Scale - 54
+		local h = field.AbsoluteSize.Y / uiScale.Scale - 54
+		target.Position = UDim2.fromOffset(math.random(0, math.max(1, math.floor(w))), math.random(0, math.max(1, math.floor(h))))
+	end
+	target.Activated:Connect(function()
+		if token then
+			score = score + 1
+			moveTarget()
+		end
+	end)
+	local function showIdle()
+		info.Text = "Лови яблоки! Рекорд: " .. bestTap
+		target.Visible = false
+		startBtn.Visible = true
+	end
+	startBtn = button(area, "▶ Начать", UDim2.new(1, 0, 0, 46), UDim2.new(0, 0, 1, -48), GREEN, function()
+		local my = {}
+		token = my
+		score = 0
+		startBtn.Visible = false
+		target.Visible = true
+		moveTarget()
+		task.spawn(function()
+			local t0 = os.clock()
+			while token == my do
+				local left = Config.TapGameSeconds - (os.clock() - t0)
+				if left <= 0 then
+					break
+				end
+				info.Text = "🍎 " .. score .. "   ⏱ " .. math.ceil(left)
+				task.wait(0.1)
+			end
+			if token == my then
+				token = nil
+				if score > bestTap then
+					bestTap = score
+					toast("🏆 Новый рекорд в Тап-тап: " .. score .. "!")
+				end
+				showIdle()
+				info.Text = "Счёт: " .. score .. " · Рекорд: " .. bestTap
+			end
+		end)
+	end)
+	showIdle()
+	return function()
+		token = nil
+	end
+end
+
+function appBuilders.color(area)
+	local col = column(area)
+	local rows = {}
+	local function refresh()
+		local cur = player:GetAttribute("PhoneColor") or 1
+		for i, r in ipairs(rows) do
+			r.Text = (i == cur and "✓  " or "     ") .. Config.Colors[i].Name
+		end
+	end
+	for i, c in ipairs(Config.Colors) do
+		local b = button(col, "", UDim2.new(1, -8, 0, 46), nil, Color3.fromRGB(40, 40, 46), function()
+			actionEvent:FireServer("color", i)
+		end)
+		b.LayoutOrder = i
+		b.TextXAlignment = Enum.TextXAlignment.Left
+		make("UIPadding", { PaddingLeft = UDim.new(0, 52), Parent = b })
+		local sw = make("Frame", { Size = UDim2.fromOffset(30, 30), Position = UDim2.new(0, -42, 0.5, -15), BackgroundColor3 = c.Color, Parent = b })
+		corner(sw, 15)
+		make("UIStroke", { Color = WHITE, Thickness = 1, Parent = sw })
+		rows[i] = b
+	end
+	refresh()
+	local conn = player:GetAttributeChangedSignal("PhoneColor"):Connect(refresh)
+	return function()
+		conn:Disconnect()
+	end
+end
+
+function appBuilders.settings(area)
+	local col = column(area)
+	local about = panel(col, 120, 1)
+	label(about, { Size = UDim2.new(1, -20, 1, 0), Position = UDim2.fromOffset(10, 0), TextSize = 14,
+		Text = "📱 iPhone Duo\nДва экрана · Двойная камера\nПамять: 1 ТБ · iOS Duo 1.0\nВладелец: " .. player.DisplayName })
+	local wl = panel(col, 30, 2)
+	label(wl, { Size = UDim2.new(1, -20, 1, 0), Position = UDim2.fromOffset(10, 0), Text = "Обои:", Font = Enum.Font.GothamBold,
+		TextXAlignment = Enum.TextXAlignment.Left })
+	wl.BackgroundTransparency = 1
+	for i, w in ipairs(Config.Wallpapers) do
+		local b = button(col, w.Name, UDim2.new(1, -8, 0, 40), nil, w.A, function()
+			settings.wallpaper = i
+			applyWallpaper()
+		end)
+		b.LayoutOrder = 2 + i
+		make("UIGradient", { Color = ColorSequence.new(w.A, w.B), Parent = b })
+		b.BackgroundColor3 = WHITE
+	end
+	local snd
+	snd = button(col, "", UDim2.new(1, -8, 0, 44), nil, GRAY, function()
+		settings.sounds = not settings.sounds
+		snd.Text = settings.sounds and "🔔 Звуки: вкл" or "🔕 Звуки: выкл"
+	end)
+	snd.Text = settings.sounds and "🔔 Звуки: вкл" or "🔕 Звуки: выкл"
+	snd.LayoutOrder = 50
+	local help = panel(col, 130, 60)
+	label(help, { Size = UDim2.new(1, -20, 1, 0), Position = UDim2.fromOffset(10, 0), TextSize = 13,
+		Text = "Управление:\n1 — достать / убрать телефон\nКлик по миру — открыть / свернуть\n⚡ Зелёные площадки заряжают телефон" })
+end
+
+apps = {
+	{ id = "camera", icon = "📷", name = "Камера", color = Color3.fromRGB(60, 60, 66) },
+	{ id = "gallery", icon = "🖼️", name = "Галерея", color = Color3.fromRGB(255, 255, 255) },
+	{ id = "flashlight", icon = "🔦", name = "Фонарик", color = Color3.fromRGB(255, 204, 0) },
+	{ id = "music", icon = "🎵", name = "Музыка", color = Color3.fromRGB(255, 45, 85) },
+	{ id = "chat", icon = "💬", name = "Сообщения", color = GREEN },
+	{ id = "call", icon = "📞", name = "Звонки", color = Color3.fromRGB(52, 199, 89) },
+	{ id = "map", icon = "🗺️", name = "Карта", color = Color3.fromRGB(90, 200, 250) },
+	{ id = "turbo", icon = "🚀", name = "Турбо", color = ORANGE },
+	{ id = "calc", icon = "🧮", name = "Калькулятор", color = Color3.fromRGB(40, 40, 40) },
+	{ id = "game", icon = "🕹️", name = "Тап-тап", color = Color3.fromRGB(175, 82, 222) },
+	{ id = "color", icon = "🎨", name = "Цвет", color = Color3.fromRGB(255, 120, 160) },
+	{ id = "settings", icon = "⚙️", name = "Настройки", color = Color3.fromRGB(142, 142, 147) },
+}
+
+local homeButton
+openApp = function(id)
+	if currentCleanup then
+		pcall(currentCleanup)
+	end
+	currentCleanup = nil
+	currentRefresh = nil
+	for _, c in ipairs(appArea:GetChildren()) do
+		c:Destroy()
+	end
+	currentApp = id
+	local info = nil
+	for _, a in ipairs(apps) do
+		if a.id == id then
+			info = a
+		end
+	end
+	if info then
+		titleLabel.Text = info.name
+		homeButton.Visible = true
+		currentCleanup = appBuilders[id](appArea)
+		actionEvent:FireServer("screen", info.icon, info.name)
+	else
+		currentApp = nil
+		titleLabel.Text = "Duo"
+		homeButton.Visible = false
+		currentCleanup = buildHome(appArea)
+		actionEvent:FireServer("screen", "📱", "Главный экран")
+	end
+	for aid, b in pairs(iconButtons) do
+		local stroke = b:FindFirstChild("Selected")
+		if stroke then
+			stroke.Enabled = (aid == currentApp)
+		end
+	end
+end
+
+homeButton = button(header, "‹", UDim2.fromOffset(36, 36), UDim2.new(), Color3.fromRGB(0, 0, 0), function()
+	openApp(nil)
+end)
+homeButton.BackgroundTransparency = 0.6
+homeButton.TextSize = 28
+corner(homeButton, 18)
+
+for i, a in ipairs(apps) do
+	local cell = make("Frame", { BackgroundTransparency = 1, LayoutOrder = i, Parent = grid })
+	local b = make("TextButton", { Size = UDim2.fromOffset(60, 60), Position = UDim2.new(0.5, -30, 0, 0), BackgroundColor3 = a.color,
+		Text = a.icon, TextSize = 32, Font = Enum.Font.GothamBold, TextColor3 = WHITE, AutoButtonColor = true, Parent = cell })
+	corner(b, 15)
+	make("UIStroke", { Name = "Selected", Color = WHITE, Thickness = 3, Enabled = false, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = b })
+	label(cell, { Size = UDim2.new(1, 4, 0, 18), Position = UDim2.new(0, -2, 0, 64), Text = a.name, TextSize = 11, Font = Enum.Font.GothamMedium,
+		TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd })
+	if a.id == "chat" then
+		local badge = label(b, { Name = "Badge", Size = UDim2.fromOffset(22, 22), Position = UDim2.new(1, -14, 0, -8), BackgroundTransparency = 0,
+			BackgroundColor3 = RED, Text = "0", TextSize = 12, Font = Enum.Font.GothamBold, Visible = false, ZIndex = 3 })
+		corner(badge, 11)
+	end
+	b.Activated:Connect(function()
+		play(sClick)
+		openApp(a.id)
+	end)
+	iconButtons[a.id] = b
+end
+
+-- Док: свернуть телефон и быстрые кнопки
+local isOpen = false
+local setOpen
+
+local dockButtons = {
+	{ "🏠", function() openApp(nil) end },
+	{ "🔦", function() actionEvent:FireServer("flashlight", not (player:GetAttribute("Flashlight") == true)) end },
+	{ "📷", function() openApp("camera") end },
+	{ "⬇️", function() setOpen(false) end },
+}
+for i, d in ipairs(dockButtons) do
+	local b = button(dock, d[1], UDim2.fromOffset(48, 48), UDim2.fromOffset(8 + (i - 1) * 61, 8), Color3.fromRGB(255, 255, 255), d[2])
+	b.BackgroundTransparency = 0.5
+	b.TextSize = 24
+	corner(b, 14)
+end
+
+----------------------------------------------------------------------------------------------------
+-- Открытие и закрытие, слежение за телефоном в руке
+----------------------------------------------------------------------------------------------------
+local equippedTool = nil
+local activatedConn = nil
+
+setOpen = function(open)
+	isOpen = open
+	if open then
+		phone.Visible = true
+		if not currentApp and #appArea:GetChildren() == 0 then
+			openApp(nil)
+		end
+		TweenService:Create(phone, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+			{ Position = UDim2.new(1, -16, 1, -16) }):Play()
+	else
+		if currentApp == "camera" then
+			openApp(nil) -- выключает селфи-камеру
+		end
+		local tw = TweenService:Create(phone, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{ Position = UDim2.new(1, -16, 1, PHONE_H + 40) })
+		tw:Play()
+		tw.Completed:Connect(function()
+			if not isOpen then
+				phone.Visible = false
+			end
+		end)
+	end
+	if equippedTool then
+		hint.Text = "📱 Кликни, чтобы открыть iPhone Duo"
+		hint.Visible = not open
+	else
+		hint.Text = "📱 Нажми 1, чтобы достать iPhone Duo"
+		hint.Visible = true
+	end
+end
+
+local function onEquipped(tool)
+	equippedTool = tool
+	if activatedConn then
+		activatedConn:Disconnect()
+	end
+	activatedConn = tool.Activated:Connect(function()
+		setOpen(not isOpen)
+	end)
+	setOpen(true)
+end
+
+local function onUnequipped()
+	equippedTool = nil
+	if activatedConn then
+		activatedConn:Disconnect()
+		activatedConn = nil
+	end
+	setSelfie(false)
+	setOpen(false)
+end
+
+local function watchCharacter(char)
+	char.ChildAdded:Connect(function(c)
+		if c:IsA("Tool") and c.Name == Config.ToolName then
+			onEquipped(c)
+		end
+	end)
+	char.ChildRemoved:Connect(function(c)
+		if c == equippedTool then
+			onUnequipped()
+		end
+	end)
+	local hum = char:WaitForChild("Humanoid")
+	hum.Died:Connect(function()
+		setSelfie(false)
+	end)
+	local existing = char:FindFirstChild(Config.ToolName)
+	if existing and existing:IsA("Tool") then
+		onEquipped(existing)
+	else
+		onUnequipped()
+	end
+end
+
+player.CharacterAdded:Connect(watchCharacter)
+if player.Character then
+	task.spawn(watchCharacter, player.Character)
+end
+
+-- Цвет корпуса на экране совпадает с цветом телефона в руке
+local function updateBodyColor()
+	local entry = Config.Colors[player:GetAttribute("PhoneColor") or 1] or Config.Colors[1]
+	phone.BackgroundColor3 = entry.Color
+end
+player:GetAttributeChangedSignal("PhoneColor"):Connect(updateBodyColor)
+updateBodyColor()
+
+-- Статус-бар и разряженный экран
+RunService.Heartbeat:Connect(function()
+	timeLabel.Text = clockText()
+	local b = battery()
+	local charging = player:GetAttribute("Charging") == true
+	local icon = charging and "⚡" or (b <= 20 and "🪫" or "🔋")
+	batteryLabel.Text = icon .. " " .. math.floor(b) .. "%"
+	batteryLabel.TextColor3 = (b <= 20 and not charging) and RED or WHITE
+	local dead = b <= 0
+	if deadLeft.Visible ~= dead then
+		deadLeft.Visible = dead
+		deadRight.Visible = dead
+		if dead and currentApp == "camera" then
+			openApp(nil)
+		end
+	end
+end)
+
+----------------------------------------------------------------------------------------------------
+-- Сообщения от сервера
+----------------------------------------------------------------------------------------------------
+notifyEvent.OnClientEvent:Connect(function(kind, data)
+	data = data or {}
+	if kind == "toast" then
+		toast(tostring(data.text or ""))
+	elseif kind == "message" then
+		table.insert(messages, { from = data.from, fromId = data.fromId, text = data.text })
+		while #messages > 50 do
+			table.remove(messages, 1)
+		end
+		if currentApp == "chat" and isOpen and currentRefresh then
+			currentRefresh()
+		elseif data.fromId ~= player.UserId then
+			unread = unread + 1
+			updateBadge()
+			banner("💬", tostring(data.from), tostring(data.text), 5)
+			play(sNotify)
+		end
+	elseif kind == "call" then
+		play(sRing)
+		local answered = false
+		local btns = {
+			{ text = "✅ Ответить", color = GREEN, onClick = function()
+				answered = true
+				actionEvent:FireServer("callAnswer", data.fromId, true)
+				if equippedTool then
+					setOpen(true)
+					openApp("chat")
+				else
+					toast("Достань телефон (1) и открой 💬 Сообщения")
+				end
+			end },
+			{ text = "❌ Сбросить", color = RED, onClick = function()
+				answered = true
+				actionEvent:FireServer("callAnswer", data.fromId, false)
+			end },
+		}
+		btns.onTimeout = function()
+			if not answered then
+				actionEvent:FireServer("callAnswer", data.fromId, false)
+			end
+		end
+		banner("📞", "Входящий звонок", tostring(data.from) .. " звонит тебе!", 10, btns)
+	elseif kind == "callResult" then
+		if data.accepted then
+			toast("📞 " .. tostring(data.name) .. " ответил(а)! Пишите друг другу в 💬 Сообщениях")
+		else
+			toast("📵 " .. tostring(data.name) .. " не ответил(а)")
+		end
+	end
+end)
+
+-- На компьютере телефон можно открыть и клавишей P (если он в руке)
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then
+		return
+	end
+	if input.KeyCode == Enum.KeyCode.P and equippedTool then
+		setOpen(not isOpen)
+	end
+end)
+
+hint.Visible = true
+]]></ProtectedString></Properties></Item></Item></Item>
+</roblox>
