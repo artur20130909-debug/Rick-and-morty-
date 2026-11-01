@@ -128,6 +128,18 @@ local function buildYuta(parent, faceOpt)
 			rig:add(a, V3(1.03, 0.05, 1.03), shade, CF(0, -0.6, 0))
 			rig:add(a, V3(1.04, 0.13, 1.04), white, CF(0, -1.04, 0))
 		end
+		-- кровь на левом плече (как в части 4); по умолчанию спрятана
+		local bc = Canvas.new(rig:maker("root", nil, tags), CF(0, 0, -0.507), 1, 0.002)
+		bc.tag = "sblood"
+		bc:poly({ { 0.55, 0.98 }, { 0.99, 0.98 }, { 0.99, 0.45 }, { 0.9, 0.3 }, { 0.84, 0.48 }, { 0.76, 0.38 }, { 0.68, 0.62 }, { 0.58, 0.72 } }, C.blood, 4)
+		bc:poly({ { 0.72, 0.92 }, { 0.95, 0.93 }, { 0.94, 0.62 }, { 0.82, 0.58 }, { 0.76, 0.76 } }, RGB(196, 28, 40), 5)
+		local ac = Canvas.new(rig:maker("lArm", nil, tags), CF(0, 0, -0.507), 1, 0.002)
+		ac.tag = "sblood"
+		ac:poly({ { -0.5, 0.49 }, { 0.5, 0.49 }, { 0.5, 0.05 }, { 0.32, 0.2 }, { 0.2, -0.15 }, { 0.05, 0.12 }, { -0.2, -0.05 }, { -0.38, 0.15 }, { -0.5, 0.1 } }, C.blood, 4)
+		ac:poly({ { -0.25, 0.42 }, { 0.3, 0.44 }, { 0.28, 0.22 }, { 0.08, 0.25 }, { -0.12, 0.2 } }, RGB(196, 28, 40), 5)
+		for _, p in ipairs(tags.sblood or {}) do
+			p.Transparency = 1
+		end
 	end
 	return rig
 end
@@ -147,13 +159,15 @@ local function buildRyu(parent, faceOpt)
 	showVariant(tags, "mouth_", (faceOpt and faceOpt.mouth) or "smirk")
 	-- помпадур
 	local h = C.hairRyu
-	rig:add("neck", V3(1.4, 0.64, 1.28), h, CF(0, 1.25, 0.08), { shape = "ball" })
-	rig:add("neck", V3(1.34, 0.5, 1.32), h, CF(0, 1.18, 0.06))
-	rig:add("neck", V3(1.15, 0.8, 1.85), h, CF(0, 1.66, -0.42) * ANG(rad(18), 0, 0), { shape = "ball" })
-	rig:add("neck", V3(1.0, 0.58, 0.62), h, CF(0, 1.86, -1.16) * ANG(rad(-20), 0, 0), { shape = "ball" })
-	rig:add("neck", V3(1.34, 1.0, 0.28), h, CF(0, 0.9, 0.6))
-	rig:add("neck", V3(0.13, 0.55, 1.05), h, CF(0.68, 1.0, 0.12))
-	rig:add("neck", V3(0.13, 0.55, 1.05), h, CF(-0.68, 1.0, 0.12))
+	rig.hair = {
+		rig:add("neck", V3(1.4, 0.64, 1.28), h, CF(0, 1.25, 0.08), { shape = "ball" }),
+		rig:add("neck", V3(1.34, 0.5, 1.32), h, CF(0, 1.18, 0.06)),
+		rig:add("neck", V3(1.15, 0.8, 1.85), h, CF(0, 1.66, -0.42) * ANG(rad(18), 0, 0), { shape = "ball" }),
+		rig:add("neck", V3(1.0, 0.58, 0.62), h, CF(0, 1.86, -1.16) * ANG(rad(-20), 0, 0), { shape = "ball" }),
+		rig:add("neck", V3(1.34, 1.0, 0.28), h, CF(0, 0.9, 0.6)),
+		rig:add("neck", V3(0.13, 0.55, 1.05), h, CF(0.68, 1.0, 0.12)),
+		rig:add("neck", V3(0.13, 0.55, 1.05), h, CF(-0.68, 1.0, 0.12)),
+	}
 	local curl = rig:maker("neck")
 	makeTri(curl, V3(0.2, 1.5, -1.1), V3(0.0, 1.5, -1.0), V3(0.35, 1.1, -0.95), h, 0.06)
 	if not dummy then

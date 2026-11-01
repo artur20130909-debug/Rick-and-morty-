@@ -141,20 +141,20 @@ local function buildBattlefield(parent)
 		local s = V3(n(20, 50), n(14, 50), n(20, 50))
 		newPart(f, s, RGB(26, 34, 70), CF(pos + V3(0, s.Y * 0.35, 0)) * ANG(n(-0.5, 0.5), n(0, 6), n(-0.5, 0.5)), { wedge = true })
 	end
-	-- белые клубы дыма с контуром (неподвижные, задний план)
-	local clouds = Instance.new("Model")
-	clouds.Name = "BackClouds"
-	clouds.Parent = f
-	outline(clouds, nil, 1, RGB(110, 130, 180))
+	-- белый дым на заднем плане: мягкие текстурные клубы (без шаров и кругов),
+	-- светлые сверху и сиреневые снизу, медленно вращаются
+	local anchor = newPart(f, V3(0.2, 0.2, 0.2), C.white, CF(), { alpha = 1 })
+	anchor.Name = "SmokeAnchor"
 	for i = 1, 30 do
 		local a = i / 30 * math.pi * 2 + n(-0.1, 0.1)
 		local d = n(170, 290)
-		local base = at(cos(a) * d, n(6, 24), sin(a) * d)
-		for _ = 1, 6 do
-			local s = n(18, 34)
-			local p0 = base + V3(n(-22, 22), n(-6, 10), n(-22, 22))
-			newPart(clouds, V3(s, s * 0.8, s), RGB(240, 244, 252), CF(p0), { shape = "ball" })
-			newPart(clouds, V3(s * 0.9, s * 0.55, s * 0.9), RGB(196, 208, 236), CF(p0 - V3(0, s * 0.2, 0)), { shape = "ball" })
+		local base = at(cos(a) * d, n(8, 22), sin(a) * d)
+		for j = 1, 7 do
+			local shade = j > 5
+			local s = shade and n(34, 52) or n(30, 58)
+			local p0 = base + V3(n(-26, 26), shade and n(-8, 0) or n(-2, 14), n(-26, 26))
+			newSprite(sprites.static, anchor, TEX.smoke, p0, s, shade and RGB(200, 206, 238) or RGB(246, 248, 255),
+				shade and 0.5 or n(0.55, 0.8), { spin = n(-0.03, 0.03) })
 		end
 	end
 	return f
@@ -254,7 +254,7 @@ local function buildEyes(parent)
 	end
 
 	-- Напряжение t (0..1): веки опускаются, брови сходятся, зрачки сужаются,
-	-- блики гаснут, радужки дрожат, проступают пот и вена.
+	-- блики гаснут, радужки дрожат, проступают штрихи напряжения и вена.
 	local faces = {
 		{ tags = tagsY, frame = cvY.frame, brow = { -0.47, 0.232 }, drop = 0.032, browA = 9 },
 		{ tags = tagsR, frame = cvR.frame, brow = { -0.48, 0.165 }, drop = 0.026, browA = 7 },

@@ -106,13 +106,6 @@ function P2.laugh()
 	local cam1 = cam0 * CF(-0.12, 0.03, -0.7)
 	camCF, camFOV = cam0, 40
 	FX.backdrop(cam0 * CF(0, 0, -200) * ANG(0, math.pi, 0), 700, 500, { RGB(110, 210, 225), RGB(40, 120, 150), RGB(20, 60, 90) }, 60)
-	local light = newPart(f, V3(1, 1, 1), C.white, cam0 * CF(5, 1, -5), { alpha = 1 })
-	local pl = Instance.new("PointLight")
-	pl.Color = C.cyan
-	pl.Brightness = 3
-	pl.Range = 14
-	pl.Parent = light
-
 	ryu:show(true)
 	showVariant(ryu.tags, "mouth_", "smirk")
 	ryu:place(cam0 * CF(0.45, -4.95, -5.8) * ANG(0, rad(158), 0))
@@ -126,17 +119,9 @@ function P2.laugh()
 		return CF(0, bob * 0.04 * sin(t * 18), 0)
 	end
 
-	local side = cam0 * V3(2.9, -0.9, -6.0)
-	local flame = FX.flame(side + V3(0, -0.6, 0), 2.2, C.cyan, 8)
-	local flare = FX.flare(side + V3(0, 0.8, 0), 1.3, C.cyan, { points = 9, alpha = 0.2 })
-	local bolts = { FX.bolt(C.cyan, 0.05), FX.bolt(RGB(200, 255, 255), 0.04) }
-	local face = ryu:point("neck", V3(0, 0.55, -0.7))
-	local strokes = {}
-	for i = 1, 3 do
-		local a0, a1 = FX.att(), FX.att()
-		strokes[i] = { a0 = a0, a1 = a1, b = FX.beam(a0, a1, ColorSequence.new(RGB(90, 210, 255), C.cyan), 0.12, 0.04,
-			{ brightness = 4, alpha = NS({ { 0, 0.6 }, { 0.3, 0.1 }, { 1, 0.9 } }) }), ph = rr(0, 6), y = rr(-0.5, 0.6) }
-	end
+	-- энергия Рю бьёт из кончика помпадура: свет уходит вверх-вправо, как в аниме
+	local g = SH.granite({ level = 0.6, bolts = 4, reach = 2.6, size = 1.0, beam = true })
+	g.dir = (cam0.UpVector * 0.85 + cam0.RightVector * 0.5 - cam0.LookVector * 0.1).Unit
 	local schedule = { { 0, "smirk" }, { 0.8, "grin" }, { 1.2, "laugh" }, { 2.5, "grin" }, { 3.1, "smirk" }, { 3.8, "grin" } }
 	local current = ""
 	local tb, tw = 0, 0
@@ -159,24 +144,13 @@ function P2.laugh()
 			target = 1
 		end
 		bob = lerp(bob, target, clamp01(dt * 8))
-		flare.set(nil, 1.3 * (1 + 0.2 * sin(u * 14)))
-		tb = tb - dt
-		if tb <= 0 then
-			tb = 0.07
-			for _, b in ipairs(bolts) do
-				b.strike(side + V3(0, rr(-1, 2), 0), side + V3(rr(-3, 1), rr(1, 4), rr(-1, 1)), 0.5)
-			end
-		end
+		g.level = 0.6 + 0.4 * smooth(u / 1.2)
+		g.beamLen = 40 * easeOut(clamp01((u - 0.3) / 0.6))
+		g.beamW = 0.9 + 0.25 * sin(u * 24)
 		tw = tw - dt
 		if tw <= 0 then
 			tw = 0.1
 			FX.twinkle(cam0 * V3(rr(-4, 4), rr(-2, 3), -rr(6, 9)), rr(0.12, 0.25), RGB(170, 245, 255), rr(0.5, 0.9))
-		end
-		for i, s in ipairs(strokes) do
-			local x = sin(u * 0.8 + s.ph) * 0.8
-			local p0 = face + cam0.RightVector * (x - 1.2) + cam0.UpVector * s.y
-			s.a0.Position = p0
-			s.a1.Position = p0 + (cam0.RightVector * 2.2 + cam0.UpVector * (0.3 - i * 0.1))
 		end
 	end
 end
@@ -432,3 +406,8 @@ P2.shots = {
 	{ T2.IMPACT2, P2.impact2 }, { T2.MIST, P2.wide }, { T2.LOW, P2.low },
 }
 P2.fin = T2.FIN
+
+-- субтитры части 2: { начало, конец, английский как в клипе, русский }
+P2.subs = {
+	{ 3.95, 7.85, "That was seriously sweet, Okkotsu!", "Это было круто, Оккоцу!" },
+}

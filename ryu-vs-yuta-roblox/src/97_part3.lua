@@ -14,6 +14,7 @@ local function day3(o)
 		fogColor = o.fogColor or RGB(205, 222, 250), fogStart = o.fogStart or 450, fogEnd = o.fogEnd or 2600,
 		tint = o.tint or RGB(245, 250, 255), sat = o.sat or 0.3, contrast = o.contrast or 0.12, bright = o.bright or 0.03,
 		bloom = o.bloom or 0.9, bloomSize = 40, bloomThreshold = 0.88, dof = o.dof,
+		haze = o.haze, hazeColor = o.hazeColor, hazeDecay = o.hazeDecay, hazeSoft = o.hazeSoft, veil = o.veil,
 	})
 end
 
@@ -26,10 +27,11 @@ local function windStreaks(cam0, dt, state, rate, dir, col)
 	end
 end
 
--- 0.00–2.40: Рю спиной, на него летит розовый луч
+-- 0.00–2.40: Рю спиной в розово-сиреневом тумане, на него летит розовый луч
 function P3.approach()
 	local f = beginShot(0)
-	day3({ tint = RGB(255, 240, 252), sat = 0.25, fogColor = RGB(250, 225, 245), fogStart = 120, fogEnd = 900, bloom = 1.1 })
+	day3({ tint = RGB(255, 242, 252), sat = 0.2, bloom = 1.0, haze = 0.34, hazeColor = RGB(242, 220, 246), hazeDecay = RGB(196, 166, 228),
+		veil = { RGB(244, 222, 246), 0.93, 0.74 } })
 	ryu:show(true)
 	showVariant(ryu.tags, "mouth_", "smirk")
 	ryu:place(CF(RYU_POS))
@@ -41,13 +43,16 @@ function P3.approach()
 	local cam0 = CFrame.lookAt(RYU_POS + V3(-1.6, 3.0, 9), RYU_POS + V3(1, 3.4, -30))
 	local cam1 = CFrame.lookAt(RYU_POS + V3(-1.4, 3.0, 8.2), RYU_POS + V3(1, 3.4, -30))
 	camCF, camFOV = cam0, 55
-	local far = RYU_POS + V3(18, 9, -140)
-	local beam = FX.energyBeam(C.pink, 3)
-	local head = FX.flare(far, 6, C.pinkHot, { points = 10 })
-	for _ = 1, 10 do
-		FX.puff(RYU_POS + V3(rr(-40, 40), rr(2, 8), -rr(30, 90)), rr(10, 18), rr(3, 4), V3(rr(-2, 2), rr(0, 1), 0),
-			{ color = RGB(250, 236, 248), shade = RGB(220, 190, 230) })
-	end
+	local far = RYU_POS + V3(40, 22, -52)
+	local beam = FX.energyBeam(C.pink, 3.4, { solid = true })
+	local head = FX.flare(far, 6, C.pinkHot, { points = 10, glowOp = 0.7 })
+	-- мягкий туман: дальняя стена, полоса у земли и клубы по бокам от Рю
+	FX.mist(CF(RYU_POS + V3(4, 8, -110)), V3(150, 18, 60), 26, RGB(252, 236, 250), 0.6,
+		{ sizes = { 24, 44 }, shade = RGB(226, 204, 242), drift = V3(-1.6, 0.25, 0), seed = 31 })
+	FX.mist(CF(RYU_POS + V3(-6, 2.5, -58)), V3(90, 5, 40), 22, RGB(248, 230, 250), 0.45,
+		{ sizes = { 12, 22 }, shade = RGB(230, 206, 244), drift = V3(-1.2, 0.1, 0), seed = 32 })
+	FX.mist(CF(RYU_POS + V3(0, 0.8, -12)), V3(40, 1.5, 14), 12, RGB(250, 236, 252), 0.4,
+		{ sizes = { 6, 11 }, drift = V3(-1, 0, 0), seed = 33 })
 	local wind = {}
 	Shot.update = function(u, dt)
 		camCF = cam0:Lerp(cam1, smooth(u / T3.RIGHT))
@@ -79,7 +84,8 @@ function P3.right()
 	local cam0 = CFrame.lookAt(chest + V3(1.2, -1.4, 7.2), chest + V3(0, 1.2, 0)) * ANG(0, 0, rad(4))
 	local cam1 = cam0 * CF(0, 0.1, -0.5)
 	camCF, camFOV = cam0, 52
-	local wind = {}
+	-- небо за спиной в длинных полосах ветра (далеко позади, не у лица)
+	local acc = 0
 	Shot.update = function(u, dt)
 		camCF = cam0:Lerp(cam1, smooth(u / (T3.GOING - T3.RIGHT)))
 		shake = 0.1
@@ -88,11 +94,17 @@ function P3.right()
 		else
 			showVariant(ryu.tags, "mouth_", "laugh")
 		end
-		windStreaks(cam0, dt, wind, 0.06, (cam0.RightVector * -1 + cam0.UpVector * -0.5).Unit)
+		acc = acc + dt * 14
+		while acc >= 1 do
+			acc = acc - 1
+			local from = cam0 * V3(rr(-30, 30), rr(4, 22), -rr(45, 70))
+			FX.streak(from, (cam0.RightVector * -1 + cam0.UpVector * -0.45).Unit, rr(10, 22), rr(40, 70), 0.7,
+				RGB(225, 236, 255), rr(0.25, 0.5), 0.8)
+		end
 	end
 end
 
--- 4.00–6.40: «Let's keep going!» — смех, голубая энергия у головы, жёлтая молния
+-- 4.00–6.40: «Let's keep going!» — смех; из кончика помпадура бьёт голубой луч
 function P3.going()
 	local f = beginShot(T3.GOING)
 	day3({ brightness = 2.4, tint = RGB(238, 246, 255), dof = { 6, 5, 0.25 } })
@@ -107,47 +119,44 @@ function P3.going()
 		return ANG(rad(4 * sin(t * 17)), 0, 0)
 	end
 	ryu:update(songT)
-	local head = ryu:point("neck", V3(0, 1.2, -0.2))
 	local chest = ryu:point("root", V3(0, 0.8, 0))
 	local cam0 = CFrame.lookAt(chest + V3(-1.0, -1.0, 6.6), chest + V3(0, 1.4, 0)) * ANG(0, 0, rad(-12))
 	local cam1 = cam0 * CF(0, 0.1, -0.6)
 	camCF, camFOV = cam0, 52
-	local aura = FX.flare(head + V3(0.6, 0.6, 0), 1.8, C.cyan, { points = 10, alpha = 0.15 })
-	local bolts = { FX.bolt(C.cyan, 0.06), FX.bolt(RGB(200, 255, 255), 0.05), FX.bolt(C.cyan, 0.04) }
+	-- энергия копится в причёске и уходит лучом вверх-вправо, как в аниме
+	local g = SH.granite({ level = 0.3, beam = true, bolts = 5, reach = 3.2, size = 1.1 })
+	g.dir = (cam0.UpVector * 0.8 + cam0.RightVector * 0.55 + cam0.LookVector * 0.35).Unit
 	local gold = FX.bolt(C.gold, 0.12)
 	local goldFrom = cam0 * V3(-9, -6, -9)
 	local goldTo = cam0 * V3(9, 1, -7)
-	local wind = {}
 	local tb = 0
 	Shot.update = function(u, dt)
 		camCF = cam0:Lerp(cam1, smooth(u / (T3.SMOKE - T3.GOING)))
-		shake = 0.15
+		shake = 0.15 + 0.1 * clamp01(u - 0.3)
 		if floor(u * 6) % 5 == 4 then
 			showVariant(ryu.tags, "mouth_", "grin")
 		else
 			showVariant(ryu.tags, "mouth_", "laugh")
 		end
-		aura.set(nil, 1.8 * (1 + 0.2 * sin(u * 14)))
+		g.level = 0.4 + 0.6 * smooth(u / 0.45)
+		g.beamLen = 70 * easeOut(clamp01((u - 0.1) / 0.45))
+		g.beamW = 1.6 + 0.35 * sin(u * 26)
 		tb = tb - dt
 		if tb <= 0 then
 			tb = 0.06
-			for _, b in ipairs(bolts) do
-				b.strike(head + V3(rr(-0.5, 0.5), rr(0, 0.6), 0), head + V3(rr(-3, 3), rr(1, 4), rr(-1, 1)), 0.5)
-			end
 			gold.strike(goldFrom, goldTo, 0.5)
 		end
-		windStreaks(cam0, dt, wind, 0.05, (cam0.RightVector * -1 + cam0.UpVector * -0.4).Unit)
 	end
 end
 
 -- 6.40–6.70: серые клубы дыма, вдали розовая точка
 function P3.smoke()
 	local f = beginShot(T3.SMOKE)
-	day3({ brightness = 2.2, tint = RGB(235, 240, 255), sat = 0.1 })
 	local base = RYU_POS + V3(0, 6, 0)
 	local cam0 = CFrame.lookAt(base, base + V3(0, 0, -1))
 	camCF, camFOV = cam0, 50
-	local grey = { color = RGB(176, 188, 214), shade = RGB(130, 145, 185) }
+	day3({ brightness = 2.2, tint = RGB(235, 240, 255), sat = 0.1, veil = { RGB(186, 194, 218), 0.55, 0.35 } })
+	local grey = { color = RGB(176, 188, 214), shade = RGB(130, 145, 185), op = 0.9, count = 5 }
 	for _ = 1, 22 do
 		FX.puff(cam0 * V3(rr(-30, 30), rr(-14, 14), -rr(25, 60)), rr(12, 22), 1.2, V3(rr(-4, 4), rr(-1, 1), 0), grey)
 	end
@@ -220,10 +229,11 @@ function P3.run()
 	end
 end
 
--- 7.75–9.40: вид сверху: розовый луч бьёт в кратер, Рю наверху в голубой ауре
+-- 7.75–9.40: вид сверху: розовый луч бьёт в кратер, Рю наверху в голубой ауре,
+-- внизу слева Юта бежит к нему
 function P3.top()
 	local f = beginShot(T3.TOP)
-	day3({ brightness = 2.6, bloom = 1.1 })
+	day3({ brightness = 2.6, bloom = 1.0 })
 	local cam0 = CFrame.lookAt(CRATER + V3(-18, 70, 40), CRATER + V3(-4, 0, 0)) * ANG(0, 0, rad(-20))
 	local cam1 = CFrame.lookAt(CRATER + V3(-16, 62, 36), CRATER + V3(-4, 0, 0)) * ANG(0, 0, rad(-24))
 	camCF, camFOV = cam0, 55
@@ -233,18 +243,29 @@ function P3.top()
 	ryu:place(CFrame.lookAt(rp, CRATER))
 	ryu:pose(POSE.ryuArmsWide, 0)
 	ryu:update(songT)
-	local aura = FX.flare(rp + V3(0, 4, 0), 3, C.cyan, { points = 10, alpha = 0.15 })
+	local g = SH.granite({ level = 0.8, bolts = 4, reach = 5, size = 2.2 })
+	yuta:show(true)
+	yuta:pose({ root = { -18, 0, 0 } }, 0)
+	SH.runCycle(yuta, 15, 55)
+	local y0 = CRATER + V3(-34, 0, 24)
+	local ydir = (rp - y0).Unit
 	local beam = FX.energyBeam(C.pink, 3.2)
 	local from = CRATER + V3(-50, 2, 50)
-	for _ = 1, 10 do
+	for _ = 1, 8 do
 		FX.puff(CRATER + V3(rr(10, 40), rr(2, 6), rr(-20, 30)), rr(9, 15), rr(2.5, 3.5), V3(rr(0, 3), rr(1, 2), rr(-1, 1)))
 	end
-	local acc = 0
+	local acc, dust = 0, 0
 	Shot.update = function(u, dt)
 		camCF = cam0:Lerp(cam1, smooth(u / (T3.REACH - T3.TOP)))
 		shake = 0.3
 		beam.set(from, CRATER + V3(-2, 1, 4), 3.2 + sin(u * 30) * 0.4)
-		aura.set(nil, 3 * (1 + 0.2 * sin(u * 12)))
+		local yp = y0 + ydir * (u * 16)
+		SH.placeRunner(yuta, yp, ydir)
+		dust = dust - dt
+		if dust <= 0 then
+			dust = 0.14
+			FX.puff(yp - ydir * 1.5 + V3(0, 0.6, 0), 2.2, 0.7, V3(0, 1.5, 0) - ydir * 2, { op = 0.45 })
+		end
 		acc = acc + 30 * dt
 		while acc >= 1 do
 			acc = acc - 1
@@ -254,48 +275,64 @@ function P3.top()
 	end
 end
 
--- 9.40–12.50: из-за спины Рю: его рука тянется к далёкому Юте, жёлтые молнии
+-- 9.40–12.50: из-за плеча Рю: его рука тянется вперёд, а Юта бежит на него
+-- издалека справа и быстро приближается; над головой Рю голубое свечение
 function P3.reach()
 	local f = beginShot(T3.REACH)
 	day3({ brightness = 2.5, tint = RGB(236, 244, 255), dof = { 4, 3.5, 0.15 } })
+	local toY = (YUTA_POS - RYU_POS) * V3(1, 0, 1)
+	toY = toY.Unit
+	local side = toY:Cross(V3(0, 1, 0)).Unit -- вправо от Рю, если смотреть на Юту
 	ryu:show(true)
-	ryu:place(CFrame.lookAt(RYU_POS, YUTA_POS))
-	ryu:pose(POSE.ryuReach, 0)
+	ryu:place(CFrame.lookAt(RYU_POS, RYU_POS + toY))
+	ryu:pose({ root = { -12, 0, 0 }, neck = { -5, 0, 0 }, rArm = { 80, 0, 22 }, lArm = { -20, 0, -20 }, rLeg = { -20, 0, 0 }, lLeg = { 20, 0, 0 } }, 0)
 	ryu.bones.coat.wob = function(t)
 		return ANG(rad(-12 - 4 * sin(t * 6)), 0, 0)
 	end
 	ryu:update(songT)
+	local g = SH.granite({ level = 0.55, bolts = 3, reach = 3, size = 1.2 })
 	yuta:show(true)
-	yuta:place(CFrame.lookAt(YUTA_POS, RYU_POS))
-	yuta:pose({ root = { -10, 0, 0 }, rArm = { -30, 0, 20 }, lArm = { 40, 0, -10 }, rLeg = { 20, 0, 0 }, lLeg = { -25, 0, 0 } }, 0)
-	yuta:update(songT)
+	yuta:pose({ root = { -20, 0, 0 } }, 0)
+	SH.runCycle(yuta, 16, 60)
+	-- Юта выбегает справа из-за края кадра и мчится к Рю
+	local y0 = RYU_POS + toY * 78 + side * 30
+	local y1 = RYU_POS + toY * 16 + side * 3
 	local shoulder = ryu:point("root", V3(3.4, 0.6, 6.0))
-	local look = (YUTA_POS + V3(0, 2, 0) - shoulder).Unit
+	local look = (RYU_POS + toY * 45 + side * 10 + V3(0, 2, 0) - shoulder).Unit
 	local cam0 = CFrame.lookAt(shoulder, shoulder + look * 30 + V3(0, -2, 0))
 	local orbit = 0
 	local bolts = { FX.bolt(C.gold, 0.1), FX.bolt(C.yellow, 0.08) }
-	local hand = ryu:point("rArm", V3(0, -1.5, 0))
-	local spark = FX.flare(hand, 0.6, C.cyan, { points = 7, alpha = 0.2 })
-	local tb = 0
+	local tb, dust = 0, 0
 	local wind = {}
+	local runT0, runT1 = 0.9, T3.BUT - T3.REACH
 	Shot.update = function(u, dt)
-		orbit = orbit + dt * 0.08
+		orbit = orbit + dt * 0.06
 		camCF = CF(shoulder) * ANG(0, -orbit, 0) * CF(-shoulder) * cam0 * CF(0, 0, 0.6 * u)
 		camFOV = 58
 		shake = 0.2
+		local k = clamp01((u - runT0) / (runT1 - runT0))
+		local yp = y0:Lerp(y1, k * (0.75 + 0.25 * k))
+		SH.placeRunner(yuta, yp, y1 - y0, 16)
+		yuta:show(u > runT0 - 0.05)
+		dust = dust - dt
+		if u > runT0 and dust <= 0 then
+			dust = 0.1
+			FX.puff(yp - (y1 - y0).Unit * 1.2 + V3(0, 0.5, 0), 2.4, 0.8, V3(0, 1.2, 0) + (y0 - y1).Unit * 3, { op = 0.5 })
+		end
 		tb = tb - dt
 		if tb <= 0 then
 			tb = 0.07
-			local a = YUTA_POS + V3(rr(-30, 0), rr(2, 8), rr(-6, 6))
+			-- жёлтые молнии стелются над землёй между ними
+			local a = RYU_POS + toY * rr(18, 60) + side * rr(-14, 14) + V3(0, rr(0.5, 4), 0)
 			for _, b in ipairs(bolts) do
-				b.strike(a, a + (RYU_POS - YUTA_POS).Unit * rr(20, 50) + V3(0, rr(-2, 3), 0), 1.2)
+				b.strike(a, a + (side * rr(-1, 1) + toY * rr(-0.6, 0.6)).Unit * rr(10, 24) + V3(0, rr(-1, 2), 0), 1.1)
 			end
 		end
-		windStreaks(camCF, dt, wind, 0.06, (camCF.RightVector * -1).Unit)
+		windStreaks(camCF, dt, wind, 0.08, (camCF.RightVector * -1).Unit)
 	end
 end
 
--- 12.50–13.90: «But...» — ухмылка, голубое сияние у лица
+-- 12.50–13.90: «But...» — ухмылка, в кончике помпадура голубое сияние
 function P3.but()
 	local f = beginShot(T3.BUT)
 	day3({ brightness = 2.3, tint = RGB(232, 244, 255), dof = { 5.2, 4, 0.3 } })
@@ -309,9 +346,8 @@ function P3.but()
 	local cam0 = CFrame.lookAt(camPos, head + V3(0, -0.4, 0)) * ANG(0, 0, rad(6))
 	local cam1 = cam0 * CF(0, 0, -0.4)
 	camCF, camFOV = cam0, 50
-	local aura = FX.flare(head + V3(-1.2, 0.8, -0.4), 1.4, C.cyan, { points = 10, alpha = 0.15 })
+	local g = SH.granite({ level = 0.5, bolts = 4, reach = 2.4, size = 0.8 })
 	local gold = FX.bolt(C.gold, 0.06)
-	local bolts = { FX.bolt(C.cyan, 0.05) }
 	local tb = 0
 	Shot.update = function(u, dt)
 		camCF = cam0:Lerp(cam1, smooth(u / (T3.BOOM - T3.BUT)))
@@ -319,12 +355,11 @@ function P3.but()
 		if u > 0.7 then
 			showVariant(ryu.tags, "mouth_", "grin")
 		end
-		aura.set(nil, 1.4 * (1 + 0.2 * sin(u * 15)))
+		g.level = 0.5 + 0.4 * smooth(u / 1.2)
 		tb = tb - dt
 		if tb <= 0 then
 			tb = 0.07
 			gold.strike(cam0 * V3(-4, -3, -5), cam0 * V3(1, -1.5, -5), 0.3)
-			bolts[1].strike(head + V3(-1, 1, 0), head + V3(rr(-3, -1), rr(1, 3), 0), 0.4)
 		end
 	end
 end
@@ -362,53 +397,81 @@ function P3.boom()
 	end
 end
 
--- 14.80–15.97: «its force is weak!» — Рю сбоку тянет руку, с ладони бьют молнии
-function P3.weak()
-	local f = beginShot(T3.WEAK)
-	setLook({ clock = 13, brightness = 1.6, ambient = RGB(175, 165, 225), outdoor = RGB(170, 160, 220), tint = RGB(240, 235, 255),
-		sat = 0.3, contrast = 0.12, bloom = 1.0, dof = { 9, 6, 0.3 } })
-	local base = STAGE.ryu1 + V3(0, 0, -400)
-	local cam0 = CFrame.lookAt(base, base + V3(0, -0.05, -1))
-	local cam1 = cam0 * CF(0.3, 0, -0.6)
-	camCF, camFOV = cam0, 55
-	FX.backdrop(cam0 * CF(0, 0, -220) * ANG(0, math.pi, 0), 900, 600, { RGB(150, 140, 230), RGB(90, 80, 190), RGB(50, 40, 130) }, 80)
+-- Сцена «its force is weak!» (14.80 части 3 → 0.73 части 4, одна непрерывная сцена):
+-- Рю справа спиной тянет руку, из причёски бьют молнии; сквозь сиреневый туман
+-- и розовые искры к нему бежит Юта. tau0 — с какого места сцены начинать.
+-- путь Юты в этой сцене: tau — время сцены, возвращает точку и направление бега
+function P3.weakPath(tau)
+	local toY = ((YUTA_POS - RYU_POS) * V3(1, 0, 1)).Unit
+	local side = toY:Cross(V3(0, 1, 0)).Unit
+	local y0 = RYU_POS + toY * 46 - side * 5
+	local y1 = RYU_POS + toY * 10
+	return y0:Lerp(y1, clamp01(tau / 3.2)), (y1 - y0).Unit, toY, side
+end
+
+function P3.weakScene(t0, tau0)
+	local f = beginShot(t0)
+	Shot.scene = "weak"
+	day3({ brightness = 2.0, tint = RGB(240, 236, 255), sat = 0.2, dof = { 9, 6, 0.25 },
+		haze = 0.34, hazeColor = RGB(214, 206, 242), hazeDecay = RGB(160, 150, 220), veil = { RGB(204, 196, 240), 0.92, 0.72 } })
+	local toY = ((YUTA_POS - RYU_POS) * V3(1, 0, 1)).Unit
+	local side = toY:Cross(V3(0, 1, 0)).Unit
 	ryu:show(true)
 	showVariant(ryu.tags, "mouth_", "grin")
-	ryu:place(cam0 * CF(2.5, -4.6, -10) * ANG(0, rad(100), 0))
-	ryu:pose(POSE.ryuSide, 0)
+	ryu:place(CFrame.lookAt(RYU_POS, RYU_POS + toY))
+	ryu:pose(POSE.ryuReach, 0)
 	ryu.bones.coat.wob = function(t)
 		return ANG(rad(-10 - 4 * sin(t * 6)), 0, 0)
 	end
 	ryu:update(songT)
+	local g = SH.granite({ level = 0.75, bolts = 5, reach = 5, size = 1.3 })
 	yuta:show(true)
-	yuta:place(cam0 * CF(-12, -5.5, -24) * ANG(0, rad(-80), 0))
-	yuta:pose({ root = { -8, 0, 0 }, rArm = { 50, 0, 10 }, lArm = { -20, 0, -10 } }, 0)
-	yuta:update(songT)
+	SH.yutaBlood(true)
+	yuta:pose({ root = { -20, 0, 0 } }, 0)
+	SH.runCycle(yuta, 16, 60)
+	-- камера за спиной Рю со стороны левого плеча: Рю справа, Юта вдали слева
+	local eye = RYU_POS - side * 4.2 - toY * 7 + V3(0, 4.2, 0)
+	local cam0 = CFrame.lookAt(eye, RYU_POS + toY * 40 - side * 6 + V3(0, 2.5, 0))
+	camCF, camFOV = cam0, 55
+	-- сиреневый туман: дальняя стена, слой между ними и низкая пелена у земли
+	local face = CFrame.lookAt(V3(), toY)
+	FX.mist(CF(RYU_POS + toY * 62 + V3(0, 7, 0)) * face, V3(110, 16, 50), 30, RGB(222, 214, 246), 0.6,
+		{ sizes = { 22, 40 }, shade = RGB(196, 186, 236), drift = side * 1.2, seed = 41, t0 = tau0 })
+	FX.mist(CF(RYU_POS + toY * 32 + V3(0, 3, 0)) * face, V3(70, 6, 36), 26, RGB(228, 220, 248), 0.5,
+		{ sizes = { 12, 22 }, shade = RGB(204, 194, 240), drift = side * 1.0, seed = 42, t0 = tau0 })
+	FX.mist(CF(RYU_POS + toY * 12 + V3(0, 0.8, 0)) * face, V3(36, 2, 18), 14, RGB(236, 230, 252), 0.45,
+		{ sizes = { 7, 13 }, drift = side * 0.8, seed = 43, t0 = tau0 })
 	local hand = ryu:point("rArm", V3(0, -1.6, 0))
-	local head = ryu:point("neck", V3(0, 1.0, 0))
 	local hf = FX.flare(hand, 0.9, C.cyan, { points = 8, alpha = 0.2 })
-	local bolts = { FX.bolt(C.cyan, 0.05), FX.bolt(RGB(200, 255, 255), 0.04), FX.bolt(C.cyan, 0.05) }
-	for _ = 1, 8 do
-		FX.puff(cam0 * V3(rr(-6, 8), -rr(4.5, 5.5), -rr(8, 12)), rr(1.5, 3), rr(1.2, 1.6), V3(rr(-3, 3), rr(1, 3), 0))
-	end
-	local tb, tw = 0, 0
+	local hb = { FX.bolt(C.cyan, 0.05), FX.bolt(RGB(200, 255, 255), 0.04) }
+	local sparks, tb, dust = {}, 0, 0
+	local sparkDir = (side * 1 + toY * -0.35 + V3(0, 0.25, 0)).Unit
 	Shot.update = function(u, dt)
-		camCF = cam0:Lerp(cam1, smooth(u / (T3.FIN - T3.WEAK)))
+		local tau = u + tau0
+		camCF = cam0 * CF(0.3 * tau, 0, -0.5 * tau)
 		shake = 0.2
-		hf.set(nil, 0.9 * (1 + 0.25 * sin(u * 18)))
+		local yp, ydir = P3.weakPath(tau)
+		SH.placeRunner(yuta, yp, ydir, 16)
+		hf.set(hand, 0.9 * (1 + 0.25 * sin(tau * 18)))
+		g.level = 0.75 + 0.15 * sin(tau * 9)
 		tb = tb - dt
 		if tb <= 0 then
 			tb = 0.06
-			bolts[1].strike(hand, hand + V3(rr(-6, -2), rr(-1, 2), rr(-1, 1)), 0.5)
-			bolts[2].strike(head, head + V3(rr(-4, 1), rr(2, 5), 0), 0.5)
-			bolts[3].strike(hand, hand + V3(rr(-4, 0), rr(2, 5), 0), 0.4)
+			hb[1].strike(hand, hand + toY * rr(3, 6) + V3(rr(-1, 1), rr(-1, 2), 0), 0.5)
+			hb[2].strike(hand, hand + (toY + V3(0, 1, 0)).Unit * rr(2, 5), 0.4)
 		end
-		tw = tw - dt
-		if tw <= 0 then
-			tw = 0.05
-			FX.twinkle(cam0 * V3(rr(-10, 6), rr(-4, 5), -rr(8, 14)), rr(0.15, 0.3), RGB(255, 110, 220), rr(0.4, 0.7))
+		dust = dust - dt
+		if dust <= 0 then
+			dust = 0.11
+			FX.puff(yp - ydir * 1.2 + V3(0, 0.5, 0), 2.6, 0.9, V3(0, 1.2, 0), { op = 0.4, color = RGB(236, 232, 252) })
 		end
+		SH.pinkSparks(camCF, dt, sparks, 0.018, sparkDir)
 	end
+end
+
+-- 14.80–15.97: «its force is weak!»
+function P3.weak()
+	P3.weakScene(T3.WEAK, 0)
 end
 
 P3.shots = {
@@ -416,3 +479,12 @@ P3.shots = {
 	{ T3.RUN, P3.run }, { T3.TOP, P3.top }, { T3.REACH, P3.reach }, { T3.BUT, P3.but }, { T3.BOOM, P3.boom }, { T3.WEAK, P3.weak },
 }
 P3.fin = T3.FIN
+
+-- субтитры части 3
+P3.subs = {
+	{ 2.50, 3.98, "That's right!", "Вот именно!" },
+	{ 4.00, 6.30, "Let's keep going!", "Продолжаем!" },
+	{ 9.85, 12.45, "That big thing can fire it on its own?!", "Эта громадина может стрелять сама?!" },
+	{ 12.60, 13.85, "But...", "Но..." },
+	{ 14.62, 15.97, "its force is weak!", "её сила слаба!" },
+}

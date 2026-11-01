@@ -56,6 +56,8 @@ local function finish(which)
 	end
 	fx.blur.Size = 0
 	ui.speed.Visible = false
+	ui.sub.Visible = false
+	ui.subs = nil
 	if which == 0 then
 		ui.endText.Text = "Конец"
 	else
@@ -67,7 +69,7 @@ local function finish(which)
 	setCoreUI(true)
 end
 
--- which: 0 — все части подряд, 1..3 — одна часть
+-- which: 0 — все части подряд, 1..4 — одна часть
 local function play(which)
 	if playing then
 		return
@@ -80,7 +82,7 @@ local function play(which)
 	parkCharacter()
 	songT = 0
 	playing = true
-	local all = { P1, P2, P3 }
+	local all = { P1, P2, P3, P4 }
 	local list = all
 	if which ~= 0 then
 		list = { all[which] }
@@ -88,6 +90,7 @@ local function play(which)
 	local offset = 0
 	for _, part in ipairs(list) do
 		partOffset = offset
+		ui.subs = part.subs
 		for _, s in ipairs(part.shots) do
 			waitUntil(offset + s[1])
 			if not playing then
@@ -144,6 +147,8 @@ local function onFrame(dt)
 	end
 	camera.CFrame = camCF * s
 	camera.FieldOfView = camFOV
+	FX.faceSprites()
+	updateSubtitles()
 end
 
 local function setup()
@@ -165,6 +170,7 @@ local function setup()
 	fx.dof = Instance.new("DepthOfFieldEffect")
 	fx.dof.Enabled = false
 	fx.dof.Parent = Lighting
+	fx.atmo = Instance.new("Atmosphere")
 	setLook({})
 
 	buildUI()
@@ -196,6 +202,9 @@ local function setup()
 	ui.btn3.Activated:Connect(function()
 		start(3)
 	end)
+	ui.btn4.Activated:Connect(function()
+		start(4)
+	end)
 	ui.again.Activated:Connect(function()
 		start(currentPart)
 	end)
@@ -212,13 +221,15 @@ local function setup()
 			start(2)
 		elseif input.KeyCode == Enum.KeyCode.Three then
 			start(3)
+		elseif input.KeyCode == Enum.KeyCode.Four then
+			start(4)
 		elseif input.KeyCode == Enum.KeyCode.Space then
 			start(0)
 		elseif input.KeyCode == Enum.KeyCode.R then
 			start(currentPart)
 		end
 	end)
-	if CONFIG.PART == 1 or CONFIG.PART == 2 or CONFIG.PART == 3 then
+	if CONFIG.PART == 1 or CONFIG.PART == 2 or CONFIG.PART == 3 or CONFIG.PART == 4 then
 		currentPart = CONFIG.PART
 	end
 	if CONFIG.AUTO_START then

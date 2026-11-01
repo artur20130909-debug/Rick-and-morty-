@@ -74,22 +74,57 @@ local POSE = {
 	},
 }
 
+-- Ровный «анимешный» свет. Яркое солнце пересвечивает синий канал, и синий
+-- асфальт в Studio становится бирюзовым. Поэтому солнце слабое, а основной свет
+-- даёт почти белый рассеянный: цвета деталей видны такими, какими заданы.
 local function setLook(o)
+	local sun = (o.brightness or 1.5) * CONFIG.SUN
+	local amb = (o.ambient or RGB(70, 80, 110)):Lerp(C.white, CONFIG.AMBIENT_WHITE)
+	local out = (o.outdoor or o.ambient or RGB(70, 80, 110)):Lerp(C.white, CONFIG.AMBIENT_WHITE)
+	local lift = CONFIG.AMBIENT
+	if (o.brightness or 1.5) <= 0 then
+		-- плоский кадр (глаза): весь свет рассеянный, цвета ровно как заданы
+		sun, lift = 0, 1
+		amb, out = o.ambient or C.white, o.outdoor or o.ambient or C.white
+	end
 	Lighting.ClockTime = o.clock or 0
-	Lighting.Brightness = o.brightness or 1.5
-	Lighting.Ambient = o.ambient or RGB(70, 80, 110)
-	Lighting.OutdoorAmbient = o.outdoor or o.ambient or RGB(70, 80, 110)
+	Lighting.Brightness = sun
+	Lighting.Ambient = Color3.new(amb.R * lift, amb.G * lift, amb.B * lift)
+	Lighting.OutdoorAmbient = Color3.new(out.R * lift, out.G * lift, out.B * lift)
 	Lighting.FogColor = o.fogColor or RGB(16, 22, 44)
 	Lighting.FogStart = o.fogStart or 200
 	Lighting.FogEnd = o.fogEnd or 1100
-	Lighting.ExposureCompensation = o.exposure or 0
+	Lighting.ExposureCompensation = CONFIG.EXPOSURE
 	fx.cc.TintColor = o.tint or C.white
-	fx.cc.Saturation = o.sat or 0
-	fx.cc.Contrast = o.contrast or 0
-	fx.cc.Brightness = o.bright or 0
-	fx.bloom.Intensity = o.bloom or 0.8
+	fx.cc.Saturation = (o.sat or 0) * 0.6
+	fx.cc.Contrast = (o.contrast or 0) * 0.5
+	fx.cc.Brightness = 0
+	fx.bloom.Intensity = math.min(o.bloom or 0.8, 1.0)
 	fx.bloom.Size = o.bloomSize or 36
-	fx.bloom.Threshold = o.bloomThreshold or 0.85
+	-- светятся только неон и эффекты, белая куртка и облака не «плывут»
+	fx.bloom.Threshold = math.max(o.bloomThreshold or 0.85, 0.97)
+	-- пелена тумана поверх кадра: o.veil = { цвет, прозрачность сверху, прозрачность снизу }
+	if ui.haze then
+		if o.veil then
+			ui.haze.BackgroundColor3 = o.veil[1]
+			ui.haze.BackgroundTransparency = 0
+			ui.hazeGrad.Transparency = NS({ { 0, o.veil[2] }, { 1, o.veil[3] } })
+		else
+			ui.haze.BackgroundTransparency = 1
+		end
+	end
+	-- дымка (Atmosphere) только там, где в аниме туман
+	if o.haze then
+		fx.atmo.Density = o.haze
+		fx.atmo.Offset = 0
+		fx.atmo.Color = o.hazeColor or RGB(226, 214, 245)
+		fx.atmo.Decay = o.hazeDecay or RGB(170, 160, 220)
+		fx.atmo.Glare = 0
+		fx.atmo.Haze = o.hazeSoft or 1.5
+		fx.atmo.Parent = Lighting
+	else
+		fx.atmo.Parent = nil
+	end
 	if o.dof then
 		fx.dof.Enabled = true
 		fx.dof.FocusDistance = o.dof[1]
@@ -112,8 +147,30 @@ end
 
 local partOffset = 0 -- начало текущей части на общем таймлайне
 
+-- субтитры как в клипе (CONFIG.SUBTITLES): строка видна, пока идёт её отрезок
+local function updateSubtitles()
+	local lab = ui.sub
+	if not CONFIG.SUBTITLES or not ui.subs or not playing then
+		lab.Visible = false
+		return
+	end
+	local t = songT - partOffset
+	for _, line in ipairs(ui.subs) do
+		if t >= line[1] and t < line[2] then
+			lab.Text = (CONFIG.SUBTITLES == "ru") and line[4] or line[3]
+			lab.Visible = true
+			return
+		end
+	end
+	lab.Visible = false
+end
+
 local function beginShot(t0)
 	updaters = {}
+	for _, sp in ipairs(sprites.shot) do
+		sp.dead = true
+	end
+	sprites.shot = {}
 	if Shot.folder then
 		Shot.folder:Destroy()
 	end
@@ -126,12 +183,15 @@ local function beginShot(t0)
 	Shot.debris.Name = "Debris"
 	Shot.debris.Parent = f
 	outline(Shot.debris, nil, 1)
-	Shot.clouds = Instance.new("Model")
-	Shot.clouds.Name = "Clouds"
-	Shot.clouds.Parent = f
-	outline(Shot.clouds, nil, 1, RGB(70, 95, 150))
 	Shot.t0 = t0 + partOffset
 	Shot.update = nil
+	Shot.scene = nil
+	for _, hp in ipairs(ryu and ryu.hair or {}) do
+		hp.Color = C.hairRyu
+	end
+	for _, bp in ipairs(yuta and yuta.tags.sblood or {}) do
+		bp.Transparency = 1
+	end
 	shake = 0
 	for _, r in ipairs(rigs) do
 		r:show(false)

@@ -2,7 +2,7 @@
 -- ЭФФЕКТЫ: лучи Beam, мягкие свечения, частицы, молнии, обломки с контуром
 ----------------------------------------------------------------------
 
-local Shot = { folder = nil, anchor = nil, debris = nil, t0 = 0, update = nil, blur = 0 }
+local Shot = { folder = nil, anchor = nil, debris = nil, t0 = 0, update = nil, blur = 0, scene = nil }
 local updaters = {}
 local function addUpdater(fn)
 	updaters[#updaters + 1] = fn
@@ -83,8 +83,140 @@ function FX.beam(a0, a1, color, w0, w1, o)
 end
 
 
+-- Встроенные текстуры клиента Roblox. Они лежат в папке content/textures
+-- у каждого клиента и в Studio, поэтому загружать ничего не нужно.
+local TEX = {
+	smoke = "rbxasset://textures/particles/smoke_main.dds", -- мягкий клуб дыма
+	glow = "rbxasset://textures/particles/explosion01_implosion_main.dds", -- мягкое свечение
+	wisp = "rbxasset://textures/particles/fire_main.dds", -- рваные волокна
+}
+
+-- Спрайт: короткий Beam с текстурой, который каждый кадр разворачивается к камере.
+-- В отличие от BillboardGui, лучи сортируются вместе с другими прозрачными объектами:
+-- туман не закрывает вспышки и лучи, которые находятся ближе к камере.
+local sprites = { static = {}, shot = {} }
+
+local function newSprite(list, parent, tex, pos, size, color, op, o)
+	o = o or {}
+	local a0 = Instance.new("Attachment")
+	a0.Parent = parent
+	local a1 = Instance.new("Attachment")
+	a1.Parent = parent
+	local b = Instance.new("Beam")
+	b.Attachment0 = a0
+	b.Attachment1 = a1
+	b.Texture = tex
+	b.TextureMode = Enum.TextureMode.Stretch
+	b.TextureLength = 1
+	b.TextureSpeed = 0
+	b.FaceCamera = true
+	b.Segments = 1
+	b.LightInfluence = 0
+	b.LightEmission = o.add and 1 or 0
+	b.Brightness = o.brightness or 1
+	b.Color = ColorSequence.new(color)
+	b.ZOffset = o.z or 0
+	b.Width0 = size
+	b.Width1 = size
+	b.Transparency = NumberSequence.new(1)
+	b.Parent = parent
+	local sp = { a0 = a0, a1 = a1, b = b, pos = pos, size = size, op = op, k = 1, rot = o.rot or rr(0, math.pi * 2),
+		spin = o.spin or 0, shown = -1, w = -1, color = color }
+	list[#list + 1] = sp
+	return sp
+end
+
+-- поворот всех спрайтов к камере + мягкое исчезновение вблизи объектива
+local function faceList(list, right, up, cp, look)
+	local i = 1
+	while i <= #list do
+		local sp = list[i]
+		if sp.dead or not sp.b.Parent then
+			table.remove(list, i)
+		else
+			local r = sp.rot + songT * sp.spin
+			local half = sp.size * 0.5
+			local ax = (right * cos(r) + up * sin(r)) * half
+			sp.a0.Position = sp.pos - ax
+			sp.a1.Position = sp.pos + ax
+			if abs(sp.w - sp.size) > 0.01 then
+				sp.w = sp.size
+				sp.b.Width0 = sp.size
+				sp.b.Width1 = sp.size
+			end
+			local depth = (sp.pos - cp):Dot(look)
+			local near = clamp01((depth - half * 0.5) / (half + 2))
+			local tr = 1 - clamp01(sp.op * sp.k) * near
+			if abs(tr - sp.shown) > 0.004 then
+				sp.shown = tr
+				sp.b.Transparency = NumberSequence.new(tr)
+			end
+			i = i + 1
+		end
+	end
+end
+
+function FX.faceSprites()
+	local right, up = camCF.RightVector, camCF.UpVector
+	local cp, look = camCF.Position, camCF.LookVector
+	faceList(sprites.static, right, up, cp, look)
+	faceList(sprites.shot, right, up, cp, look)
+end
+
+-- одиночный спрайт кадра; o.add = true — светится (складывается со светом)
+function FX.sprite(tex, pos, size, color, op, o)
+	return newSprite(sprites.shot, Shot.anchor, tex, pos, size, color, op, o)
+end
+
+-- мягкое свечение (без жёсткого края): ставится под колючие вспышки
+function FX.glow(pos, size, color, op, o)
+	o = o or {}
+	o.add = true
+	o.brightness = o.brightness or 2
+	return FX.sprite(TEX.glow, pos, size, color, op or 0.8, o)
+end
+
+-- Туман: много больших полупрозрачных клубов в коробке box (CFrame + размер).
+-- Клубы медленно дрейфуют, вращаются и «дышат»; mist.k — общая видимость 0..1.
+function FX.mist(cf, size, n, color, op, o)
+	o = o or {}
+	local R = o.seed and Random.new(o.seed) or rng
+	local function r(a, b)
+		return R:NextNumber(a, b)
+	end
+	local list = {}
+	local drift = o.drift or V3(1.2, 0.1, 0)
+	local smin, smax = (o.sizes or { 14, 26 })[1], (o.sizes or { 14, 26 })[2]
+	for i = 1, n do
+		local p = cf * V3(r(-0.5, 0.5) * size.X, r(-0.5, 0.5) * size.Y, r(-0.5, 0.5) * size.Z)
+		local col = color
+		if o.shade and i % 3 == 0 then
+			col = o.shade
+		end
+		local sp = FX.sprite(TEX.smoke, p, r(smin, smax), col, op * r(0.6, 1.0), { spin = r(-0.06, 0.06), z = o.z, rot = r(0, 6.28) })
+		sp.base = p
+		sp.ph = r(0, 6.28)
+		sp.op0 = sp.op
+		list[i] = sp
+	end
+	local mist = { list = list, k = 1 }
+	local t = o.t0 or 0
+	addUpdater(function(dt)
+		t = t + dt
+		for _, sp in ipairs(list) do
+			sp.pos = sp.base + drift * t + V3(0, 0.4 * sin(t * 0.7 + sp.ph), 0)
+			sp.op = sp.op0 * (0.85 + 0.15 * sin(t * 0.9 + sp.ph))
+			sp.k = mist.k
+		end
+		return true
+	end)
+	return mist
+end
+
+
 -- энергетический луч: белое ядро, цвет, ореол; по нему бегут яркие штрихи
-function FX.energyBeam(color, width)
+function FX.energyBeam(color, width, o)
+	o = o or {}
 	local a0, a1 = FX.att(), FX.att()
 	local spec = {
 		{ C.white, 0.3, 0, 8 },
@@ -94,7 +226,9 @@ function FX.energyBeam(color, width)
 	}
 	local layers = {}
 	for i, sp in ipairs(spec) do
-		layers[i] = { b = FX.beam(a0, a1, sp[1], 1, 1, { alpha = NumberSequence.new(sp[3]), brightness = sp[4] }), k = sp[2] }
+		-- o.solid: внешние слои обычной прозрачностью, чтобы цвет луча не выгорал в белый на светлом тумане
+		local emission = (o.solid and i >= 3) and 0 or 1
+		layers[i] = { b = FX.beam(a0, a1, sp[1], 1, 1, { alpha = NumberSequence.new(sp[3]), brightness = sp[4], emission = emission }), k = sp[2] }
 	end
 	local obj = { width = width, from = V3(), to = V3() }
 	function obj.set(from, to, w)
@@ -147,6 +281,8 @@ function FX.flare(pos, radius, color, o)
 	end
 	layer(o.points or 9, 1.0, color, 3, o.alpha or 0.1)
 	layer(7, 0.55, color:Lerp(C.white, 0.6), 5, 0)
+	-- мягкий ореол под звездой: свет без жёсткого края
+	local halo = (o.glow ~= false) and FX.glow(pos, radius * 2.4, color, o.glowOp or 0.5) or nil
 	local obj = { pos = pos, radius = radius, spin = o.spin or 0.4, visible = 1 }
 	function obj.set(p, r, k)
 		if p then
@@ -177,6 +313,10 @@ function FX.flare(pos, radius, color, o)
 		right = right.Unit
 		local up = right:Cross(look).Unit
 		c0.Position = obj.pos
+		if halo then
+			halo.pos = obj.pos
+			halo.size = obj.radius * 2.4 * obj.visible + 0.01
+		end
 		for _, sk in ipairs(spikes) do
 			local a = sk.ang + t * obj.spin
 			local L = obj.radius * sk.len * (0.8 + 0.2 * sin(t * sk.sp + sk.ph)) * obj.visible
@@ -246,7 +386,9 @@ function FX.spark(pos, vel, color, len, life, width)
 			v = V3(0, 1, 0)
 		end
 		p.Size = V3((width or 0.12) * (0.4 + 0.6 * k), (width or 0.12) * (0.4 + 0.6 * k), L)
-		p.CFrame = CFrame.lookAt(pos, pos + v)
+		-- вертикальный полёт: другой вектор «вверх», иначе поворот не определён
+		local upv = (abs(v.Unit.Y) > 0.98) and V3(1, 0, 0) or V3(0, 1, 0)
+		p.CFrame = CFrame.lookAt(pos, pos + v, upv)
 		return true
 	end)
 	return p
@@ -261,46 +403,47 @@ end
 
 -- Мультяшный дым: белые клубы с тенью снизу и контуром. Растут, плывут и «лопаются».
 function FX.puff(pos, size, life, vel, o)
+	-- мягкий клуб дыма из текстурных спрайтов: светлый верх, тень снизу
 	o = o or {}
 	local base = o.color or RGB(246, 248, 255)
 	local shade = o.shade or RGB(196, 210, 238)
-	local balls = {}
-	for i = 1, (o.count or 5) do
-		local off = V3(rr(-0.5, 0.5), rr(-0.25, 0.35), rr(-0.5, 0.5)) * size
-		local s = size * rr(0.45, 0.75)
-		local top = newPart(Shot.clouds, V3(s, s * 0.85, s), base, CF(pos + off), { shape = "ball" })
-		local bot = newPart(Shot.clouds, V3(s * 0.92, s * 0.6, s * 0.92), shade, CF(pos + off - V3(0, s * 0.18, 0)), { shape = "ball" })
-		balls[i] = { top = top, bot = bot, off = off, s = s }
+	local op = o.op or 0.55
+	local back = camCF.LookVector
+	local list = {}
+	local n = o.count or 4
+	for i = 1, n + 2 do
+		local isShade = i > n
+		local off = V3(rr(-0.4, 0.4), rr(-0.15, 0.3), rr(-0.4, 0.4)) * size
+		if isShade then
+			off = off * 0.6 - V3(0, size * 0.22, 0) + back * size * 0.3
+		end
+		local sp = FX.sprite(TEX.smoke, pos + off, size, isShade and shade or base, isShade and op * 0.9 or op,
+			{ spin = rr(-0.35, 0.35) })
+		sp.off = off
+		sp.s0 = size * (isShade and rr(0.9, 1.15) or rr(0.75, 1.05))
+		list[i] = sp
 	end
 	local age = 0
 	vel = vel or V3()
 	addUpdater(function(dt)
 		age = age + dt
 		if age >= life then
-			for _, b in ipairs(balls) do
-				b.top:Destroy()
-				b.bot:Destroy()
+			for _, sp in ipairs(list) do
+				sp.dead = true
+				sp.b:Destroy()
+				sp.a0:Destroy()
+				sp.a1:Destroy()
 			end
 			return false
 		end
 		local a = age / life
-		local k
-		if a < 0.3 then
-			k = 0.35 + 0.65 * easeOut(a / 0.3)
-		elseif a > 0.75 then
-			k = 1 - easeIn((a - 0.75) / 0.25)
-		else
-			k = 1
-		end
-		k = math.max(k, 0.02)
+		local grow = 0.45 + 0.55 * easeOut(clamp01(a / 0.3)) + 0.3 * a
+		local vis = clamp01(a / 0.12) * (1 - easeIn(clamp01((a - 0.62) / 0.38)))
 		pos = pos + vel * dt
-		for _, b in ipairs(balls) do
-			local s = b.s * k * (1 + 0.25 * a)
-			local c = pos + b.off * (1 + 0.4 * a)
-			b.top.Size = V3(s, s * 0.85, s)
-			b.top.CFrame = CF(c)
-			b.bot.Size = V3(s * 0.92, s * 0.6, s * 0.92)
-			b.bot.CFrame = CF(c - V3(0, s * 0.18, 0))
+		for _, sp in ipairs(list) do
+			sp.pos = pos + sp.off * (1 + 0.5 * a)
+			sp.size = sp.s0 * grow
+			sp.k = vis
 		end
 		return true
 	end)

@@ -98,12 +98,24 @@ local function buildUI()
 		gradient(e, { C.black, C.black }, { 0.45, 1 }, v[3])
 	end
 
+	-- дымка поверх кадра: сверху почти прозрачная, у земли плотнее (как пелена тумана в аниме)
+	ui.haze = uiFrame(gui, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.white, BackgroundTransparency = 1, ZIndex = 3 })
+	ui.hazeGrad = gradient(ui.haze, { C.white, C.white }, { 0.8, 0.5 }, 90)
 	ui.tint = uiFrame(gui, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.white, BackgroundTransparency = 1, ZIndex = 7 })
 	ui.flash = uiFrame(gui, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.white, BackgroundTransparency = 1, ZIndex = 8 })
 	ui.flashGrad = gradient(ui.flash, { C.white, C.white }, nil, 0)
 	ui.impact1 = buildImpact(gui, 0.5, 0.5, 1.0, true)
 	ui.impact2 = buildImpact(gui, 0.62, 0.45, 0.35, false)
 	ui.black = uiFrame(gui, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.black, BackgroundTransparency = 1, ZIndex = 18 })
+	-- субтитры как в клипе: белые буквы с тёмной обводкой внизу кадра
+	ui.sub = uiText(gui, "TextLabel", {
+		AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.fromScale(0.5, 0.93), Size = UDim2.fromScale(0.8, 0.052),
+		Text = "", Font = Enum.Font.GothamBold, ZIndex = 17, Visible = false,
+	})
+	local subStroke = Instance.new("UIStroke")
+	subStroke.Color = RGB(10, 10, 20)
+	subStroke.Thickness = 2.5
+	subStroke.Parent = ui.sub
 
 	-- стартовый экран
 	ui.start = uiFrame(gui, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = RGB(8, 8, 14), ZIndex = 20 })
@@ -117,15 +129,16 @@ local function buildUI()
 	})
 	ui.btnAll = button(ui.start, "▶ СТАРТ: ВСЕ ЧАСТИ ПОДРЯД", 0.5, 0.58, RGB(255, 60, 170))
 	ui.btnAll.Size = UDim2.fromScale(0.4, 0.09)
-	ui.btn1 = button(ui.start, "Часть 1", 0.36, 0.7, RGB(60, 70, 120))
-	ui.btn2 = button(ui.start, "Часть 2", 0.5, 0.7, RGB(60, 70, 120))
-	ui.btn3 = button(ui.start, "Часть 3", 0.64, 0.7, RGB(60, 70, 120))
-	for _, b in ipairs({ ui.btn1, ui.btn2, ui.btn3 }) do
+	ui.btn1 = button(ui.start, "Часть 1", 0.29, 0.7, RGB(60, 70, 120))
+	ui.btn2 = button(ui.start, "Часть 2", 0.43, 0.7, RGB(60, 70, 120))
+	ui.btn3 = button(ui.start, "Часть 3", 0.57, 0.7, RGB(60, 70, 120))
+	ui.btn4 = button(ui.start, "Часть 4", 0.71, 0.7, RGB(60, 70, 120))
+	for _, b in ipairs({ ui.btn1, ui.btn2, ui.btn3, ui.btn4 }) do
 		b.Size = UDim2.fromScale(0.12, 0.06)
 	end
 	uiText(ui.start, "TextLabel", {
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.78), Size = UDim2.fromScale(0.86, 0.034),
-		Text = "Сначала включи запись экрана · ПРОБЕЛ — всё подряд · 1, 2, 3 — одна часть · R — повтор · графика 10",
+		Text = "Сначала включи запись экрана · ПРОБЕЛ — всё подряд · 1, 2, 3, 4 — одна часть · R — повтор · графика 10",
 		Font = Enum.Font.GothamBold, TextColor3 = RGB(150, 150, 170), ZIndex = 21,
 	})
 

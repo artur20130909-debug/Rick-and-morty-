@@ -28,7 +28,8 @@ function P1.eyes()
 	Shot.update = function(u)
 		local k = smooth(u / T1.WHITE)
 		camFOV = lerp(20, 18.6, k)
-		local tense = smooth((u - 1.3) / 2.7)
+		-- как в оригинале: долго просто смотрят, напрягаются только в последние ~0.9 с
+		local tense = smooth((u - 3.25) / 0.85)
 		EYES.tension(tense, songT)
 		local j = 0.03 + 0.14 * tense
 		camCF = cam0 * CF(noise(u * 6, 1.1) * j, noise(u * 6, 2.2) * j, 0)
