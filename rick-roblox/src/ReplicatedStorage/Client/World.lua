@@ -1,4 +1,5 @@
--- Свет и атмосфера (стиль «мульт + свет»): пресеты «ночь» (меню) и «утро» (игра),
+-- Свет и атмосфера (стиль «мульт + свет»): пресеты «ночь» (меню), «утро» (игра), «пиксели»,
+-- «лаборатория», «вторжение» (небо темнеет) и «база» (ангар камераменов),
 -- цветокоррекция, свечение, лучи солнца из окон (Beam) с пылинками, включение ламп по комнатам.
 -- Качество эффектов берётся из настроек (Effects 1..3).
 local Lighting = game:GetService("Lighting")
@@ -10,6 +11,7 @@ local house
 local cc, bloom, rays, atmos, sky
 local beamsFolder
 local preset = nil
+local running = {} -- твины прошлого пресета (отменяются при смене)
 
 local PRESETS = {
 	-- «цифровое измерение»: темно, насыщенно, сильное свечение неона
@@ -43,6 +45,33 @@ local PRESETS = {
 		lamps = { Kitchen = true },
 		beams = true,
 	},
+}
+
+-- гараж-лаборатория утром: как «утро», но горят лампы дневного света в гараже
+PRESETS.lab = {}
+for k, v in pairs(PRESETS.morning) do PRESETS.lab[k] = v end
+PRESETS.lab.lamps = { Kitchen = true, Garage = true }
+-- вторжение: небо резко темнеет (время суток «перематывается» в ночь), багрово-фиолетовая дымка
+PRESETS.invasion = {
+	ClockTime = 0.6, clockTween = true, Brightness = 0.8, Ambient = Color3.fromRGB(70, 46, 84), OutdoorAmbient = Color3.fromRGB(96, 62, 112),
+	EnvironmentDiffuseScale = 0.3, EnvironmentSpecularScale = 0.2, ExposureCompensation = 0.3,
+	cc = { Saturation = 0.28, Contrast = 0.2, Brightness = 0, TintColor = Color3.fromRGB(255, 212, 238) },
+	bloom = { Intensity = 1.1, Size = 30, Threshold = 0.95 },
+	rays = { Intensity = 0, Spread = 0.5 },
+	atmos = { Density = 0.42, Offset = 0.05, Color = Color3.fromRGB(110, 40, 120), Decay = Color3.fromRGB(70, 10, 40), Glare = 0, Haze = 2.6 },
+	lamps = { Garage = true },
+	beams = false,
+}
+-- база камераменов: закрытый ангар, холодный свет ламп, лёгкая дымка
+PRESETS.base = {
+	ClockTime = 0, Brightness = 0, Ambient = Color3.fromRGB(70, 78, 94), OutdoorAmbient = Color3.fromRGB(70, 78, 94),
+	EnvironmentDiffuseScale = 0.4, EnvironmentSpecularScale = 0.35, ExposureCompensation = 0.25,
+	cc = { Saturation = 0.12, Contrast = 0.16, Brightness = 0.01, TintColor = Color3.fromRGB(226, 240, 255) },
+	bloom = { Intensity = 0.8, Size = 26, Threshold = 1.0 },
+	rays = { Intensity = 0, Spread = 0.5 },
+	atmos = { Density = 0.3, Offset = 0, Color = Color3.fromRGB(120, 134, 150), Decay = Color3.fromRGB(60, 70, 84), Glare = 0, Haze = 1.2 },
+	lamps = {},
+	beams = false,
 }
 
 local function ensure(class, name)
@@ -197,21 +226,38 @@ local function clearBeams()
 	anchor = nil
 end
 
--- применить пресет: name = "night" | "morning"; t — время перехода
+-- применить пресет: name = "night" | "morning" | "pixel" | "lab" | "invasion" | "base"; t — время перехода
 function World.apply(name, t)
 	preset = name
 	local p = PRESETS[name]
 	if not p then return end
 	t = t or 0
+	for _, tw in ipairs(running) do tw:Cancel() end
+	running = {}
 	local q = Settings.get("Effects")
 	local function to(obj, props)
 		if t > 0 then
-			TweenService:Create(obj, TweenInfo.new(t, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), props):Play()
+			local tw = TweenService:Create(obj, TweenInfo.new(t, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), props)
+			tw:Play()
+			table.insert(running, tw)
 		else
 			for k, v in pairs(props) do obj[k] = v end
 		end
 	end
-	Lighting.ClockTime = p.ClockTime
+	if p.clockTween then
+		-- «перемотка» времени суток к ночи: из утра (7:45) назад к полуночи, из вечера — вперёд
+		local target = p.ClockTime
+		if Lighting.ClockTime > 12 then target = 24 - p.ClockTime end
+		if t > 0 then
+			local tw = TweenService:Create(Lighting, TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { ClockTime = target })
+			tw:Play()
+			table.insert(running, tw)
+		else
+			Lighting.ClockTime = target
+		end
+	else
+		Lighting.ClockTime = p.ClockTime
+	end
 	-- утреннее солнце должно светить в окна на восточной стороне (+X); если в этой версии Roblox
 	-- солнце в это время с другой стороны — берём зеркальное время дня (та же высота солнца)
 	if p.beams and Lighting:GetSunDirection().X < 0 then Lighting.ClockTime = 24 - p.ClockTime end
@@ -224,7 +270,14 @@ function World.apply(name, t)
 	to(bloom, p.bloom)
 	rays.Enabled = q >= 3
 	to(rays, p.rays)
-	for k, v in pairs(p.atmos) do atmos[k] = v end
+	if t > 0 then
+		local a = {}
+		for k, v in pairs(p.atmos) do a[k] = v end
+		if q <= 1 then a.Haze = 0 end
+		to(atmos, a)
+	else
+		for k, v in pairs(p.atmos) do atmos[k] = v end
+	end
 	if q <= 1 then atmos.Haze = 0 end
 	Lighting.GlobalShadows = true
 	setLamps(p.lamps)

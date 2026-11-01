@@ -1,4 +1,5 @@
--- Клиент целиком: загрузка → главное меню → глава → снова меню. Пауза (P / кнопка II).
+-- Клиент целиком: загрузка → главное меню → история (с начала или с главы 2) → снова меню.
+-- Пауза (P / кнопка II).
 local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 local ContentProvider = game:GetService("ContentProvider")
@@ -74,13 +75,13 @@ local function toMenu()
 	Story.hideBody(true)
 	Menu.sceneStart()
 	Hud.fade(0, 1.2)
-	Menu.show(function()
+	Menu.show(function(chapter)
 		Menu.enterPortal()
 		Menu.hide()
 		Menu.sceneStop()
 		Cine.release()
 		inStory = true
-		Story.start(toMenu)
+		Story.start(toMenu, chapter)
 	end)
 end
 App.toMenu = toMenu
@@ -108,7 +109,9 @@ local function togglePause()
 		if wasActive then ctx.Controls.freeze(false) end
 	end, function()
 		paused = false
-		ctx.Hud.fadeWait(1, 0.5)
+		-- обычное ожидание: U.wait на паузе стоит на месте (игра ещё на паузе до toMenu)
+		ctx.Hud.fade(1, 0.5)
+		task.wait(0.5)
 		toMenu()
 	end)
 end

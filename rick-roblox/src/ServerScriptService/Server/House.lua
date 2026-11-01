@@ -341,28 +341,45 @@ local function roof(parent)
 	return m
 end
 
--- гараж справа от дома: снаружи, внутрь не попасть
+-- гараж справа от дома: внутри лаборатория Рика (Garage.lua), ворота поднимает клиент в главе 2
 local function garage(parent)
 	local m = B.model(parent, "Garage")
 	local x0, x1, z0, z1 = C.House.X1 + SHELL, C.House.X1 + 25, -1, 26
 	local h = 13
-	B.part(m, "Body", Vector3.new(x1 - x0, h, z1 - z0), CFrame.new((x0 + x1) / 2, h / 2 - 1.2, (z0 + z1) / 2), SIDING)
-	B.part(m, "Floor", Vector3.new(x1 - x0, 1.2, z1 - z0), CFrame.new((x0 + x1) / 2, -0.6, (z0 + z1) / 2), FOUND, Enum.Material.Concrete)
-	-- ворота
-	local door = B.part(m, "GarageDoor", Vector3.new(16, 9, 0.4), CFrame.new((x0 + x1) / 2, 3.3, z0 - 0.2), "#F1EEE6")
+	local th = 0.7
+	local cx = (x0 + x1) / 2
+	B.part(m, "Floor", Vector3.new(x1 - x0, 1.2, z1 - z0), CFrame.new(cx, -0.6, (z0 + z1) / 2), FOUND, Enum.Material.Concrete)
+	-- стены: полые (внутри — лаборатория Рика, см. Garage.lua)
+	local yb, ht = -1.2, h
+	B.part(m, "WallN", Vector3.new(x1 - x0, ht, th), CFrame.new(cx, yb + ht / 2, z1 - th / 2), SIDING)
+	B.part(m, "WallE", Vector3.new(th, ht, z1 - z0), CFrame.new(x1 - th / 2, yb + ht / 2, (z0 + z1) / 2), SIDING)
+	-- передняя стена с проёмом ворот 16 × 9
+	local dw, dh = 16, 9
+	local dl, dr = cx - dw / 2, cx + dw / 2
+	B.part(m, "WallS", Vector3.new(dl - x0, ht, th), CFrame.new((x0 + dl) / 2, yb + ht / 2, z0 + th / 2), SIDING)
+	B.part(m, "WallS", Vector3.new(x1 - dr, ht, th), CFrame.new((dr + x1) / 2, yb + ht / 2, z0 + th / 2), SIDING)
+	B.part(m, "Header", Vector3.new(dw, ht - (dh + 1.2), th), CFrame.new(cx, yb + 1.2 + dh + (ht - dh - 1.2) / 2, z0 + th / 2), SIDING)
+	B.part(m, "Ceiling", Vector3.new(x1 - x0, 0.4, z1 - z0), CFrame.new(cx, yb + ht - 0.2, (z0 + z1) / 2), "#BDB8AE")
+	-- ворота: панель и полосы в одной модели (клиент поднимает их в сюжете)
+	local leaf = B.model(m, "GarageDoorLeaf")
+	local door = B.part(leaf, "GarageDoor", Vector3.new(dw, dh, 0.3), CFrame.new(cx, dh / 2, z0 + 0.35), "#F1EEE6")
 	for k = 1, 4 do
-		B.part(m, "Panel", Vector3.new(16.2, 0.18, 0.5), CFrame.new((x0 + x1) / 2, -1.2 + k * 2.2, z0 - 0.25), "#D9D4C8")
+		B.part(leaf, "Panel", Vector3.new(dw + 0.1, 0.18, 0.42), CFrame.new(cx, k * 1.8, z0 + 0.35), "#D9D4C8")
 	end
-	B.part(m, "DoorTrim", Vector3.new(17.2, 0.6, 0.6), CFrame.new((x0 + x1) / 2, 8.1, z0 - 0.2), TRIM)
-	local _ = door
-	-- плоско-скатная крыша
-	-- односкатная: высокая сторона у стены дома (−X)
-	B.wedge(m, "Roof", Vector3.new(z1 - z0 + 2, 4, x1 - x0 + 2), CFrame.new((x0 + x1) / 2, h - 1.2 + 2, (z0 + z1) / 2) * CFrame.Angles(0, math.rad(-90), 0), ROOF)
+	B.part(leaf, "HandleBar", Vector3.new(1.6, 0.25, 0.5), CFrame.new(cx, 1.2, z0 + 0.3), "#8E969E", Enum.Material.Metal)
+	leaf.PrimaryPart = door
+	B.part(m, "DoorTrim", Vector3.new(dw + 1.2, 0.6, 0.6), CFrame.new(cx, dh + 0.3, z0 - 0.1), TRIM)
+	B.part(m, "DoorTrimL", Vector3.new(0.6, dh, 0.6), CFrame.new(dl - 0.3, dh / 2, z0 - 0.1), TRIM)
+	B.part(m, "DoorTrimR", Vector3.new(0.6, dh, 0.6), CFrame.new(dr + 0.3, dh / 2, z0 - 0.1), TRIM)
+	-- пологий пандус от подъездной дорожки к полу гаража (чтобы не спотыкаться)
+	B.wedge(m, "Ramp", Vector3.new(dw, 1.2, 2.4), CFrame.new(cx, -0.6, z0 - 1.2), FOUND, Enum.Material.Concrete)
+	-- односкатная крыша: высокая сторона у стены дома (−X)
+	B.wedge(m, "Roof", Vector3.new(z1 - z0 + 2, 4, x1 - x0 + 2), CFrame.new(cx, h - 1.2 + 2, (z0 + z1) / 2) * CFrame.Angles(0, math.rad(-90), 0), ROOF)
 	-- окошко сбоку
 	B.part(m, "Window", Vector3.new(0.3, 3, 4), CFrame.new(x1 + 0.05, 6, 16), "#7DA6C2", Enum.Material.Glass, { Transparency = 0.2 })
 	B.part(m, "WindowFrame", Vector3.new(0.4, 3.6, 4.6), CFrame.new(x1 + 0.02, 6, 16), TRIM)
 	-- зелёный отсвет из-под ворот (Рик что-то мастерит)
-	local glow = B.part(m, "Glow", Vector3.new(15, 0.15, 0.6), CFrame.new((x0 + x1) / 2, -1.1, z0 - 0.05), "#7CFF4A", Enum.Material.Neon, { CastShadow = false })
+	local glow = B.part(m, "Glow", Vector3.new(15, 0.15, 0.6), CFrame.new(cx, 0.08, z0 - 0.2), "#7CFF4A", Enum.Material.Neon, { CastShadow = false })
 	B.light(glow, "PointLight", { Color = Color3.fromRGB(120, 255, 80), Brightness = 1.5, Range = 8, Shadows = false })
 	return m
 end

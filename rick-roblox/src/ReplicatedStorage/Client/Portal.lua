@@ -20,9 +20,42 @@ local function stripes(c1, c2, n)
 	return ColorSequence.new(kps)
 end
 
+-- палитры: зелёный портал Рика и тёмный разлом Пожирателей
+local PALETTES = {
+	green = {
+		specs = {
+			{ s = 1.0, a = Color3.fromRGB(24, 120, 30), b = Color3.fromRGB(46, 168, 44), n = 12, sp = 24 },
+			{ s = 0.86, a = Color3.fromRGB(57, 194, 50), b = Color3.fromRGB(110, 226, 74), n = 10, sp = -46 },
+			{ s = 0.68, a = Color3.fromRGB(123, 225, 74), b = Color3.fromRGB(184, 245, 106), n = 8, sp = 70 },
+			{ s = 0.48, a = Color3.fromRGB(200, 255, 138), b = Color3.fromRGB(150, 240, 80), n = 6, sp = -110 },
+			{ s = 0.26, a = Color3.fromRGB(238, 255, 200), b = Color3.fromRGB(210, 255, 150), n = 4, sp = 160 },
+		},
+		disc = Color3.fromRGB(30, 150, 40), rim = Color3.fromRGB(18, 90, 24),
+		bead = Color3.fromRGB(120, 255, 70), bead2 = Color3.fromRGB(225, 255, 160),
+		light = Color3.fromRGB(110, 255, 70), brightness = 2.2,
+	},
+	dark = {
+		specs = {
+			{ s = 1.0, a = Color3.fromRGB(28, 6, 40), b = Color3.fromRGB(70, 14, 86), n = 12, sp = 14 },
+			{ s = 0.86, a = Color3.fromRGB(58, 10, 74), b = Color3.fromRGB(120, 24, 120), n = 10, sp = -26 },
+			{ s = 0.68, a = Color3.fromRGB(16, 2, 24), b = Color3.fromRGB(150, 30, 130), n = 8, sp = 40 },
+			{ s = 0.48, a = Color3.fromRGB(8, 0, 12), b = Color3.fromRGB(60, 8, 70), n = 6, sp = -64 },
+			{ s = 0.26, a = Color3.fromRGB(0, 0, 0), b = Color3.fromRGB(30, 2, 36), n = 4, sp = 90 },
+		},
+		disc = Color3.fromRGB(20, 4, 28), rim = Color3.fromRGB(255, 61, 209),
+		bead = Color3.fromRGB(255, 61, 209), bead2 = Color3.fromRGB(150, 60, 255),
+		light = Color3.fromRGB(220, 60, 255), brightness = 1.6,
+	},
+}
+
 -- cf: центр портала, LookVector смотрит на зрителя; d — диаметр
-function Portal.new(cf, d, parent)
+-- opts.palette = "green" (по умолчанию) | "dark" — разлом Пожирателей; opts.beadScale — размер огней края
+function Portal.new(cf, d, parent, opts)
+	opts = opts or {}
+	local pal = PALETTES[opts.palette or "green"] or PALETTES.green
 	local self = setmetatable({}, Portal)
+	self.palette = pal
+	self.beadScale = opts.beadScale or 1
 	self.cf = cf
 	self.d = d
 	self.scale = 0.02
@@ -31,8 +64,8 @@ function Portal.new(cf, d, parent)
 	m.Name = "RM_Portal"
 	self.model = m
 	-- задний диск и тёмное кольцо
-	self.disc = B.cyl(m, "Disc", 0.08, d, cf * CFrame.new(0, 0, 0.12) * CFrame.Angles(0, math.rad(90), 0), Config.Colors.PortalDark, Enum.Material.Neon, { CastShadow = false, CanCollide = false, CanQuery = false })
-	self.rim = B.cyl(m, "Rim", 0.06, d + 0.5, cf * CFrame.new(0, 0, 0.18) * CFrame.Angles(0, math.rad(90), 0), Color3.fromRGB(18, 90, 24), Enum.Material.Neon, { CastShadow = false, CanCollide = false, CanQuery = false })
+	self.disc = B.cyl(m, "Disc", 0.08, d, cf * CFrame.new(0, 0, 0.12) * CFrame.Angles(0, math.rad(90), 0), pal.disc, Enum.Material.Neon, { CastShadow = false, CanCollide = false, CanQuery = false })
+	self.rim = B.cyl(m, "Rim", 0.06, d + 0.5, cf * CFrame.new(0, 0, 0.18) * CFrame.Angles(0, math.rad(90), 0), pal.rim, Enum.Material.Neon, { CastShadow = false, CanCollide = false, CanQuery = false })
 	-- панель с вихрем (две стороны)
 	self.panel = B.part(m, "Swirl", Vector3.new(d, d, 0.04), cf, Color3.new(0, 0, 0), nil, { Transparency = 1, CastShadow = false, CanCollide = false, CanQuery = false })
 	self.layers = {}
@@ -42,17 +75,10 @@ function Portal.new(cf, d, parent)
 		g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 		g.PixelsPerStud = 60
 		g.LightInfluence = 0
-		g.Brightness = 2.2
+		g.Brightness = pal.brightness
 		g.ClipsDescendants = true
 		g.Parent = self.panel
-		local specs = {
-			{ s = 1.0, a = Color3.fromRGB(24, 120, 30), b = Color3.fromRGB(46, 168, 44), n = 12, sp = 24 },
-			{ s = 0.86, a = Color3.fromRGB(57, 194, 50), b = Color3.fromRGB(110, 226, 74), n = 10, sp = -46 },
-			{ s = 0.68, a = Color3.fromRGB(123, 225, 74), b = Color3.fromRGB(184, 245, 106), n = 8, sp = 70 },
-			{ s = 0.48, a = Color3.fromRGB(200, 255, 138), b = Color3.fromRGB(150, 240, 80), n = 6, sp = -110 },
-			{ s = 0.26, a = Color3.fromRGB(238, 255, 200), b = Color3.fromRGB(210, 255, 150), n = 4, sp = 160 },
-		}
-		for i, sp in ipairs(specs) do
+		for i, sp in ipairs(pal.specs) do
 			local f = Instance.new("Frame")
 			f.AnchorPoint = Vector2.new(0.5, 0.5)
 			f.Position = UDim2.fromScale(0.5, 0.5)
@@ -74,7 +100,7 @@ function Portal.new(cf, d, parent)
 	-- светящийся край: шарики по окружности
 	self.beads = {}
 	for i = 1, 22 do
-		local bead = B.ball(m, "Bead", 0.42, cf, (i % 3 == 0) and Config.Colors.PortalLight or Config.Colors.Portal, Enum.Material.Neon,
+		local bead = B.ball(m, "Bead", 0.42, cf, (i % 3 == 0) and pal.bead2 or pal.bead, Enum.Material.Neon,
 			{ CastShadow = false, CanCollide = false, CanQuery = false })
 		table.insert(self.beads, { p = bead, a = (i - 1) / 22 * math.pi * 2, r = 0.5 + (i % 2) * 0.03, s = 0.42 + (i % 4) * 0.08 })
 	end
@@ -83,13 +109,13 @@ function Portal.new(cf, d, parent)
 		nil, { Transparency = 1, CastShadow = false, CanCollide = false, CanQuery = false })
 	local pe = Instance.new("ParticleEmitter")
 	pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	pe.Color = ColorSequence.new(Config.Colors.PortalLight, Config.Colors.Portal)
+	pe.Color = ColorSequence.new(pal.bead2, pal.bead)
 	pe.LightEmission = 1
 	pe.LightInfluence = 0
-	pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0) })
+	pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35 * self.beadScale), NumberSequenceKeypoint.new(1, 0) })
 	pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
 	pe.Lifetime = NumberRange.new(0.7, 1.5)
-	pe.Speed = NumberRange.new(2, 6)
+	pe.Speed = NumberRange.new(2 * self.beadScale, 6 * self.beadScale)
 	pe.Drag = 2
 	pe.SpreadAngle = Vector2.new(60, 60)
 	pe.Rate = 34
@@ -100,7 +126,7 @@ function Portal.new(cf, d, parent)
 	-- свет
 	local lp = B.part(m, "LightPoint", Vector3.new(0.2, 0.2, 0.2), cf * CFrame.new(0, 0, -1.4), Color3.new(0, 0, 0),
 		nil, { Transparency = 1, CastShadow = false, CanCollide = false, CanQuery = false })
-	self.light = B.light(lp, "PointLight", { Color = Color3.fromRGB(110, 255, 70), Brightness = 3.2, Range = 26, Shadows = true })
+	self.light = B.light(lp, "PointLight", { Color = pal.light, Brightness = 3.2, Range = 26, Shadows = true })
 	self.lightPart = lp
 	m.Parent = parent or workspace
 	self:apply()
@@ -140,7 +166,7 @@ function Portal:update(dt)
 		local wob = 1 + math.sin(self.t * 5 + i) * 0.035
 		local r = r0 * b.r * wob
 		b.p.CFrame = self.cf * CFrame.new(math.cos(b.a) * r, math.sin(b.a) * r, -0.05)
-		local bs = b.s * s * (0.8 + 0.4 * math.abs(math.sin(self.t * 3 + i)))
+		local bs = b.s * s * self.beadScale * (0.8 + 0.4 * math.abs(math.sin(self.t * 3 + i)))
 		b.p.Size = Vector3.new(bs, bs, bs)
 	end
 	self.light.Brightness = 3 + math.sin(self.t * 4) * 0.4
@@ -160,10 +186,14 @@ function Portal:scaleTo(s, t, style)
 	return tw
 end
 
-function Portal:open(t)
-	Audio.play("Whoosh", { at = self.panel, volume = 0.8 })
+-- opts.quiet — без гула; opts.max — дальность слышимости
+function Portal:open(t, opts)
+	opts = opts or {}
+	Audio.play("Whoosh", { at = self.panel, volume = 0.8, max = opts.max })
 	self:scaleTo(1, t or 0.9)
-	self.hum = Audio.loop("portal_hum_" .. tostring(self), "PortalHum", { at = self.panel, volume = 0.55, min = 4, max = 50 })
+	if not opts.quiet then
+		self.hum = Audio.loop("portal_hum_" .. tostring(self), "PortalHum", { at = self.panel, volume = 0.55, min = 4, max = opts.max or 50 })
+	end
 end
 
 function Portal:destroy()

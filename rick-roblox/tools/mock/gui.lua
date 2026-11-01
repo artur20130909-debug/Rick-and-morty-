@@ -1,4 +1,5 @@
--- tools/mock/gui.lua — выгрузка интерфейса игрока (ScreenGui, BillboardGui, экраны SurfaceGui на камере)
+-- tools/mock/gui.lua — выгрузка интерфейса игрока (ScreenGui, BillboardGui, экраны SurfaceGui на камере
+-- и в мире)
 -- в JSON для рендера поверх 3D-превью (tools/render/render.html, параметр g=...).
 local mock = ...
 local DATA = mock.DATA
@@ -132,4 +133,34 @@ if plr then
 		end
 	end
 end
-return fmt('{"screens":[%s],"bills":[%s],"surfaces":[%s]}', table.concat(screens, ","), table.concat(bills, ","), table.concat(surfaces, ","))
+-- экраны SurfaceGui в мире (лаборатория, радар, вывески): полное дерево интерфейса
+local worlds = {}
+local function cf12(cf)
+	local o = { cf:GetComponents() }
+	for i, v in ipairs(o) do o[i] = num(v) end
+	return "[" .. table.concat(o, ",") .. "]"
+end
+for _, sg in ipairs(mock.services.Workspace:GetDescendants()) do
+	if sg.ClassName == "SurfaceGui" and sg.Enabled then
+		local par = sg.Adornee or sg.Parent
+		if par and par:IsA("BasePart") then
+			local kids = {}
+			for _, ch in ipairs(sg:GetChildren()) do
+				local n = node(ch)
+				if n then kids[#kids + 1] = n end
+			end
+			if #kids > 0 then
+				local face = sg.Face.Name
+				local sz = par.Size
+				local fw, fh = sz.X, sz.Y
+				if face == "Left" or face == "Right" then fw, fh = sz.Z, sz.Y elseif face == "Top" or face == "Bottom" then fw, fh = sz.X, sz.Z end
+				local w, h
+				if sg.SizingMode.Name == "FixedSize" then w, h = sg.CanvasSize.X, sg.CanvasSize.Y
+				else w, h = fw * sg.PixelsPerStud, fh * sg.PixelsPerStud end
+				worlds[#worlds + 1] = fmt('{"part":%s,"c":%s,"z":[%s,%s,%s],"face":%s,"w":%s,"h":%s,"li":%s,"kids":[%s]}', str(par.Name), cf12(par.CFrame),
+					num(sz.X), num(sz.Y), num(sz.Z), str(face), num(w), num(h), num(sg.LightInfluence), table.concat(kids, ","))
+			end
+		end
+	end
+end
+return fmt('{"screens":[%s],"bills":[%s],"surfaces":[%s],"worlds":[%s]}', table.concat(screens, ","), table.concat(bills, ","), table.concat(surfaces, ","), table.concat(worlds, ","))

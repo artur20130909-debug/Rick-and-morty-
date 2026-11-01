@@ -1,5 +1,7 @@
--- Сюжет главы 1 «Сбой»: пробуждение (вид от первого лица), будильник, путь на кухню,
--- завтрак, телефон с лагающим ТикТоком, мысль Морти и конец главы.
+-- Сюжет. Глава 1 «Сбой»: пробуждение (вид от первого лица), будильник, путь на кухню, завтрак,
+-- телефон с лагающим ТикТоком, щупальца, пиксельный мир, Рик и портал.
+-- Глава 2 «Вторжение» — в Chapter2.lua (гараж, корабли Пожирателей, база камераменов).
+-- Story.start(onMenu, chapter): chapter = 1 (вся история с начала) или 2 (сразу глава 2).
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local RunService = game:GetService("RunService")
@@ -7,7 +9,9 @@ local RunService = game:GetService("RunService")
 local Story = {}
 local ctx
 local U, Config, Settings, Audio, Hud, Cine, Controls, World, Prompts, Outline, Breakfast, Phone, G, B
-local Tentacles, Rick, PixelWorld, Portal
+local Tentacles, Rick, PixelWorld, Portal, Chapter2
+local env -- помощники для Chapter2
+local thoughtOverride = {} -- другая мысль у предмета в этой главе: { ключ = новыйКлюч }
 local player = Players.LocalPlayer
 local trove
 local thread
@@ -458,8 +462,11 @@ local function pixelWorld()
 	rick:moveTo(rickSpot, 1.4)
 	rick:face(here)
 	Cine.move(CFrame.lookAt(camPos, rick.cf.Position + Vector3.new(0, 6, 0)), 0.7, "out", 66)
+	rick.lookAt = camPos
 	Hud.say("РИК", Config.Text.RickArrive, { hold = 3 })
-	Audio.play("Burp", { volume = 0.8 })
+	rick:talk(1.0)
+	task.delay(1.1, function() if rick.model and rick.model.Parent then rick:doBurp() end end)
+	task.delay(1.9, function() if rick.model and rick.model.Parent then rick:talk(1.0) end end)
 	U.wait(0.6)
 	for _, tn in ipairs(tents) do
 		rick:shoot(tn:tip())
@@ -474,12 +481,16 @@ local function pixelWorld()
 	U.wait(0.8)
 	Hud.say("МОРТИ", Config.Text.MortyRick, { hold = 2.4 })
 	U.wait(2.4)
+	rick.lookAt = camPos
 	Hud.say("РИК", Config.Text.Rick1, { hold = 4.4 })
+	rick:talk(3.8)
 	U.wait(4.4)
 	Hud.say("РИК", Config.Text.Rick2, { hold = 3.4 })
-	Audio.play("Burp", { volume = 0.6, speed = 1.15 })
+	rick:talk(1.6)
+	task.delay(1.7, function() if rick.model and rick.model.Parent then rick:doBurp() end end)
 	U.wait(1.6)
 	-- Рик уходит в портал, Морти — за ним
+	rick.lookAt = nil
 	rick:face(portalPos)
 	task.spawn(function()
 		rick:moveTo(portalPos - Vector3.new(0, 6, 0), 1.4)
@@ -565,9 +576,19 @@ function Story.init(c)
 	ctx = c
 	U, Config, Settings, Audio, Hud, Cine, Controls, World, Prompts, Outline, Breakfast, Phone, G, B =
 		c.Util, c.Config, c.Settings, c.Audio, c.Hud, c.Cine, c.Controls, c.World, c.Prompts, c.Outline, c.Breakfast, c.Phone, c.Gui, c.Build
-	Tentacles, Rick, PixelWorld, Portal = c.Tentacles, c.Rick, c.PixelWorld, c.Portal
+	Tentacles, Rick, PixelWorld, Portal, Chapter2 = c.Tentacles, c.Rick, c.PixelWorld, c.Portal, c.Chapter2
 	markers = workspace:WaitForChild("House"):WaitForChild("Markers")
 	trove = U.trove()
+	env = {
+		trove = trove,
+		mk = mk,
+		setState = function(s) state = s end,
+		setBodyHidden = setBodyHidden,
+		localPrompt = localPrompt,
+		waitPrompt = waitPrompt,
+		overrideThought = function(key, newKey) thoughtOverride[key] = newKey end,
+	}
+	Chapter2.init(c)
 	-- мысли у предметов (подсказки с атрибутом Thought)
 	ProximityPromptService.PromptTriggered:Connect(function(prompt)
 		if state ~= "roam" then return end
@@ -580,7 +601,7 @@ function Story.init(c)
 			return
 		end
 		if prompt:GetAttribute("Locked") then Audio.play("Locked", { at = prompt.Parent, volume = 0.7 }) end
-		local text = Config.Text[key]
+		local text = Config.Text[thoughtOverride[key] or key]
 		if text then Hud.think(text) end
 	end)
 	-- скрывать тело каждый кадр, пока идёт сценка (Roblox может вернуть прозрачность)
@@ -596,18 +617,26 @@ function Story.init(c)
 	end)
 end
 
--- вся глава; onMenu — вернуться в главное меню
-function Story.start(onMenu)
+-- вся история; onMenu — вернуться в главное меню; chapter = 2 — начать сразу со второй главы
+function Story.start(onMenu, chapter)
 	Story.cleanup()
 	thread = task.spawn(function()
-		local clock, stopBlink = intro()
-		alarmAndKitchen(clock, stopBlink)
-		local food = Breakfast.new(markers)
-		trove:add(function() food:destroy() end)
-		breakfast(food)
-		local phone = phoneScene()
-		pulledIn(phone)
-		pixelWorld()
+		if chapter ~= 2 then
+			local clock, stopBlink = intro()
+			alarmAndKitchen(clock, stopBlink)
+			local food = Breakfast.new(markers)
+			trove:add(function() food:destroy() end)
+			breakfast(food)
+			local phone = phoneScene()
+			pulledIn(phone)
+			pixelWorld()
+		else
+			-- с меню «Главы»: чёрный экран, глаза открыты
+			Hud.fadeSet(1, Color3.new(0, 0, 0))
+			Hud.eyesSet(1)
+			Hud.blur(0)
+		end
+		Chapter2.run(env, chapter == 2)
 		ending(onMenu)
 	end)
 end
@@ -619,11 +648,14 @@ function Story.cleanup()
 	end
 	thread = nil
 	trove:clean()
+	thoughtOverride = {}
 	Audio.stop("alarm")
 	Audio.stop("tiktok")
 	Audio.stop("birds")
 	Audio.stop("garage")
+	for _, id in ipairs({ "lab", "siren", "tension", "base", "pixel" }) do Audio.stop(id) end
 	Audio.muffle(false)
+	Hud.retro(false)
 	Hud.objective(nil)
 	Hud.marker(nil)
 	Hud.hideSay()

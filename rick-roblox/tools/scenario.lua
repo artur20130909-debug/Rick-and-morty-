@@ -1,8 +1,10 @@
--- Сценарий песочницы: проходит всю главу 1 как игрок (меню → пробуждение → будильник →
--- кухня → завтрак → телефон → конец → снова меню) и делает снимки для рендера.
+-- Сценарий песочницы: проходит всю историю как игрок (меню → глава 1: пробуждение, будильник,
+-- кухня, завтрак, телефон, пиксельный мир → глава 2: гараж, улица, корабли, база камераменов →
+-- конец → меню → «Главы» → глава 2 сразу → пауза) и делает снимки для рендера.
 local mock = ...
 local ws = mock.services.Workspace
 local CFrame = mock.G.CFrame
+local Vector3 = mock.G.Vector3
 
 local function step(sec, label)
 	mock.run(sec)
@@ -121,19 +123,103 @@ step(1, "разговор с Риком закончен")
 -- бежим в портал
 do local r = plr.Character.HumanoidRootPart; r.CFrame = CFrame.new(400, 303, r.Position.Z + 24) end
 step(3, "вошли в портал")
-step(8, "конец главы")
+
+-- ГЛАВА 2: заставка → гараж
+local function objectiveIs(text)
+	local o = mock.find(pg, "Objective")
+	local t = o and o:FindFirstChild("Text")
+	return o and o.Visible and t and string.find(t.Text, text, 1, true) ~= nil
+end
+local function root() return plr.Character.HumanoidRootPart end
+-- повернуть камеру игрока (у клиента своя камера)
+local function lookAt(eye, target) mock.clientCtx(plr).camera.CFrame = CFrame.lookAt(eye, target) end
+local function chapter2(tag)
+	waitFor(function() local p = root().Position; return p.Y < 50 and p.X > 56 and p.X < 81 and p.Z > 0 end, 40, "гараж")
+	step(1.2, "вываливаемся из портала")
+	mock.snapshot("garage_land" .. tag)
+	waitFor(function() return objectiveIs("Подойди к Рику") end, 40, "задание «Подойди к Рику»")
+	step(1, "Рик идёт к экрану")
+	root().CFrame = CFrame.new(72.2, 3, 13.5)
+	step(3, "подошли к Рику")
+	step(5, "досье на экране")
+	mock.snapshot("lab_devourers" .. tag)
+	step(9, "карта мультивселенной")
+	mock.snapshot("lab_map" .. tag)
+	waitFor(function() return objectiveIs("Открой ворота") end, 90, "задание «Открой ворота»")
+	mock.snapshot("lab_alarm" .. tag)
+	local btn = must(promptOn("DoorButton"), "подсказка кнопки ворот")
+	mock.triggerPrompt(btn, plr)
+	step(4, "ворота открылись")
+	mock.snapshot("door_open" .. tag)
+	waitFor(function() return objectiveIs("Выйди на улицу") end, 20, "задание «Выйди на улицу»")
+	root().CFrame = CFrame.new(68.85, 2.1, -6)
+	step(5, "дым над домом соседей")
+	mock.snapshot("smoke" .. tag)
+	step(7, "небо темнеет, разлом")
+	mock.snapshot("rift" .. tag)
+	step(9, "корабли вылетают")
+	mock.snapshot("ships" .. tag)
+	step(8, "кольцо кораблей")
+	mock.snapshot("surround" .. tag)
+	step(6, "граната")
+	mock.snapshot("grenade" .. tag)
+	-- база камераменов
+	waitFor(function() return root().Position.X < -300 end, 60, "база камераменов")
+	step(0.6, "вываливаемся на базе")
+	mock.snapshot("base_land" .. tag)
+	step(3.5, "оглядываемся")
+	mock.snapshot("base_look" .. tag)
+	waitFor(function() return objectiveIs("Осмотрись") end, 60, "задание «Осмотрись»")
+	step(1, "осматриваемся")
+	local O = Vector3.new(-420, 300, 0)
+	local eye = root().Position + Vector3.new(0, 1.5, 0)
+	lookAt(eye, O + Vector3.new(-18, 6.5, -7.3))
+	step(1.5, "смотрим на камераменов")
+	mock.snapshot("base_cameramen" .. tag)
+	step(2)
+	lookAt(eye, O + Vector3.new(18, 6.5, -7.3))
+	step(3.5, "смотрим на спикерменов")
+	mock.snapshot("base_speakermen" .. tag)
+	lookAt(eye, O + Vector3.new(0, 34, 38))
+	step(3, "смотрим на титана")
+	mock.snapshot("base_titan" .. tag)
+	step(9, "все смотрят на Морти")
+	mock.snapshot("base_stare" .. tag)
+end
+chapter2("")
+waitFor(function() return mock.find(pg, "ToMenu") ~= nil end, 90, "кнопка В главное меню")
+step(1, "конец главы 2")
 mock.snapshot("ending")
-waitFor(function() return mock.find(pg, "ToMenu") ~= nil end, 30, "кнопка В главное меню")
 local toMenu = mock.find(pg, "ToMenu")
 mock.click(must(mock.find(toMenu, "Button"), "В меню"))
 step(4, "снова меню")
--- пауза в новой игре
-mock.click(must(mock.find(must(mock.find(pg, "Play"), "Play holder"), "Button"), "кнопка Играть 2"))
-waitFor(actionVisible, 40, "снова в кровати")
-step(1, "снова проснулись")
+-- меню «Главы» → глава 2 сразу
+mock.click(must(mock.find(must(mock.find(pg, "Chapters"), "Chapters holder"), "Button"), "кнопка Главы"))
+step(1, "окно глав")
+mock.snapshot("chapters")
+mock.click(must(mock.find(must(mock.find(pg, "Chapter2"), "Chapter2 holder"), "Button"), "Глава 2"))
+step(3, "глава 2 с меню")
+waitFor(function() local p = root().Position; return p.Y < 50 and p.X > 56 and p.X < 81 and p.Z > 0 end, 40, "гараж (с меню)")
+step(6, "в гараже")
 mock.key(plr, "P")
 step(1, "пауза")
 local mm = mock.find(pg, "MainMenu")
 if mm then mock.click(must(mock.find(mm, "Button"), "Главное меню")) end
 step(3, "из паузы в меню")
+-- пауза в новой игре (глава 1)
+mock.click(must(mock.find(must(mock.find(pg, "Play"), "Play holder"), "Button"), "кнопка Играть 2"))
+waitFor(actionVisible, 40, "снова в кровати")
+step(1, "снова проснулись")
+mock.key(plr, "P")
+step(1, "пауза")
+mm = mock.find(pg, "MainMenu")
+if mm then mock.click(must(mock.find(mm, "Button"), "Главное меню")) end
+step(3, "из паузы в меню")
+-- после выхода в меню гараж вернулся как был (ворота закрыты, экран «ожидание»)
+do
+	local door = must(mock.find(ws, "GarageDoor"), "ворота гаража")
+	if math.abs(door.Size.Y - 9) > 0.01 then error("ворота гаража не закрылись: высота " .. door.Size.Y) end
+	local idle = must(mock.find(ws, "Idle"), "надпись экрана")
+	if not idle.Visible then error("экран лаборатории не вернулся в «ожидание»") end
+end
 print("сценарий пройден, t =", mock.now)

@@ -1360,6 +1360,7 @@ local KNOWN_ENUMS = {
 	HumanoidHealthDisplayType = "DisplayWhenDamaged AlwaysOn AlwaysOff",
 	NameOcclusion = "OccludeAll EnemyOcclusion NoOcclusion",
 	ParticleEmitterShape = "Box Sphere Cylinder Disc",
+	BulkMoveMode = "FireAllEvents FireCFrameChanged",
 	ParticleOrientation = "FacingCamera FacingCameraWorldUp VelocityParallel VelocityPerpendicular",
 	TextureMode = "Stretch Wrap Static",
 	ResamplerMode = "Default Pixelated",

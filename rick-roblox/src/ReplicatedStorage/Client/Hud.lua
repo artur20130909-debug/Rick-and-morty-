@@ -165,6 +165,10 @@ function Hud.objective(text)
 	G.tween(objFrame, 0.55, { Position = UDim2.fromOffset(24, 76) }, Enum.EasingStyle.Back)
 	Audio.play("Notify", { volume = 0.35 })
 end
+-- поменять текст задания без анимации (например, счётчик 1/3)
+function Hud.objectiveText(text)
+	objText.Text = text
+end
 function Hud.objectiveDone()
 	local tok = objToken
 	G.tween(objFrame.Check, 0.25, { TextTransparency = 0 })

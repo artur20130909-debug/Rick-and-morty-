@@ -132,3 +132,35 @@ export function renderGui(gui, camera, THREE, W, H) {
     while (size > 6 && (t.scrollWidth > box.clientWidth || t.scrollHeight > box.clientHeight)) { size -= 2; t.style.fontSize = size + 'px'; }
   }
 }
+
+// экран SurfaceGui в мире → canvas (для текстуры three.js). Шрифты внутри SVG-картинки — системные.
+export async function surfaceCanvas(g) {
+  const w = Math.max(8, Math.round(g.w)), h = Math.max(8, Math.round(g.h));
+  const box = document.createElement('div');
+  Object.assign(box.style, { position: 'absolute', left: '-20000px', top: '0px', width: w + 'px', height: h + 'px', overflow: 'hidden' });
+  document.body.appendChild(box);
+  for (const k of g.kids) build(k, box, false);
+  for (const el of box.querySelectorAll('[data-corner]')) {
+    const c = JSON.parse(el.dataset.corner);
+    const r = el.getBoundingClientRect();
+    el.style.borderRadius = (c[0] * Math.min(r.width, r.height) + c[1]) + 'px';
+  }
+  for (const t of box.querySelectorAll('span[data-scaled]')) {
+    const p = t.parentElement;
+    let size = Math.max(8, Math.min(200, p.clientHeight));
+    t.style.fontSize = size + 'px';
+    while (size > 6 && (t.scrollWidth > p.clientWidth || t.scrollHeight > p.clientHeight)) { size -= 2; t.style.fontSize = size + 'px'; }
+  }
+  box.style.position = 'relative'; box.style.left = '0px';
+  const xml = new XMLSerializer().serializeToString(box);
+  document.body.removeChild(box);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject x="0" y="0" width="${w}" height="${h}">${xml}</foreignObject></svg>`;
+  const img = new Image();
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  try { await img.decode(); } catch (e) { return null; }
+  const k = Math.min(1, 1024 / Math.max(w, h));
+  const cv = document.createElement('canvas'); cv.width = Math.round(w * k); cv.height = Math.round(h * k);
+  const cx = cv.getContext('2d');
+  cx.drawImage(img, 0, 0, cv.width, cv.height);
+  return cv;
+}

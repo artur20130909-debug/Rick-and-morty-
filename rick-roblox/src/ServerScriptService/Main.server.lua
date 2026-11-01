@@ -1,4 +1,5 @@
--- Запуск сервера: строим дом Смитов, двери и улицу, настраиваем персонажей (все — Морти).
+-- Запуск сервера: строим дом Смитов, гараж-лабораторию Рика, двери и улицу,
+-- настраиваем персонажей (все — Морти).
 -- Сюжет, меню и камера работают на клиенте (StarterPlayerScripts/Client).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -14,6 +15,7 @@ ctx.House = require(Server:WaitForChild("House"))
 local Rooms = require(Server:WaitForChild("Rooms"))
 local Doors = require(Server:WaitForChild("Doors"))
 local Exterior = require(Server:WaitForChild("Exterior"))
+local Garage = require(Server:WaitForChild("Garage"))
 local Characters = require(Server:WaitForChild("Characters"))
 
 Players.CharacterAutoLoads = true
@@ -24,6 +26,7 @@ root.Name = "House"
 local ok, err = pcall(function()
 	ctx.House.build(ctx, root)
 	Rooms.build(ctx, root)
+	Garage.build(ctx, root)
 	Doors.build(ctx, root)
 	Exterior.build(ctx, root)
 end)

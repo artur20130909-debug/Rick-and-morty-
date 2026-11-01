@@ -111,15 +111,16 @@ function Menu.show(onPlay)
 	G.gradient(vig, { Color3.new(0, 0, 0), Color3.new(0, 0, 0) }, 90,
 		NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(0.35, 0.9), NumberSequenceKeypoint.new(0.65, 0.9), NumberSequenceKeypoint.new(1, 0.2) }))
 	local logo = G.logo(mainFrame, U.upper("Рик и Морти"), 104, UDim2.new(0.5, 0, 0, 34))
-	local sub = G.label(mainFrame, Config.Chapter, { Name = "Chapter", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 176),
+	local sub = G.label(mainFrame, Config.MenuSub or Config.Chapter, { Name = "Chapter", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 176),
 		Size = UDim2.fromOffset(600, 34), FontFace = G.Fonts.Wide, TextSize = 24, TextColor3 = Color3.fromRGB(234, 255, 200) })
 	G.stroke(sub, Config.Colors.UiDark, 3).ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-	local list = G.frame(mainFrame, { Name = "Buttons", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -88),
-		Size = UDim2.fromOffset(420, 260), BackgroundTransparency = 1 })
+	local list = G.frame(mainFrame, { Name = "Buttons", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -76),
+		Size = UDim2.fromOffset(420, 340), BackgroundTransparency = 1 })
 	G.list(list, Enum.FillDirection.Vertical, 14, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Bottom)
 	buttons = {}
 	local busy = false
-	local function play()
+	-- chapter: 1 — вся история с начала, 2 — сразу глава 2
+	local function play(chapter)
 		if busy then return end
 		busy = true
 		G.tween(mainFrame, 0.4, { Position = UDim2.fromOffset(0, 30) })
@@ -130,13 +131,14 @@ function Menu.show(onPlay)
 		end
 		task.delay(0.4, function()
 			mainFrame.Visible = false
-			onPlay()
+			onPlay(chapter or 1)
 		end)
 	end
-	local _, b1 = G.button(list, "ИГРАТЬ", { name = "Play", layoutOrder = 1, onClick = play })
-	local _, b2 = G.button(list, "НАСТРОЙКИ", { name = "Settings", layoutOrder = 2, onClick = function() Menu.settings() end })
-	local _, b3 = G.button(list, "ОБ ИГРЕ", { name = "About", layoutOrder = 3, style = "alt", onClick = function() Menu.about() end })
-	buttons = { b1, b2, b3 }
+	local _, b1 = G.button(list, "ИГРАТЬ", { name = "Play", layoutOrder = 1, onClick = function() play(1) end })
+	local _, b4 = G.button(list, "ГЛАВЫ", { name = "Chapters", layoutOrder = 2, style = "alt", onClick = function() Menu.chapters(play) end })
+	local _, b2 = G.button(list, "НАСТРОЙКИ", { name = "Settings", layoutOrder = 3, onClick = function() Menu.settings() end })
+	local _, b3 = G.button(list, "ОБ ИГРЕ", { name = "About", layoutOrder = 4, style = "alt", onClick = function() Menu.about() end })
+	buttons = { b1, b4, b2, b3 }
 	G.label(mainFrame, "фан-игра для друзей · сериал «Рик и Морти» принадлежит Adult Swim · v" .. Config.Version,
 		{ Name = "Footer", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -18), Size = UDim2.fromOffset(900, 22),
 			FontFace = G.Fonts.Body, TextSize = 15, TextColor3 = Color3.fromRGB(200, 220, 200), TextTransparency = 0.25 })
@@ -164,7 +166,7 @@ function Menu.show(onPlay)
 	end)
 	-- Enter — играть
 	ContextActionService:BindAction("RM_MenuEnter", function(_, st)
-		if st == Enum.UserInputState.Begin and mainFrame.Visible and not Menu.modalOpen then play() end
+		if st == Enum.UserInputState.Begin and mainFrame.Visible and not Menu.modalOpen then play(1) end
 		return Enum.ContextActionResult.Pass
 	end, false, Enum.KeyCode.Return, Enum.KeyCode.ButtonA)
 	sg.Enabled = true
@@ -329,6 +331,38 @@ function Menu.settings(onClose)
 	Menu.closeSettings = close
 end
 
+-- выбор главы: карточки глав; onPick(номер)
+function Menu.chapters(onPick)
+	if Menu.modalOpen then return end
+	Menu.modalOpen = true
+	local layer = G.frame(root, { Name = "ChaptersLayer", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 5 })
+	local dim = G.modal(layer, "Dim")
+	dim.BackgroundTransparency = 0.4
+	local panel, sc = G.panel(layer, 760, 470, "ГЛАВЫ")
+	sc.Scale = 0.85
+	G.tween(sc, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+	local function close()
+		layer:Destroy()
+		Menu.modalOpen = false
+	end
+	for i, ch in ipairs(Config.Chapters) do
+		local y = 96 + (i - 1) * 120
+		local holder = G.button(panel, ch.title, { name = "Chapter" .. ch.id, size = Vector2.new(560, 64), textSize = 28,
+			style = (i == #Config.Chapters) and "main" or "alt",
+			onClick = function()
+				close()
+				onPick(ch.id)
+			end })
+		holder.AnchorPoint = Vector2.new(0.5, 0)
+		holder.Position = UDim2.new(0.5, 0, 0, y)
+		G.label(panel, ch.text, { Name = "ChapterText" .. ch.id, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, y + 74),
+			Size = UDim2.fromOffset(640, 26), FontFace = G.Fonts.Body, TextSize = 19, TextColor3 = Color3.fromRGB(205, 230, 205) })
+	end
+	local back = G.button(panel, "НАЗАД", { name = "Back", size = Vector2.new(220, 52), textSize = 22, style = "ghost", onClick = close })
+	back.AnchorPoint = Vector2.new(0.5, 1)
+	back.Position = UDim2.new(0.5, 0, 1, -20)
+end
+
 function Menu.about()
 	if Menu.modalOpen then return end
 	Menu.modalOpen = true
@@ -341,6 +375,7 @@ function Menu.about()
 	local text = table.concat({
 		"Фан-игра по мультсериалу «Рик и Морти» — для нас с друзьями.",
 		"Глава 1 «Сбой»: обычное утро Морти. Или не совсем обычное…",
+		"Глава 2 «Вторжение»: Пожиратели добрались до нашей вселенной.",
 		"",
 		"УПРАВЛЕНИЕ",
 		"WASD — ходить  ·  Shift — бежать  ·  мышь — смотреть",

@@ -23,7 +23,7 @@
 // Превью сцены из песочницы (tools/run_mock.py → снимок JSON). Это приближение к Roblox, не точная копия:
 // Future-свет заменён на тени солнца + точечные лампы, Highlight — на обводку «вывернутой оболочкой».
 import * as THREE from './three.module.min.js';
-import { renderGui } from './gui.js';
+import { renderGui, surfaceCanvas } from './gui.js';
 const q = new URLSearchParams(location.search);
 const W = +(q.get('w') || 1280), H = +(q.get('h') || 720);
 const data = await (await fetch(q.get('f'))).json();
@@ -95,8 +95,12 @@ for (const p of data.parts) {
     const o = new THREE.Mesh(og, OUT); o.matrixAutoUpdate = false; o.matrix.copy(m4(p.c)); scene.add(o);
   }
 }
+const guiData = q.get('g') ? await (await fetch(q.get('g'))).json() : null;
+const worldGuis = (guiData && guiData.worlds) || [];
+const gkey = g => g.part + ':' + g.c.slice(0, 3).map(v => Math.round(v * 10)).join(',');
+const rich = new Set(worldGuis.map(gkey));
 for (const g of data.guis || []) {
-  if (!g.bg) continue;
+  if (!g.bg || rich.has(gkey(g))) continue;
   const z = g.z, c = g.c;
   const faces = { Front: [0, 0, -1], Back: [0, 0, 1], Right: [1, 0, 0], Left: [-1, 0, 0], Top: [0, 1, 0], Bottom: [0, -1, 0] };
   const nrm = faces[g.face] || [0, 0, -1];
@@ -109,6 +113,22 @@ for (const g of data.guis || []) {
   const pl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 }));
   const mtx = m4(c);
   const off = new THREE.Matrix4().makeTranslation(nrm[0] * (z[0] / 2 + 0.01), nrm[1] * (z[1] / 2 + 0.01), nrm[2] * (z[2] / 2 + 0.01));
+  const rot = new THREE.Matrix4().lookAt(new THREE.Vector3(0, 0, 0), new THREE.Vector3(...nrm).negate(), new THREE.Vector3(0, nrm[1] ? 0 : 1, nrm[1] ? -1 : 0));
+  pl.matrixAutoUpdate = false; pl.matrix.copy(mtx.multiply(off).multiply(rot)); scene.add(pl);
+}
+// экраны в мире с полным интерфейсом (если есть выгрузка g=...)
+for (const g of worldGuis) {
+  const z = g.z;
+  const faces = { Front: [0, 0, -1], Back: [0, 0, 1], Right: [1, 0, 0], Left: [-1, 0, 0], Top: [0, 1, 0], Bottom: [0, -1, 0] };
+  const nrm = faces[g.face] || [0, 0, -1];
+  const w = nrm[0] ? z[2] : z[0], h = nrm[1] ? z[2] : z[1];
+  const cv = await surfaceCanvas(g);
+  if (!cv) continue;
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const m = g.li < 0.5 ? new THREE.MeshBasicMaterial({ map: tex, transparent: true }) : new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, transparent: true });
+  const pl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), m);
+  const mtx = m4(g.c);
+  const off = new THREE.Matrix4().makeTranslation(nrm[0] * (z[0] / 2 + 0.02), nrm[1] * (z[1] / 2 + 0.02), nrm[2] * (z[2] / 2 + 0.02));
   const rot = new THREE.Matrix4().lookAt(new THREE.Vector3(0, 0, 0), new THREE.Vector3(...nrm).negate(), new THREE.Vector3(0, nrm[1] ? 0 : 1, nrm[1] ? -1 : 0));
   pl.matrixAutoUpdate = false; pl.matrix.copy(mtx.multiply(off).multiply(rot)); scene.add(pl);
 }
@@ -164,8 +184,7 @@ if (q.get('g')) {
   for (const f of ['900 20px Nunito', '800 20px Nunito', '600 20px Montserrat', '800 20px Montserrat', '700 20px Montserrat', '700 20px "Amatic SC"'])
     await document.fonts.load(f, 'АБВ abc 123');
   camera.updateMatrixWorld?.();
-  const gui = await (await fetch(q.get('g'))).json();
-  renderGui(gui, camera, THREE, W, H);
+  renderGui(guiData, camera, THREE, W, H);
 }
 window.READY = n;
 </script></body></html>

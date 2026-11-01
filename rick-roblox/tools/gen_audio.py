@@ -4,7 +4,8 @@
 #   assets/sounds/MusicMenu.ogg     — тема меню (таинственная, «портальная»), бесшовная петля
 #   assets/sounds/MusicMorning.ogg  — утро, лаунж-босса-нова (мелодия из браузерной версии игры), петля
 #   assets/sounds/atlas.txt         — таблица кусков для Config.Sfx
-# Запуск: python3 tools/gen_audio.py   (нужны numpy и ffmpeg)
+# Запуск: python3 tools/gen_audio.py       — всё (нужны numpy и ffmpeg)
+#         python3 tools/gen_audio.py sfx   — только SfxAtlas.ogg (музыка остаётся как есть)
 import os, subprocess, wave
 import numpy as np
 
@@ -562,7 +563,7 @@ def s_tentacle():
     seg = 0.05
     for i in range(int(d / seg)):
         a = int(i * seg * SR); b = min(len(t), a + int(seg * SR) + 300)
-        fc = 350 + 250 * np.sin(2 * np.pi * 3.3 * i * seg) + 150 * np.sin(2 * np.pi * 7.1 * i * seg)
+        fc = max(90.0, 350 + 250 * np.sin(2 * np.pi * 3.3 * i * seg) + 150 * np.sin(2 * np.pi * 7.1 * i * seg))
         out[a:b] += band(n[a:b], fc * 0.6, fc * 1.6) * np.hanning(b - a)
     growl = np.sin(2 * np.pi * np.cumsum(55 + 12 * np.sin(2 * np.pi * 5 * t)) / SR) * 0.35
     for k in range(7):
@@ -634,6 +635,186 @@ def s_pixelamb(d):
         mix_at(out, crush(band(noise(0.2), 1000, 6000), 3) * env_exp(0.2, 0.05) * 0.15, rng.uniform(0, d - 0.3))
     return out
 
+# ---------------------------------------------------------------- глава 2
+# свой генератор случайных чисел: общий rng не трогаем, чтобы музыка и старые звуки не менялись
+rng2 = np.random.default_rng(2024)
+def noise2(d): return rng2.uniform(-1, 1, int(d * SR))
+def saw(f, d):
+    t = t_(d)
+    if callable(f): ph = np.cumsum(f(t)) / SR
+    else: ph = f * t
+    return 2 * (ph - np.floor(ph + 0.5))
+
+def s_explosion():
+    d = 2.8
+    t = t_(d)
+    crack = noise2(d) * env_exp(d, 0.025) * 1.0
+    boom = np.sin(2 * np.pi * np.cumsum(30 + 70 * np.exp(-t / 0.12)) / SR) * env_exp(d, 0.55, 0.004) * 1.2
+    body = band(noise2(d), 25, 420) * env_exp(d, 0.9, 0.01) * 2.2
+    tail = band(noise2(d), 20, 140) * env_exp(d, 1.6, 0.05) * 1.6
+    out = crack + boom + body + tail
+    for _ in range(26):
+        tt = rng2.uniform(0.15, 2.2)
+        mix_at(out, band(noise2(0.03), 1800, 7000) * env_exp(0.03, 0.006) * rng2.uniform(0.1, 0.35) * np.exp(-tt), tt)
+    return fade(softclip(reverb(out, 2.2, 0.3)[:len(out)], 1.6), 0.002, 0.3)
+
+def s_shiphum(d):
+    t = t_(d)
+    a = saw(46.0, d) + saw(46.75, d) * 0.8  # целое число периодов за 4 с — петля без щелчка
+    low = band(a, 30, 320) * 0.7
+    wub = 0.65 + 0.35 * np.sin(2 * np.pi * 2.0 * t) ** 2
+    whine = np.sin(2 * np.pi * np.cumsum(1180 + 40 * np.sin(2 * np.pi * 0.5 * t)) / SR) * 0.05
+    air = band(noise2(d), 500, 2500) * 0.08
+    return (low * wub + whine + air)
+
+def s_shipfly():
+    d = 2.4
+    t = t_(d)
+    k = t / d
+    amp = np.exp(-((k - 0.45) / 0.22) ** 2)
+    f = 140 + 220 / (1 + np.exp((k - 0.45) * 12))
+    tone = band(saw(lambda tt: 140 + 220 / (1 + np.exp((tt / d - 0.45) * 12)), d), 60, 1500) * 0.5
+    n = noise2(d)
+    wh = np.zeros_like(t)
+    seg = 0.06
+    for i in range(int(d / seg)):
+        a = int(i * seg * SR); b = min(len(t), a + int(seg * SR) + 300)
+        fc = 700 * np.exp(-((i * seg / d - 0.45) / 0.3) ** 2) + 250
+        wh[a:b] += band(n[a:b], fc * 0.5, fc * 2.0) * np.hanning(b - a)
+    rumble = band(noise2(d), 25, 120) * 0.8
+    _ = f
+    return fade((tone + wh * 0.8 + rumble) * amp, 0.02, 0.2)
+
+def s_skyhorn():
+    d = 5.0
+    t = t_(d)
+    bend = 1 - 0.06 * np.clip((t - 3.4) / 1.6, 0, 1)
+    vib = 1 + 0.004 * np.sin(2 * np.pi * 5 * t)
+    f1 = lambda tt: 55 * (1 - 0.06 * np.clip((tt - 3.4) / 1.6, 0, 1)) * (1 + 0.004 * np.sin(2 * np.pi * 5 * tt))
+    f2 = lambda tt: 82.4 * (1 - 0.06 * np.clip((tt - 3.4) / 1.6, 0, 1)) * (1 + 0.004 * np.sin(2 * np.pi * 5.3 * tt))
+    horn = band(saw(f1, d) + saw(f2, d) * 0.7 + saw(lambda tt: f1(tt) * 2.005, d) * 0.3, 30, 900)
+    env = adsr(d, 1.0, 0.5, 0.85, 1.2)
+    sub = np.sin(2 * np.pi * 27.5 * t) * 0.4 * env
+    _ = (bend, vib)
+    return fade(softclip(reverb(horn * env + sub, 3.0, 0.4)[:len(t)], 1.3), 0.05, 0.4)
+
+def s_rumble():
+    d = 3.5
+    t = t_(d)
+    out = band(noise2(d), 18, 150) * adsr(d, 0.4, 0.8, 0.7, 1.5) * 1.5
+    for _ in range(6):
+        tt = rng2.uniform(0.1, 2.4)
+        mix_at(out, band(noise2(0.9), 30, 260) * env_exp(0.9, 0.3, 0.02) * rng2.uniform(0.5, 1.0), tt)
+    crackle = band(noise2(d), 800, 3000) * env_exp(d, 0.25, 0.01) * 0.25
+    return fade(out + crackle, 0.05, 0.4)
+
+def s_beep():
+    d = 0.15
+    return fade(np.sign(sine(1850, d)) * 0.35 * adsr(d, 0.003, 0.02, 0.9, 0.02) + sine(3700, d) * 0.1, 0.002, 0.01)
+
+def s_garagedoor():
+    d = 3.4
+    t = t_(d)
+    motor = band(saw(lambda tt: 88 + 10 * np.clip(tt / 0.6, 0, 1), d), 60, 1200) * adsr(d, 0.25, 0.3, 0.8, 0.5) * 0.5
+    out = motor.copy()
+    tt = 0.15
+    while tt < d - 0.4:
+        mix_at(out, band(noise2(0.02), 1200, 5000) * env_exp(0.02, 0.005) * rng2.uniform(0.2, 0.45), tt)
+        tt += rng2.uniform(0.04, 0.07)
+    thump = np.sin(2 * np.pi * np.cumsum(90 * np.exp(-t_(0.4) / 0.1) + 40) / SR) * env_exp(0.4, 0.09) * 0.9
+    mix_at(out, thump + band(noise2(0.4), 100, 1500) * env_exp(0.4, 0.03) * 0.4, d - 0.42)
+    return fade(out, 0.02, 0.05)
+
+def s_button():
+    d = 0.3
+    click = band(noise2(d), 2000, 8000) * env_exp(d, 0.004) * 0.6 + sine(1200, d) * env_exp(d, 0.01) * 0.3
+    clunk = np.sin(2 * np.pi * np.cumsum(180 * np.exp(-t_(d) / 0.05) + 60) / SR) * env_exp(d, 0.05) * 0.7
+    out = click.copy()
+    mix_at(out, clunk, 0.04)
+    return fade(out, 0.001, 0.05)
+
+def s_siren(d):
+    t = t_(d)
+    k = (t % 2.0) / 2.0
+    f = 620 + 560 * np.sin(np.pi * k) ** 2
+    x = np.sin(2 * np.pi * np.cumsum(f) / SR)
+    x = band(np.sign(x) * 0.3 + x * 0.7, 300, 4000)
+    return x * 0.8
+
+def s_labamb(d):
+    t = t_(d)
+    hum = (np.sin(2 * np.pi * 60 * t) * 0.3 + np.sin(2 * np.pi * 120 * t) * 0.15 + np.sin(2 * np.pi * 180 * t) * 0.06)
+    hum *= 0.85 + 0.15 * np.sin(2 * np.pi * 0.25 * t)
+    out = hum + band(noise2(d), 200, 1200) * 0.05
+    # бульканье бака
+    for _ in range(int(d * 2.5)):
+        tt = rng2.uniform(0, d - 0.2)
+        f0 = rng2.uniform(250, 600)
+        dd = rng2.uniform(0.06, 0.12)
+        mix_at(out, np.sin(2 * np.pi * np.cumsum(np.linspace(f0, f0 * 2.2, int(dd * SR))) / SR) * env_exp(dd, dd / 3) * 0.18, tt)
+    # компьютер пикает
+    for _ in range(int(d / 2.5)):
+        tt = rng2.uniform(0, d - 0.3)
+        mix_at(out, sine(rng2.choice([1320, 1760, 2093]), 0.07) * env_exp(0.07, 0.03) * 0.08, tt)
+    return out
+
+def s_baseamb(d):
+    t = t_(d)
+    rumble = band(noise2(d), 25, 110) * 0.6
+    hvac = (np.sin(2 * np.pi * 100 * t) * 0.12 + np.sin(2 * np.pi * 200 * t) * 0.05) * (0.9 + 0.1 * np.sin(2 * np.pi * 0.2 * t))
+    air = band(noise2(d), 1500, 6000) * 0.04
+    out = rumble + hvac + air
+    clanks = np.zeros_like(t)
+    for _ in range(int(d / 2.2)):
+        tt = rng2.uniform(0, d - 1.5)
+        f = rng2.uniform(300, 900)
+        dd = 1.2
+        c = (np.sin(2 * np.pi * f * t_(dd)) * 0.5 + np.sin(2 * np.pi * f * 2.76 * t_(dd)) * 0.3) * env_exp(dd, 0.25)
+        c += band(noise2(dd), 500, 4000) * env_exp(dd, 0.01) * 0.5
+        mix_at(clanks, c * rng2.uniform(0.08, 0.2), tt)
+    out += reverb(clanks, 2.5, 0.6)[:len(t)]
+    return out
+
+def s_camzoom():
+    d = 0.8
+    t = t_(d)
+    f = 650 + 450 * np.clip(t / 0.6, 0, 1)
+    whir = band(np.sign(np.sin(2 * np.pi * np.cumsum(f) / SR)), 400, 5000) * (0.7 + 0.3 * np.sign(np.sin(2 * np.pi * 55 * t))) * 0.35
+    env = adsr(d, 0.03, 0.1, 0.9, 0.12)
+    out = whir * env
+    mix_at(out, band(noise2(0.05), 2000, 9000) * env_exp(0.05, 0.008) * 0.6, 0.66)
+    return fade(out, 0.005, 0.05)
+
+def s_bass():
+    d = 0.9
+    t = t_(d)
+    def thump(dd):
+        tt = t_(dd)
+        return np.sin(2 * np.pi * np.cumsum(45 + 90 * np.exp(-tt / 0.04)) / SR) * env_exp(dd, 0.22, 0.003)
+    out = np.zeros_like(t)
+    mix_at(out, thump(0.5), 0.0, 1.0)
+    mix_at(out, thump(0.45), 0.42, 0.85)
+    out += band(noise2(d), 60, 300) * env_exp(d, 0.1) * 0.15
+    return fade(softclip(out, 1.5), 0.002, 0.05)
+
+def s_tension(d):
+    t = t_(d)
+    # частоты подобраны так, чтобы за 12 с укладывалось целое число периодов (петля без щелчка)
+    drone = band(saw(36.75, d) + saw(443 / 12, d) * 0.8 + saw(73.5, d) * 0.4, 25, 400) * 0.45
+    drone *= 0.8 + 0.2 * np.sin(2 * np.pi * t / 6.0)
+    out = drone
+    # «сердцебиение» раз в секунду
+    for k in range(int(d)):
+        for off, g in ((0.0, 1.0), (0.24, 0.6)):
+            hit = np.sin(2 * np.pi * np.cumsum(42 + 60 * np.exp(-t_(0.35) / 0.03)) / SR) * env_exp(0.35, 0.12, 0.003)
+            mix_at(out, hit * 0.7 * g, k + off)
+    # диссонанс струнных: ре и ми-бемоль с тремоло
+    strings = (saw(587.25, d) + saw(622.25, d) * 0.8 + saw(293.75, d) * 0.5)
+    strings = band(strings, 200, 2500) * (0.6 + 0.4 * np.sin(2 * np.pi * 7 * t)) * 0.06
+    strings *= 0.5 + 0.5 * np.sin(2 * np.pi * t / 12.0) ** 2
+    out = out + reverb(strings, 2.4, 0.5)[:len(t)]
+    return out
+
 ATLAS = [
     ('Alarm', 0.0, 1.6, lambda: loop_render(s_alarm, 1.6)),
     ('Click', 2.0, 2.15, s_click), ('Hover', 2.4, 2.5, s_hover),
@@ -652,10 +833,17 @@ ATLAS = [
     ('Tentacle', 60.0, 62.0, s_tentacle), ('Pull', 62.5, 64.5, s_pull), ('Land', 65.0, 65.8, s_land),
     ('Flicker', 66.2, 66.8, s_flicker), ('Laser', 67.2, 67.8, s_laser), ('PixelBurst', 68.2, 69.0, s_pixelburst),
     ('Burp', 69.4, 70.6, s_burp), ('PixelAmb', 71.0, 87.0, lambda: loop_render(s_pixelamb, 16.0)),
+    # глава 2
+    ('Explosion', 87.5, 90.3, s_explosion), ('ShipHum', 90.8, 94.8, lambda: loop_render(s_shiphum, 4.0)),
+    ('ShipFly', 95.3, 97.7, s_shipfly), ('SkyHorn', 98.2, 103.2, s_skyhorn), ('Rumble', 103.7, 107.2, s_rumble),
+    ('Beep', 107.7, 107.85, s_beep), ('GarageDoor', 108.3, 111.7, s_garagedoor), ('Button', 112.2, 112.5, s_button),
+    ('Siren', 113.0, 115.0, lambda: loop_render(s_siren, 2.0)), ('LabAmb', 115.5, 123.5, lambda: loop_render(s_labamb, 8.0)),
+    ('BaseAmb', 124.0, 134.0, lambda: loop_render(s_baseamb, 10.0)), ('CamZoom', 134.5, 135.3, s_camzoom),
+    ('Bass', 135.8, 136.7, s_bass), ('Tension', 137.2, 149.2, lambda: loop_render(s_tension, 12.0)),
 ]
 
 def build_atlas():
-    total = 88.0
+    total = 150.0
     out = np.zeros(int(total * SR))
     lines = []
     for name, a, b, fn in ATLAS:
@@ -669,6 +857,7 @@ def build_atlas():
     return out, lines
 
 def main():
+    import sys
     os.makedirs(OUT, exist_ok=True)
     atlas, lines = build_atlas()
     p = os.path.join(OUT, 'SfxAtlas.wav')
@@ -676,6 +865,8 @@ def main():
     to_ogg(p, os.path.join(OUT, 'SfxAtlas.ogg'), 6)
     open(os.path.join(OUT, 'atlas.txt'), 'w').write('-- куски SfxAtlas.ogg (вставить в Config.Sfx)\n' + '\n'.join(lines) + '\n')
     print('SfxAtlas.ogg', len(atlas) / SR, 's')
+    if 'sfx' in sys.argv[1:]:
+        return  # только звуки: музыку не трогаем (её не нужно загружать заново)
     l, r = morning()
     p = os.path.join(OUT, 'MusicMorning.wav')
     write_wav(p, l, r)
