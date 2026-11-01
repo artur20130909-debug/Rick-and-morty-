@@ -1,0 +1,171 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>html,body{margin:0;background:#000;overflow:hidden}canvas{display:block}
+@font-face{font-family:'Nunito';font-weight:900;src:url(fonts/nunito-cyrillic-900-normal.woff2);unicode-range:U+0400-045F,U+0490-0491,U+2116;}
+@font-face{font-family:'Nunito';font-weight:900;src:url(fonts/nunito-latin-900-normal.woff2);unicode-range:U+0000-00FF,U+2000-206F,U+2190-21FF,U+25A0-25FF,U+2600-26FF;}
+@font-face{font-family:'Nunito';font-weight:800;src:url(fonts/nunito-cyrillic-800-normal.woff2);unicode-range:U+0400-045F,U+0490-0491,U+2116;}
+@font-face{font-family:'Nunito';font-weight:800;src:url(fonts/nunito-latin-800-normal.woff2);unicode-range:U+0000-00FF,U+2000-206F,U+2190-21FF,U+25A0-25FF,U+2600-26FF;}
+@font-face{font-family:'Montserrat';font-weight:500;src:url(fonts/montserrat-cyrillic-500-normal.woff2);unicode-range:U+0400-045F,U+0490-0491,U+2116;}
+@font-face{font-family:'Montserrat';font-weight:500;src:url(fonts/montserrat-latin-500-normal.woff2);unicode-range:U+0000-00FF,U+2000-206F,U+2190-21FF,U+25A0-25FF,U+2600-26FF;}
+@font-face{font-family:'Montserrat';font-weight:600;src:url(fonts/montserrat-cyrillic-600-normal.woff2);unicode-range:U+0400-045F,U+0490-0491,U+2116;}
+@font-face{font-family:'Montserrat';font-weight:600;src:url(fonts/montserrat-latin-600-normal.woff2);unicode-range:U+0000-00FF,U+2000-206F,U+2190-21FF,U+25A0-25FF,U+2600-26FF;}
+@font-face{font-family:'Montserrat';font-weight:800;src:url(fonts/montserrat-cyrillic-800-normal.woff2);unicode-range:U+0400-045F,U+0490-0491,U+2116;}
+@font-face{font-family:'Montserrat';font-weight:800;src:url(fonts/montserrat-latin-800-normal.woff2);unicode-range:U+0000-00FF,U+2000-206F,U+2190-21FF,U+25A0-25FF,U+2600-26FF;}
+@font-face{font-family:'Oswald';font-weight:700;src:url(fonts/oswald-cyrillic-700-normal.woff2);unicode-range:U+0400-045F,U+0490-0491,U+2116;}
+@font-face{font-family:'Oswald';font-weight:700;src:url(fonts/oswald-latin-700-normal.woff2);unicode-range:U+0000-00FF,U+2000-206F,U+2190-21FF,U+25A0-25FF,U+2600-26FF;}
+@font-face{font-family:'Amatic SC';font-weight:700;src:url(fonts/amatic-sc-cyrillic-700-normal.woff2);unicode-range:U+0400-045F,U+0490-0491,U+2116;}
+@font-face{font-family:'Amatic SC';font-weight:700;src:url(fonts/amatic-sc-latin-700-normal.woff2);unicode-range:U+0000-00FF,U+2000-206F,U+2190-21FF,U+25A0-25FF,U+2600-26FF;}
+@font-face{font-family:'Montserrat';font-weight:700;src:url(fonts/montserrat-cyrillic-800-normal.woff2);unicode-range:U+0400-045F;}
+@font-face{font-family:'Montserrat';font-weight:700;src:url(fonts/montserrat-latin-800-normal.woff2);unicode-range:U+0000-00FF,U+2000-206F;}
+</style></head>
+<body><canvas id="c"></canvas>
+<script type="module">
+// Превью сцены из песочницы (tools/run_mock.py → снимок JSON). Это приближение к Roblox, не точная копия:
+// Future-свет заменён на тени солнца + точечные лампы, Highlight — на обводку «вывернутой оболочкой».
+import * as THREE from './three.module.min.js';
+import { renderGui } from './gui.js';
+const q = new URLSearchParams(location.search);
+const W = +(q.get('w') || 1280), H = +(q.get('h') || 720);
+const data = await (await fetch(q.get('f'))).json();
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H, false); renderer.setPixelRatio(1);
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.outputColorSpace = THREE.SRGBColorSpace;
+const L = data.lighting;
+renderer.toneMappingExposure = Math.pow(2, L.exp || 0) * 1.05;
+const scene = new THREE.Scene();
+const sky = new THREE.Color().setRGB(...(L.clock > 6 && L.clock < 18.5 ? [0.55, 0.75, 0.95] : [0.03, 0.05, 0.12]));
+scene.background = sky;
+
+const cut = q.get('cut') ? +q.get('cut') : null;     // срез по высоте (план этажа)
+const hideNames = (q.get('hide') || '').split(',').filter(Boolean);
+const OUT = new THREE.MeshBasicMaterial({ color: 0x14121a, side: THREE.BackSide });
+const mats = new Map();
+function mat(c, m, t) {
+  const key = c.join(',') + m + t;
+  if (mats.has(key)) return mats.get(key);
+  const col = new THREE.Color().setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace);
+  let mm;
+  if (m === 'Neon') mm = new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(1.6), toneMapped: false });
+  else mm = new THREE.MeshStandardMaterial({ color: col, roughness: m === 'Glass' ? 0.1 : (m === 'Metal' || m === 'DiamondPlate' ? 0.35 : 0.85),
+    metalness: m === 'Metal' || m === 'DiamondPlate' || m === 'Foil' ? 0.6 : 0 });
+  if (m === 'Glass') { mm.transparent = true; mm.opacity = Math.max(0.15, 1 - Math.max(t, 0.55)); mm.depthWrite = false; }
+  else if (t > 0.01) { mm.transparent = true; mm.opacity = 1 - t; mm.depthWrite = t < 0.5; }
+  mats.set(key, mm); return mm;
+}
+function wedgeGeo(sx, sy, sz) {
+  // WedgePart: вертикальная грань сзади (+Z), скат смотрит вперёд-вверх
+  const x = sx / 2, y = sy / 2, z = sz / 2;
+  const v = [[-x,-y,-z],[x,-y,-z],[x,-y,z],[-x,-y,z],[-x,y,z],[x,y,z]];
+  const f = [[0,2,1],[0,3,2],[3,5,2],[3,4,5],[0,1,5],[0,5,4],[0,4,3],[1,2,5]];
+  const pos = []; f.forEach(t => t.forEach(i => pos.push(...v[i])));
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals(); return g;
+}
+function cornerGeo(sx, sy, sz) {
+  const x = sx / 2, y = sy / 2, z = sz / 2;
+  const v = [[-x,-y,-z],[x,-y,-z],[x,-y,z],[-x,-y,z],[x,y,-z]];
+  const f = [[0,2,1],[0,3,2],[0,1,4],[1,2,4],[2,3,4],[3,0,4]];
+  const pos = []; f.forEach(t => t.forEach(i => pos.push(...v[i])));
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals(); return g;
+}
+function geo(s, z) {
+  if (s === 'Ball') return new THREE.SphereGeometry(Math.min(...z) / 2, 24, 16);
+  if (s === 'Ball3') { const g = new THREE.SphereGeometry(0.5, 24, 16); g.scale(z[0], z[1], z[2]); return g; }
+  if (s === 'Cylinder') { const g = new THREE.CylinderGeometry(Math.min(z[1], z[2]) / 2, Math.min(z[1], z[2]) / 2, z[0], 24); g.rotateZ(Math.PI / 2); return g; }
+  if (s === 'Wedge') return wedgeGeo(...z);
+  if (s === 'CornerWedge') return cornerGeo(...z);
+  return new THREE.BoxGeometry(z[0], z[1], z[2]);
+}
+function m4(c) { return new THREE.Matrix4().set(c[3], c[4], c[5], c[0], c[6], c[7], c[8], c[1], c[9], c[10], c[11], c[2], 0, 0, 0, 1); }
+let n = 0;
+for (const p of data.parts) {
+  if (hideNames.includes(p.n)) continue;
+  if (cut !== null && p.c[1] - p.z[1] / 2 > cut) continue;
+  const mesh = new THREE.Mesh(geo(p.s, p.z), mat(p.k, p.m, p.t));
+  mesh.matrixAutoUpdate = false; mesh.matrix.copy(m4(p.c));
+  mesh.castShadow = p.t < 0.5 && p.m !== 'Glass' && p.m !== 'Neon'; mesh.receiveShadow = true;
+  scene.add(mesh); n++;
+  if (p.o && q.get('outline') !== '0' && p.t < 0.5) {
+    const t = 0.06, z = p.z;
+    let og;
+    if (p.s === 'Block') og = new THREE.BoxGeometry(z[0] + t * 2, z[1] + t * 2, z[2] + t * 2);
+    else if (p.s === 'Ball3') { og = new THREE.SphereGeometry(0.5, 24, 16); og.scale(z[0] + 2 * t, z[1] + 2 * t, z[2] + 2 * t); }
+    else { og = geo(p.s, z); og.scale((z[0] + 2 * t) / z[0], (z[1] + 2 * t) / z[1], (z[2] + 2 * t) / z[2]); }
+    const o = new THREE.Mesh(og, OUT); o.matrixAutoUpdate = false; o.matrix.copy(m4(p.c)); scene.add(o);
+  }
+}
+for (const g of data.guis || []) {
+  if (!g.bg) continue;
+  const z = g.z, c = g.c;
+  const faces = { Front: [0, 0, -1], Back: [0, 0, 1], Right: [1, 0, 0], Left: [-1, 0, 0], Top: [0, 1, 0], Bottom: [0, -1, 0] };
+  const nrm = faces[g.face] || [0, 0, -1];
+  const w = nrm[0] ? z[2] : z[0], h = nrm[1] ? z[2] : z[1];
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = Math.max(32, Math.round(256 * h / w));
+  const gx = cv.getContext('2d'); gx.fillStyle = `rgb(${g.bg.map(v => v * 255 | 0)})`; gx.fillRect(0, 0, cv.width, cv.height);
+  gx.fillStyle = '#fff'; gx.font = 'bold 26px sans-serif'; gx.textAlign = 'center';
+  (g.tx || []).slice(0, 3).forEach((t, i) => gx.fillText(t.slice(0, 18), cv.width / 2, 40 + i * 34));
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const pl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 }));
+  const mtx = m4(c);
+  const off = new THREE.Matrix4().makeTranslation(nrm[0] * (z[0] / 2 + 0.01), nrm[1] * (z[1] / 2 + 0.01), nrm[2] * (z[2] / 2 + 0.01));
+  const rot = new THREE.Matrix4().lookAt(new THREE.Vector3(0, 0, 0), new THREE.Vector3(...nrm).negate(), new THREE.Vector3(0, nrm[1] ? 0 : 1, nrm[1] ? -1 : 0));
+  pl.matrixAutoUpdate = false; pl.matrix.copy(mtx.multiply(off).multiply(rot)); scene.add(pl);
+}
+// свет
+const amb = new THREE.Color().setRGB(...L.amb), oamb = new THREE.Color().setRGB(...L.oamb);
+scene.add(new THREE.HemisphereLight(oamb, amb, 1.2));
+scene.add(new THREE.AmbientLight(amb, 1.4));
+const day = L.sun[1] > 0;
+const sun = new THREE.DirectionalLight(day ? 0xfff0d8 : 0x8aa0ff, day ? (L.bright || 2) * 1.6 : 0.25);
+const sd = new THREE.Vector3(...L.sun).normalize();
+const focus = data.camera ? new THREE.Vector3(data.camera.cf[0], data.camera.cf[1], data.camera.cf[2]) : new THREE.Vector3();
+sun.position.copy(focus).addScaledVector(sd, 200); sun.target.position.copy(focus);
+sun.castShadow = L.shadows; sun.shadow.mapSize.set(4096, 4096);
+const sc = sun.shadow.camera; sc.left = -120; sc.right = 120; sc.top = 120; sc.bottom = -120; sc.near = 1; sc.far = 500; sun.shadow.bias = -0.0004;
+scene.add(sun); scene.add(sun.target);
+let sh = 0;
+for (const l of data.lights) {
+  const c = new THREE.Color().setRGB(...l.c);
+  let o;
+  if (l.k === 'PointLight') o = new THREE.PointLight(c, l.b * 14, l.r * 1.4, 1.2);
+  else { o = new THREE.SpotLight(c, l.b * 16, l.r * 1.4, THREE.MathUtils.degToRad(Math.min(89, (l.a || 90) / 2 + 10)), 0.6, 1.2);
+    o.target.position.set(l.p[0] + l.d[0] * 5, l.p[1] + l.d[1] * 5, l.p[2] + l.d[2] * 5); scene.add(o.target); }
+  o.position.set(...l.p);
+  if (l.sh && sh < 4 && q.get('lshadows') === '1') { o.castShadow = true; sh++; }
+  scene.add(o);
+}
+for (const b of data.beams) {
+  const a = new THREE.Vector3(...b.a), e = new THREE.Vector3(...b.b);
+  const len = a.distanceTo(e), w = (b.w0 + b.w1) / 2;
+  const g = new THREE.PlaneGeometry(w, len);
+  const col = new THREE.Color().setRGB(...b.c);
+  const m = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: (1 - (b.t0 + b.t1) / 2) * 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(g, m); mesh.position.copy(a).lerp(e, 0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), e.clone().sub(a).normalize()); scene.add(mesh);
+}
+// камера
+let camera;
+const view = q.get('view');
+if (view === 'top') {
+  const cx = +(q.get('cx') || 32), cz = +(q.get('cz') || 22), span = +(q.get('span') || 70);
+  camera = new THREE.OrthographicCamera(-span * W / H / 2, span * W / H / 2, span / 2, -span / 2, 0.1, 1000);
+  camera.position.set(cx, (cut || 40) + 50, cz); camera.up.set(0, 0, -1); camera.lookAt(cx, 0, cz);
+} else if (q.get('pos')) {
+  camera = new THREE.PerspectiveCamera(+(q.get('fov') || 70), W / H, 0.1, 3000);
+  camera.position.set(...q.get('pos').split(',').map(Number)); camera.lookAt(...q.get('look').split(',').map(Number));
+} else {
+  camera = new THREE.PerspectiveCamera(data.camera.fov, W / H, 0.1, 3000);
+  camera.matrixAutoUpdate = false; camera.matrix.copy(m4(data.camera.cf)); camera.matrixWorldNeedsUpdate = true;
+  camera.matrixWorld.copy(camera.matrix); camera.matrixWorldInverse.copy(camera.matrix).invert();
+}
+renderer.render(scene, camera);
+if (q.get('g')) {
+  for (const f of ['900 20px Nunito', '800 20px Nunito', '600 20px Montserrat', '800 20px Montserrat', '700 20px Montserrat', '700 20px "Amatic SC"'])
+    await document.fonts.load(f, 'АБВ abc 123');
+  camera.updateMatrixWorld?.();
+  const gui = await (await fetch(q.get('g'))).json();
+  renderGui(gui, camera, THREE, W, H);
+}
+window.READY = n;
+</script></body></html>
